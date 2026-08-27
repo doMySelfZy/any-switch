@@ -63,6 +63,7 @@ impl ClaudeAuthKeyStyle {
 pub enum TargetKind {
     ClaudeCode,
     Codex,
+    Pi,
 }
 
 impl TargetKind {
@@ -70,12 +71,14 @@ impl TargetKind {
         match self {
             Self::ClaudeCode => "claude_code",
             Self::Codex => "codex",
+            Self::Pi => "pi",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "claude_code" => Some(Self::ClaudeCode),
             "codex" => Some(Self::Codex),
+            "pi" => Some(Self::Pi),
             _ => None,
         }
     }
@@ -366,6 +369,14 @@ pub struct CodexApplyOptions {
     pub capability_source: CapabilitySource,
 }
 
+/// Extra options for Pi Coding Agent apply.
+#[derive(Debug, Clone, Default)]
+pub struct PiApplyOptions {
+    pub write_all_models: bool,
+    /// Site models used when `write_all_models` is true.
+    pub catalog_models: Vec<(String, String)>, // (model_id, display_name)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApplyTargetResult {
@@ -397,6 +408,8 @@ pub struct AppSettings {
     pub always_on_top: bool,
     pub claude_home_override: Option<String>,
     pub codex_home_override: Option<String>,
+    #[serde(default)]
+    pub pi_agent_dir_override: Option<String>,
     pub codex_env_inject_mode: String,
     pub force_exclusive_claude_auth_key: bool,
     #[serde(default = "default_true")]
@@ -484,6 +497,7 @@ impl Default for AppSettings {
             always_on_top: false,
             claude_home_override: None,
             codex_home_override: None,
+            pi_agent_dir_override: None,
             codex_env_inject_mode: "auto".into(),
             force_exclusive_claude_auth_key: false,
             auto_check_update: true,

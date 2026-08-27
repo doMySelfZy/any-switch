@@ -14,7 +14,7 @@ order: 6
 - **默认模型**写入 `ANTHROPIC_MODEL`
 - 请先确认站点里已有模型
 
-同一 model id 可能不被 Claude Code 与 Codex 同时接受；若提示双目标冲突，仍可强制应用，但通常应分开选。
+同一 model id 可能不被 Claude Code、Codex 与 Pi 同时接受；若提示多目标冲突，仍可强制应用，但通常应分开选。
 
 ## 鉴权字段
 

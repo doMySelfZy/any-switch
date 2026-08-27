@@ -13,6 +13,7 @@ describe("showApplyOutcome", () => {
   it("maps each target to a localized success body, not the backend English string", () => {
     expect(applyResultBodyKey("claude_code")).toBe("apply.resultClaudeOk");
     expect(applyResultBodyKey("codex")).toBe("apply.resultCodexOk");
+    expect(applyResultBodyKey("pi")).toBe("apply.resultPiOk");
 
     const modal = modalApi();
     showApplyOutcome(modal, i18n.t.bind(i18n), {

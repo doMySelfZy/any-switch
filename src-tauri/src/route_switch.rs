@@ -60,6 +60,12 @@ pub fn sync_applied_urls(state: &AppState, site: &SiteRow) -> AppResult<Vec<Appl
                 settings.codex_home_override.as_deref(),
                 &backup_root,
             ),
+            TargetKind::Pi => crate::adapters::pi::rewrite_base_url(
+                &binding,
+                site,
+                settings.pi_agent_dir_override.as_deref(),
+                &backup_root,
+            ),
         };
 
         match rewrite {

@@ -24,4 +24,4 @@ You can clear the whole list or delete selected rows. That only changes the loca
 
 ## Primary model
 
-The site’s primary model is the default pick in Apply Center. Claude Code and Codex still need their own confirm-and-apply step.
+The site’s primary model is the default pick in Apply Center. Claude Code, Codex, and Pi still need their own confirm-and-apply step.

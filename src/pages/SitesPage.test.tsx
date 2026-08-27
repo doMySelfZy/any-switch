@@ -589,6 +589,7 @@ describe("SitesPage", () => {
       seedTargetStatuses([
         appliedStatus("claude_code", site.id, site.name),
         appliedStatus("codex", null, null),
+        appliedStatus("pi", site.id, site.name),
       ]);
     });
 
@@ -602,6 +603,7 @@ describe("SitesPage", () => {
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent("停用站点");
     expect(dialog).toHaveTextContent("Claude Code");
+    expect(dialog).toHaveTextContent("Pi");
     expect(within(dialog).getByRole("button", { name: /取\s*消/ })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /跳\s*过/ })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /清\s*除/ })).toBeInTheDocument();
@@ -644,6 +646,7 @@ describe("SitesPage", () => {
       seedTargetStatuses([
         appliedStatus("claude_code", site.id, site.name),
         appliedStatus("codex", site.id, site.name),
+        appliedStatus("pi", site.id, site.name),
       ]);
     });
 

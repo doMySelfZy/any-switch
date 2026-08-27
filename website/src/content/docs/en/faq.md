@@ -1,7 +1,7 @@
 ---
 title: FAQ
 description: macOS will not open, config does not take effect, key display, and import behavior.
-order: 13
+order: 14
 ---
 
 ## macOS says the app is damaged
@@ -10,7 +10,7 @@ See [Install](../install/). Run `xattr -cr /Applications/XiaoBaiSwitch.app`, the
 
 ## Apply succeeded, but the CLI still uses the old URL
 
-Restart the terminal, or fully quit and reopen Claude Code / Codex. Apply only writes config files; it does not hot-reload a running process.
+Restart the terminal, or fully quit and reopen Claude Code / Codex / Pi. Apply only writes config files; it does not hot-reload a running process. In Pi, open `/model` to reload the model list.
 
 ## How can I view the full API key?
 

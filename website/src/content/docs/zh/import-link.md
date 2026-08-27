@@ -1,7 +1,7 @@
 ---
 title: 链接导入
-description: "用 xiaobaiswitch:// 导入站点；导入不会自动应用到 Claude Code 或 Codex。"
-order: 9
+description: "用 xiaobaiswitch:// 导入站点；导入不会自动应用到 Claude Code、Codex 或 Pi。"
+order: 10
 ---
 
 安装桌面端后，浏览器或其它应用可以打开 `xiaobaiswitch://` 链接，拉起 XiaoBaiSwitch 并导入上游站点。**导入不会自动应用到工具**，需在应用中心手动确认。

@@ -1,7 +1,7 @@
 ---
 title: 设置与更新
 description: 语言、主题、托盘、代理、路径、备份策略、Codex 注入方式和自动更新。
-order: 11
+order: 12
 ---
 
 设置页从标题栏进入，Esc 返回。多数开关会立即保存。
@@ -22,7 +22,7 @@ order: 11
 
 ## 路径
 
-可覆盖 Claude 配置目录与 Codex 配置目录；留空使用 `~/.claude` 与 `~/.codex`。
+可覆盖 Claude、Codex 与 Pi Agent 配置目录。Pi 留空时先读取 `PI_CODING_AGENT_DIR`，再使用 `~/.pi/agent`。
 
 ## 应用行为
 

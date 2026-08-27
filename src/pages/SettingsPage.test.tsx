@@ -223,3 +223,33 @@ describe("SettingsPage about", () => {
     });
   });
 });
+
+describe("SettingsPage paths", () => {
+  beforeEach(() => {
+    resetBrowserMock();
+    useUIStore.setState({ settingsTab: "paths" });
+    useSettingsStore.setState({ loaded: false, loading: false });
+  });
+
+  afterEach(() => {
+    resetBrowserMock();
+    useUIStore.setState({ settingsTab: "general" });
+  });
+
+  it("shows and persists the Pi Agent directory override", async () => {
+    render(
+      <Wrapper>
+        <SettingsPage />
+      </Wrapper>,
+    );
+
+    const input = await screen.findByPlaceholderText(
+      "留空按 PI_CODING_AGENT_DIR → ~/.pi/agent 解析",
+    );
+    fireEvent.change(input, { target: { value: "/tmp/custom-pi" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+    await waitFor(() => {
+      expect(useSettingsStore.getState().settings.piAgentDirOverride).toBe("/tmp/custom-pi");
+    });
+  });
+});

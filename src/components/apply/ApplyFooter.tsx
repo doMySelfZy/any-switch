@@ -20,16 +20,19 @@ export function ApplyFooter({ loading, disabled, target, onApply, onRestoreOffic
   const { modal, message } = App.useApp();
   const [backupOpen, setBackupOpen] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const isPi = target === "pi";
 
   const handleRestoreOfficial = () => {
     modal.confirm({
       centered: true,
-      title: t("apply.restoreOfficialConfirm"),
+      title: isPi ? t("apply.removePiConfirm") : t("apply.restoreOfficialConfirm"),
       content:
         target === "claude_code"
           ? t("apply.restoreOfficialClaudeHint")
-          : t("apply.restoreOfficialCodexHint"),
-      okText: t("apply.restoreOfficialOk"),
+          : target === "codex"
+            ? t("apply.restoreOfficialCodexHint")
+            : t("apply.removePiHint"),
+      okText: isPi ? t("apply.removePiOk") : t("apply.restoreOfficialOk"),
       cancelText: t("common.cancel"),
       okButtonProps: { danger: true, loading: restoring },
       onOk: async () => {
@@ -38,13 +41,15 @@ export function ApplyFooter({ loading, disabled, target, onApply, onRestoreOffic
           await onRestoreOfficial();
           modal.success({
             centered: true,
-            title: t("apply.restoreOfficialSuccess"),
+            title: isPi ? t("apply.removePiSuccess") : t("apply.restoreOfficialSuccess"),
             content: (
               <div>
                 <div>
                   {target === "claude_code"
                     ? t("apply.restoreOfficialClaudeOk")
-                    : t("apply.restoreOfficialCodexOk")}
+                    : target === "codex"
+                      ? t("apply.restoreOfficialCodexOk")
+                      : t("apply.removePiDone")}
                 </div>
                 <div className="mt-2">{t("apply.restartHint")}</div>
               </div>
@@ -90,7 +95,7 @@ export function ApplyFooter({ loading, disabled, target, onApply, onRestoreOffic
           disabled={loading}
           onClick={handleRestoreOfficial}
         >
-          {t("apply.restoreOfficial")}
+          {isPi ? t("apply.removePi") : t("apply.restoreOfficial")}
         </Button>
       </div>
       <Modal

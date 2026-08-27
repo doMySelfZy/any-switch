@@ -1,7 +1,7 @@
 ---
 title: 线路切换
-description: 测速、切换默认线路，并选择是否同步已应用到 Claude Code / Codex 的地址。
-order: 8
+description: 测速、切换默认线路，并选择是否同步已应用到 Claude Code / Codex / Pi 的地址。
+order: 9
 ---
 
 一个站点可以有多条 Base URL。第一项是当前 / 默认线路。
@@ -12,7 +12,7 @@ order: 8
 
 ## 切换时会发生什么
 
-切换确认框会说明：默认会把 **已经应用到 Claude Code / Codex 的 API 地址** 改成这条线路。也可以选择「跳过应用」，只改站点当前线路，不动目标 CLI。
+切换确认框会说明：默认会把 **已经应用到 Claude Code / Codex / Pi 的 API 地址** 改成这条线路。也可以选择「跳过应用」，只改站点当前线路，不动目标 CLI。
 
 可能的结果：
 

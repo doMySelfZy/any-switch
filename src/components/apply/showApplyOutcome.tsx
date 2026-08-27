@@ -18,8 +18,11 @@ interface ModalApi {
   }) => void;
 }
 
-export function applyResultBodyKey(target: TargetKind): "apply.resultClaudeOk" | "apply.resultCodexOk" {
-  return target === "claude_code" ? "apply.resultClaudeOk" : "apply.resultCodexOk";
+export function applyResultBodyKey(
+  target: TargetKind,
+): "apply.resultClaudeOk" | "apply.resultCodexOk" | "apply.resultPiOk" {
+  if (target === "claude_code") return "apply.resultClaudeOk";
+  return target === "codex" ? "apply.resultCodexOk" : "apply.resultPiOk";
 }
 
 export function showApplyOutcome(

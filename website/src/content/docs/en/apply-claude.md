@@ -14,7 +14,7 @@ The default write path is `~/.claude/settings.json` (the Claude config directory
 - The **default model** is written as `ANTHROPIC_MODEL`
 - Make sure the site already has models
 
-The same model id may not be accepted by both Claude Code and Codex. If you see a dual-target warning you can still force-apply, but picking separately is usually better.
+The same model id may not be accepted by Claude Code, Codex, and Pi. If you see a multi-target warning you can still force-apply, but picking separately is usually better.
 
 ## Auth field
 

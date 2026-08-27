@@ -119,6 +119,27 @@ describe("ApplyFooter", () => {
     expect(dialog).toHaveTextContent("ChatGPT");
   });
 
+  it("uses a scoped remove action for Pi", async () => {
+    const remove = vi.fn().mockResolvedValue(undefined);
+    render(
+      <Wrapper>
+        <ApplyFooter
+          target="pi"
+          loading={false}
+          disabled={false}
+          onApply={() => {}}
+          onRestoreOfficial={remove}
+        />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "移除 XiaoBai 配置" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("其他自定义 Provider、OAuth 登录与未知设置都会保留");
+    fireEvent.click(within(dialog).getByRole("button", { name: "移除配置" }));
+    await waitFor(() => expect(remove).toHaveBeenCalledTimes(1));
+  });
+
   it("does not list backups until the modal is opened", () => {
     render(
       <Wrapper>

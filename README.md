@@ -10,15 +10,15 @@
 
 官网：[https://xiaobaiswitch.com](https://xiaobaiswitch.com)
 
-小白也能上手的，以站点驱动的 Claude Code / Codex 上游配置桌面应用。
+小白也能上手的，以站点驱动的 Claude Code / Codex / Pi 上游配置桌面应用。
 
-以「上游站点」为中心：填好 Base URL 与 API Key，拉取或手输模型，再一键应用到 Claude Code 或 Codex。
+以「上游站点」为中心：填好 Base URL 与 API Key，拉取或手输模型，再一键应用到 Claude Code、Codex 或 Pi。
 
 ## 功能
 
 - **站点中心**：管理多个上游中转，支持多条线路、测速与一键切换
 - **模型管理**：从站点拉取模型，也可手输、测试可用性
-- **应用中心**：分别为 Claude Code、Codex 选择站点、模型与能力后写入
+- **应用中心**：分别为 Claude Code、Codex、Pi 选择站点、模型与目标选项后写入
 - **线路切换**：切换后可同步已应用到工具里的地址
 - **配置备份**：应用前自动备份，可在应用中心还原
 - **链接导入**：通过 `xiaobaiswitch://` 链接一键导入站点，不会自动应用到工具
@@ -36,14 +36,14 @@
 
 1. 添加一个上游站点，填写名称、Base URL 和 API Key
 2. 拉取模型，或手动添加要用的模型 id
-3. 打开应用中心，选择 Claude Code 或 Codex，确认模型与选项后点击应用
+3. 打开应用中心，选择 Claude Code、Codex 或 Pi，确认模型与选项后点击应用
 4. 重启终端或重新打开对应 CLI，使配置生效
 
 同一站点可配置多条线路，第一项为当前默认线路，可随时测速并切换。
 
 ## 从链接导入站点
 
-安装桌面端后，浏览器或其它应用可以打开 `xiaobaiswitch://` 链接，拉起 XiaoBaiSwitch 并导入上游站点；导入不会自动应用到 Claude Code / Codex，需在应用中心手动确认。
+安装桌面端后，浏览器或其它应用可以打开 `xiaobaiswitch://` 链接，拉起 XiaoBaiSwitch 并导入上游站点；导入不会自动应用到 Claude Code / Codex / Pi，需在应用中心手动确认。
 
 1. 安装并打开桌面端
 2. 点击导入链接，应用会切到站点页并弹出确认框
@@ -113,7 +113,9 @@ xattr -cr /Applications/XiaoBaiSwitch.app
 
 ## 安全提示
 
-API Key 在应用内加密存储；编辑站点时会按需解密到默认隐藏的密码输入框。应用到 Claude Code / Codex 后会以明文写入对应工具的配置，请勿把这些配置同步到不可信云盘。
+API Key 在应用内加密存储；编辑站点时会按需解密到默认隐藏的密码输入框。应用后可能以明文写入 Claude Code 配置、Codex 环境或 `~/.pi/agent/auth.json`，请勿把这些配置同步到不可信云盘。
+
+Pi 使用官方 `models.json`、`auth.json`、`settings.json` 接口。XiaoBaiSwitch 仅管理 `xiaobai_` Provider，保留其他自定义 Provider、OAuth 登录和未知设置；可选择只写默认模型或写入站点全部模型。
 
 ## 社区支持
 - [LinuxDO](https://linux.do)

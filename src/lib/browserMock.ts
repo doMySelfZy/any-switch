@@ -30,6 +30,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   alwaysOnTop: false,
   claudeHomeOverride: null,
   codexHomeOverride: null,
+  piAgentDirOverride: null,
   codexEnvInjectMode: "auto",
   forceExclusiveClaudeAuthKey: false,
   autoCheckUpdate: true,
@@ -66,6 +67,21 @@ function defaultTargetStatuses(): TargetLiveStatus[] {
       installed: false,
       version: null,
       configPath: "~/.codex/config.toml",
+      status: "not_applied",
+      appliedSiteId: null,
+      appliedSiteName: null,
+      appliedModelId: null,
+      providerId: null,
+      orphan: false,
+      liveSummary: {},
+      lastAppliedAt: null,
+      staleReason: null,
+    },
+    {
+      kind: "pi",
+      installed: false,
+      version: null,
+      configPath: "~/.pi/agent/models.json",
       status: "not_applied",
       appliedSiteId: null,
       appliedSiteName: null,
@@ -412,6 +428,8 @@ export async function handleBrowserCommand<T>(
       const site = sites.find((s) => s.id === siteId);
       const targets = ((args?.targets as string[]) ?? []) as TargetKind[];
       const appliedAt = now();
+      const piWriteAllModels = Boolean(args?.piWriteAllModels);
+      const piModelCount = piWriteAllModels ? Math.max(models.get(siteId)?.length ?? 0, 1) : 1;
       targetStatuses = targetStatuses.map((row) =>
         targets.includes(row.kind)
           ? {
@@ -420,6 +438,16 @@ export async function handleBrowserCommand<T>(
               appliedSiteId: siteId,
               appliedSiteName: site?.name ?? null,
               appliedModelId: modelId,
+              providerId: row.kind === "pi" ? `xiaobai_${siteId.slice(0, 8)}` : row.providerId,
+              liveSummary:
+                row.kind === "pi"
+                  ? {
+                      defaultProvider: `xiaobai_${siteId.slice(0, 8)}`,
+                      defaultModel: modelId,
+                      modelCount: String(piModelCount),
+                      writeAllModels: String(piWriteAllModels),
+                    }
+                  : row.liveSummary,
               lastAppliedAt: appliedAt,
             }
           : row,
@@ -494,6 +522,7 @@ export async function handleBrowserCommand<T>(
       const tools: CliToolInfo[] = [
         { kind: "claude_code", installed: false, version: null, path: null },
         { kind: "codex", installed: false, version: null, path: null },
+        { kind: "pi", installed: false, version: null, path: null },
       ];
       return tools as T;
     }

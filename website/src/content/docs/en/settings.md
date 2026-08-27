@@ -1,7 +1,7 @@
 ---
 title: Settings and updates
 description: Language, theme, tray, proxy, paths, backup policy, Codex injection, and auto-update.
-order: 11
+order: 12
 ---
 
 Open Settings from the title bar; Esc returns. Most switches save immediately.
@@ -22,7 +22,7 @@ Open Settings from the title bar; Esc returns. Most switches save immediately.
 
 ## Paths
 
-Override the Claude and Codex config directories; leave empty for `~/.claude` and `~/.codex`.
+Override the Claude, Codex, and Pi Agent config directories. With the Pi field empty, `PI_CODING_AGENT_DIR` is checked before `~/.pi/agent`.
 
 ## Apply behavior
 

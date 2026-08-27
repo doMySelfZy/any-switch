@@ -1,12 +1,12 @@
 ---
 title: 快速开始
-description: 添加站点、拉取模型、应用到 Claude Code 或 Codex，然后重启 CLI。
+description: 添加站点、拉取模型、应用到 Claude Code、Codex 或 Pi，然后重启 CLI。
 order: 3
 ---
 
 1. 添加一个上游站点，填写名称、Base URL 和 API Key
 2. 拉取模型，或手动添加要用的模型 id
-3. 打开应用中心，选择 Claude Code 或 Codex，确认模型与选项后点击应用
+3. 打开应用中心，选择 Claude Code、Codex 或 Pi，确认模型与选项后点击应用
 4. 重启终端或重新打开对应 CLI，使配置生效
 
 同一站点可配置多条线路，**第一项为当前默认线路**，可随时测速并切换。

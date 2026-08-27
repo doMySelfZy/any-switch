@@ -71,7 +71,11 @@ export function TargetStatusCard({
   }
 
   const kindLabel =
-    status.kind === "claude_code" ? t("apply.targetClaude") : t("apply.targetCodex");
+    status.kind === "claude_code"
+      ? t("apply.targetClaude")
+      : status.kind === "codex"
+        ? t("apply.targetCodex")
+        : t("apply.targetPi");
   const installed = status.installed;
   const version = status.version ?? tool?.version ?? null;
   const versionLabel = cliVersionLabel(version);

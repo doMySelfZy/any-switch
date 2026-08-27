@@ -289,16 +289,19 @@ function PathsSection() {
   const saveSettings = useSettingsStore((s) => s.saveSettings);
   const [claude, setClaude] = useState(settings.claudeHomeOverride ?? "");
   const [codex, setCodex] = useState(settings.codexHomeOverride ?? "");
+  const [pi, setPi] = useState(settings.piAgentDirOverride ?? "");
 
   useEffect(() => {
     setClaude(settings.claudeHomeOverride ?? "");
     setCodex(settings.codexHomeOverride ?? "");
-  }, [settings.claudeHomeOverride, settings.codexHomeOverride]);
+    setPi(settings.piAgentDirOverride ?? "");
+  }, [settings.claudeHomeOverride, settings.codexHomeOverride, settings.piAgentDirOverride]);
 
   const onSave = async () => {
     await saveSettings({
       claudeHomeOverride: claude.trim() || null,
       codexHomeOverride: codex.trim() || null,
+      piAgentDirOverride: pi.trim() || null,
     });
     message.success(t("settings.pathsSaved"));
   };
@@ -313,6 +316,15 @@ function PathsSection() {
             onChange={(e) => setClaude(e.target.value)}
             placeholder={t("settings.pathPlaceholder")}
           />
+        </div>
+        <div className="mb-3">
+          <div className="mb-1 text-sm">{t("settings.piAgentDir")}</div>
+          <Input
+            value={pi}
+            onChange={(event) => setPi(event.target.value)}
+            placeholder={t("settings.piAgentDirPlaceholder")}
+          />
+          <div className="mt-1 text-xs opacity-50">{t("settings.piAgentDirHint")}</div>
         </div>
         <div className="mb-3">
           <div className="mb-1 text-sm">{t("settings.codexHome")}</div>
@@ -540,6 +552,7 @@ function AboutSection() {
             <li>{paths.codexEnvPath}</li>
             <li>~/.claude/settings.json</li>
             <li>~/.codex/config.toml</li>
+            <li>~/.pi/agent/auth.json</li>
           </ul>
           <Button className="mt-3" onClick={() => void invoke("open_path", { path: paths.appDir })}>
             {t("settings.openAppDir")}

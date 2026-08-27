@@ -1,4 +1,4 @@
-//! Discover Claude Code / Codex CLIs when a GUI-launched app has a stripped PATH.
+//! Discover Claude Code / Codex / Pi CLIs when a GUI-launched app has a stripped PATH.
 //!
 //! Finder / Dock / tray launches typically see `/usr/bin:/bin:/usr/sbin:/sbin`,
 //! which misses Homebrew, nvm, fnm, volta, bun, and `~/.local/bin`. Detection

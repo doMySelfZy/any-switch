@@ -1,10 +1,10 @@
 ---
 title: 备份与还原
 description: 应用前自动备份目标配置，可在应用中心预览、还原或删除。
-order: 10
+order: 11
 ---
 
-每次写入 Claude Code 或 Codex 之前，应用会把当前目标文件备份到 `~/.xiaobai-switch/backups/`。Claude Code 与 Codex 各有独立目录。
+每次写入 Claude Code、Codex 或 Pi 之前，应用会把当前目标文件备份到 `~/.xiaobai-switch/backups/`。三个目标各有独立目录；Pi 会一起备份 `models.json`、`auth.json` 与 `settings.json`。
 
 ## 在应用中心
 

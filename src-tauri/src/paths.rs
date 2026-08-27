@@ -65,6 +65,15 @@ pub fn default_codex_home() -> AppResult<PathBuf> {
     Ok(home_dir()?.join(".codex"))
 }
 
+pub fn default_pi_agent_dir() -> AppResult<PathBuf> {
+    if let Ok(v) = std::env::var("PI_CODING_AGENT_DIR") {
+        if !v.trim().is_empty() {
+            return Ok(PathBuf::from(v));
+        }
+    }
+    Ok(home_dir()?.join(".pi").join("agent"))
+}
+
 pub fn resolve_claude_home(override_path: Option<&str>) -> AppResult<PathBuf> {
     if let Some(p) = override_path {
         if !p.trim().is_empty() {
@@ -81,6 +90,15 @@ pub fn resolve_codex_home(override_path: Option<&str>) -> AppResult<PathBuf> {
         }
     }
     default_codex_home()
+}
+
+pub fn resolve_pi_agent_dir(override_path: Option<&str>) -> AppResult<PathBuf> {
+    if let Some(p) = override_path {
+        if !p.trim().is_empty() {
+            return Ok(PathBuf::from(p));
+        }
+    }
+    default_pi_agent_dir()
 }
 
 pub fn app_paths_dto() -> AppResult<AppPaths> {
@@ -107,3 +125,27 @@ pub fn set_secret_permissions(path: &std::path::Path) {
 
 #[cfg(not(unix))]
 pub fn set_secret_permissions(_path: &std::path::Path) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn pi_override_beats_environment() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("PI_CODING_AGENT_DIR", "/tmp/pi-env");
+        assert_eq!(
+            resolve_pi_agent_dir(Some("/tmp/pi-setting")).unwrap(),
+            PathBuf::from("/tmp/pi-setting")
+        );
+        assert_eq!(
+            resolve_pi_agent_dir(None).unwrap(),
+            PathBuf::from("/tmp/pi-env")
+        );
+        std::env::remove_var("PI_CODING_AGENT_DIR");
+        assert!(default_pi_agent_dir().unwrap().ends_with(".pi/agent"));
+    }
+}

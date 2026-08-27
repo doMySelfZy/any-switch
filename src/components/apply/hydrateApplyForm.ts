@@ -95,6 +95,11 @@ export interface CodexFormDefaults {
   webSearch: boolean;
 }
 
+export interface PiFormDefaults {
+  modelId: string | undefined;
+  writeAllModels: boolean;
+}
+
 function appliedOnSite(site: Site | null, status: TargetLiveStatus | undefined): boolean {
   return Boolean(site && status?.appliedSiteId && status.appliedSiteId === site.id);
 }
@@ -185,6 +190,24 @@ export function hydrateCodexForm(
     reasoning: parseCodexReasoning(liveStr(live, "model_reasoning_effort")),
     capabilitySource,
     ...flagsToDefaults(flags),
+  };
+}
+
+export function hydratePiForm(
+  site: Site | null,
+  status: TargetLiveStatus | undefined,
+): PiFormDefaults {
+  const live = status?.liveSummary;
+  const onSite = appliedOnSite(site, status);
+  const liveModel = liveStr(live, "defaultModel") ?? status?.appliedModelId ?? undefined;
+  const modelCount = Number.parseInt(liveStr(live, "modelCount") ?? "0", 10);
+  return {
+    modelId: onSite
+      ? (liveModel ?? site?.selectedModelId ?? undefined)
+      : (site?.selectedModelId ?? undefined),
+    writeAllModels:
+      liveStr(live, "writeAllModels") === "true" ||
+      (Number.isFinite(modelCount) && modelCount > 1),
   };
 }
 

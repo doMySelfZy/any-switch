@@ -5,7 +5,7 @@ use crate::capabilities::{
 use crate::domain::{
     ApplyRecordDto, ApplyResult, ApplyStatus, ApplyTargetResult, BackupInfo, BackupPreview,
     CapabilitySource, ClaudeApplyOptions, ClaudeAuthKeyStyle, ClaudeEffortLevel, CodexApplyOptions,
-    CodexReasoningEffort, TargetKind, TouchedKeys,
+    CodexReasoningEffort, PiApplyOptions, TargetKind, TouchedKeys,
 };
 use crate::error::{AppError, AppResult};
 use crate::lock::try_lock_target;
@@ -41,6 +41,7 @@ pub fn apply_site(
     codex_image_generation: Option<bool>,
     codex_web_search: Option<bool>,
     codex_capability_source: Option<String>,
+    pi_write_all_models: Option<bool>,
 ) -> AppResult<ApplyResult> {
     if targets.is_empty() {
         return Err(AppError::new("validation_failed", "no targets selected"));
@@ -113,6 +114,23 @@ pub fn apply_site(
         capability_source,
     };
 
+    let pi_write_all = pi_write_all_models.unwrap_or(false);
+    let pi_catalog_models = if pi_write_all && targets.contains(&TargetKind::Pi) {
+        state.db.with_conn(|c| {
+            let models = repo::site::list_models(c, &site_id)?;
+            Ok(models
+                .into_iter()
+                .map(|model| (model.model_id, model.display_name))
+                .collect::<Vec<_>>())
+        })?
+    } else {
+        Vec::new()
+    };
+    let pi_opts = PiApplyOptions {
+        write_all_models: pi_write_all,
+        catalog_models: pi_catalog_models,
+    };
+
     let applied_at = Utc::now().timestamp_millis();
     let mut results = Vec::new();
 
@@ -126,6 +144,94 @@ pub fn apply_site(
         let binding_before = state
             .db
             .with_conn(|c| repo::binding::get_binding(c, target))?;
+
+        if target == TargetKind::Pi {
+            match crate::adapters::pi::apply(
+                &site,
+                &api_key,
+                &model_id,
+                &pi_opts,
+                binding_before.as_ref(),
+                settings.pi_agent_dir_override.as_deref(),
+                &backup_root,
+            ) {
+                Ok(outcome) => {
+                    let record_id = outcome
+                        .binding
+                        .apply_record_id
+                        .clone()
+                        .unwrap_or_else(|| Uuid::new_v4().to_string());
+                    let mut binding = outcome.binding.clone();
+                    binding.apply_record_id = Some(record_id.clone());
+                    state
+                        .db
+                        .with_conn(|c| repo::binding::upsert_binding(c, &binding))?;
+                    state.db.with_conn(|c| {
+                        repo::apply::insert_record(
+                            c,
+                            &record_id,
+                            Some(&site.id),
+                            &site.name,
+                            target.as_str(),
+                            &model_id,
+                            Some(&outcome.provider_id),
+                            "success",
+                            Some(&backup_root.display().to_string()),
+                            &outcome.touched,
+                            None,
+                            applied_at,
+                        )
+                    })?;
+                    results.push(ApplyTargetResult {
+                        target,
+                        ok: true,
+                        status: ApplyStatus::Applied,
+                        backup_paths: outcome.backup_paths,
+                        message: outcome.message,
+                        live_summary: Some(outcome.live_summary),
+                        touched_keys: Some(outcome.touched.paths),
+                    });
+                }
+                Err(error) => {
+                    let touched = TouchedKeys::default();
+                    let _ = state.db.with_conn(|c| {
+                        repo::apply::insert_record(
+                            c,
+                            &Uuid::new_v4().to_string(),
+                            Some(&site.id),
+                            &site.name,
+                            target.as_str(),
+                            &model_id,
+                            None,
+                            "failed",
+                            Some(&backup_root.display().to_string()),
+                            &touched,
+                            Some(&error.to_string()),
+                            applied_at,
+                        )
+                    });
+                    results.push(ApplyTargetResult {
+                        target,
+                        ok: false,
+                        status: ApplyStatus::Failed,
+                        backup_paths: Vec::new(),
+                        message: error.to_string(),
+                        live_summary: None,
+                        touched_keys: None,
+                    });
+                }
+            }
+            finalize_backup_dir(
+                &backup_root,
+                target,
+                &site.name,
+                &model_id,
+                None,
+                applied_at,
+                settings.max_backup_copies,
+            );
+            continue;
+        }
 
         if target == TargetKind::Codex {
             match crate::adapters::codex::apply(
@@ -391,6 +497,12 @@ pub fn revert_target(
                 let _ = crate::env_inject::remove_codex_env(&settings, env_key);
             }
         }
+        TargetKind::Pi => {
+            crate::adapters::pi::surgical_revert(
+                &binding,
+                settings.pi_agent_dir_override.as_deref(),
+            )?;
+        }
     }
     state
         .db
@@ -438,6 +550,12 @@ pub fn restore_official_target(
                 let _ = crate::env_inject::remove_codex_env(&settings, key);
             }
         }),
+        TargetKind::Pi => crate::adapters::pi::restore_official(
+            binding.as_ref(),
+            settings.pi_agent_dir_override.as_deref(),
+            &backup_root,
+        )
+        .map(|_| ()),
     };
 
     match result {
@@ -496,7 +614,7 @@ pub fn list_backups(
     let targets: Vec<TargetKind> = if let Some(t) = target.as_deref().and_then(TargetKind::parse) {
         vec![t]
     } else {
-        vec![TargetKind::ClaudeCode, TargetKind::Codex]
+        vec![TargetKind::ClaudeCode, TargetKind::Codex, TargetKind::Pi]
     };
     backup::list_backups_in(&root, &targets, |dir| {
         state

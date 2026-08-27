@@ -1,10 +1,10 @@
 ---
 title: Backups
 description: Target configs are backed up before apply and can be previewed, restored, or deleted in Apply Center.
-order: 10
+order: 11
 ---
 
-Before writing Claude Code or Codex, the app copies the current target files into `~/.xiaobai-switch/backups/`. Claude Code and Codex have separate directories.
+Before writing Claude Code, Codex, or Pi, the app copies the current target files into `~/.xiaobai-switch/backups/`. Each target has a separate directory; Pi backs up `models.json`, `auth.json`, and `settings.json` together.
 
 ## In Apply Center
 

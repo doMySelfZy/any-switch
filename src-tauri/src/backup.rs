@@ -1,4 +1,4 @@
-use crate::adapters::{claude_code, codex};
+use crate::adapters::{claude_code, codex, pi};
 use crate::crypto::key_prefix;
 use crate::domain::{
     clamp_max_backup_copies, AppSettings, BackupFileInfo, BackupInfo, BackupPreview, TargetKind,
@@ -81,6 +81,7 @@ pub fn prune_all(max: u32) -> AppResult<usize> {
     let mut n = 0;
     n += prune_target_backups(TargetKind::ClaudeCode, max)?;
     n += prune_target_backups(TargetKind::Codex, max)?;
+    n += prune_target_backups(TargetKind::Pi, max)?;
     Ok(n)
 }
 
@@ -182,6 +183,8 @@ pub fn parse_backup_id(id: &str) -> AppResult<(TargetKind, String)> {
         (TargetKind::ClaudeCode, rest)
     } else if let Some(rest) = id.strip_prefix("codex-") {
         (TargetKind::Codex, rest)
+    } else if let Some(rest) = id.strip_prefix("pi-") {
+        (TargetKind::Pi, rest)
     } else {
         return Err(AppError::new("validation_failed", "invalid backup id"));
     };
@@ -229,6 +232,15 @@ pub fn mapped_dest(
             settings.codex_home_override.as_deref(),
         )?),
         (TargetKind::Codex, "codex.env") => Some(codex_env_path()?),
+        (TargetKind::Pi, "models.json") => {
+            Some(pi::models_path(settings.pi_agent_dir_override.as_deref())?)
+        }
+        (TargetKind::Pi, "auth.json") => {
+            Some(pi::auth_path(settings.pi_agent_dir_override.as_deref())?)
+        }
+        (TargetKind::Pi, "settings.json") => Some(pi::settings_path(
+            settings.pi_agent_dir_override.as_deref(),
+        )?),
         _ => None,
     })
 }
@@ -239,6 +251,9 @@ fn dest_is_allowed(dest: &Path, settings: &AppSettings) -> bool {
         roots.push(p);
     }
     if let Ok(p) = crate::paths::resolve_claude_home(settings.claude_home_override.as_deref()) {
+        roots.push(p);
+    }
+    if let Ok(p) = crate::paths::resolve_pi_agent_dir(settings.pi_agent_dir_override.as_deref()) {
         roots.push(p);
     }
     if let Ok(p) = crate::paths::app_dir() {
@@ -285,7 +300,7 @@ pub fn restore_backup_in(
             continue;
         };
         crate::adapters::atomic::restore_file(&dir.join(&name), &dest)?;
-        if name == "codex.env" {
+        if name == "codex.env" || (target == TargetKind::Pi && name == "auth.json") {
             crate::paths::set_secret_permissions(&dest);
         }
         restored.push(dest);
@@ -300,11 +315,11 @@ pub fn restore_backup_in(
 }
 
 pub fn preview_backup_in(root: &Path, id: &str) -> AppResult<BackupPreview> {
-    let (_, dir) = resolve_backup_in(root, id)?;
+    let (target, dir) = resolve_backup_in(root, id)?;
     let files = payload_files(&dir);
     Ok(BackupPreview {
         id: id.to_string(),
-        summary: summary_from_backup_dir(&dir),
+        summary: summary_from_backup_dir(&dir, target),
         files: files
             .into_iter()
             .map(|name| BackupFileInfo {
@@ -315,7 +330,10 @@ pub fn preview_backup_in(root: &Path, id: &str) -> AppResult<BackupPreview> {
     })
 }
 
-fn summary_from_backup_dir(dir: &Path) -> HashMap<String, Option<String>> {
+fn summary_from_backup_dir(dir: &Path, target: TargetKind) -> HashMap<String, Option<String>> {
+    if target == TargetKind::Pi {
+        return pi::backup_summary(dir);
+    }
     let mut out = HashMap::new();
     let settings_json = dir.join("settings.json");
     if settings_json.exists() {
@@ -405,6 +423,10 @@ mod tests {
         assert!(parse_backup_id("codex-../etc").is_err());
         assert!(parse_backup_id("claude_code-abc").is_err());
         assert!(parse_backup_id("claude_code-1710000000000").is_ok());
+        assert_eq!(
+            parse_backup_id("pi-1710000000000").unwrap().0,
+            TargetKind::Pi
+        );
     }
 
     #[test]
@@ -498,6 +520,42 @@ mod tests {
         map.insert("config.toml".into(), dest.clone());
         restore_backup_in(root, "codex-42", &AppSettings::default(), Some(&map)).unwrap();
         assert_eq!(fs::read_to_string(&dest).unwrap(), "model = \"old\"\n");
+    }
+
+    #[test]
+    fn pi_backup_maps_all_three_files_and_secures_auth() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("backups");
+        stamp_dir(
+            &root,
+            TargetKind::Pi,
+            43,
+            &[
+                ("models.json", "{\"providers\":{}}"),
+                ("auth.json", "{}"),
+                ("settings.json", "{}"),
+            ],
+        );
+        let agent = tmp.path().join("agent");
+        let mut settings = AppSettings::default();
+        settings.pi_agent_dir_override = Some(agent.display().to_string());
+        let restored = restore_backup_in(&root, "pi-43", &settings, None).unwrap();
+        assert_eq!(restored.len(), 3);
+        assert!(agent.join("models.json").exists());
+        assert!(agent.join("auth.json").exists());
+        assert!(agent.join("settings.json").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(agent.join("auth.json"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
     }
 
     #[test]

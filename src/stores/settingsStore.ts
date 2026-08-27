@@ -10,6 +10,7 @@ const DEFAULT: AppSettings = {
   alwaysOnTop: false,
   claudeHomeOverride: null,
   codexHomeOverride: null,
+  piAgentDirOverride: null,
   codexEnvInjectMode: "auto",
   forceExclusiveClaudeAuthKey: false,
   autoCheckUpdate: true,

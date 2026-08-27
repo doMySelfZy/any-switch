@@ -25,6 +25,7 @@ pub struct TrayLabels {
     pub check_update: &'static str,
     pub claude: &'static str,
     pub codex: &'static str,
+    pub pi: &'static str,
     pub applied: &'static str,
     pub stale: &'static str,
     pub orphan: &'static str,
@@ -45,6 +46,7 @@ pub fn tray_labels(language: &str) -> TrayLabels {
             check_update: "Check for Updates",
             claude: "Claude Code",
             codex: "Codex",
+            pi: "Pi",
             applied: "Applied",
             stale: "Stale",
             orphan: "Orphan",
@@ -62,6 +64,7 @@ pub fn tray_labels(language: &str) -> TrayLabels {
             check_update: "检查更新",
             claude: "Claude Code",
             codex: "Codex",
+            pi: "Pi",
             applied: "已应用",
             stale: "已过期",
             orphan: "配置游离",
@@ -88,6 +91,7 @@ fn kind_label(labels: &TrayLabels, kind: TargetKind) -> &'static str {
     match kind {
         TargetKind::ClaudeCode => labels.claude,
         TargetKind::Codex => labels.codex,
+        TargetKind::Pi => labels.pi,
     }
 }
 
@@ -128,8 +132,8 @@ pub fn format_model_line(model_id: Option<&str>) -> Option<String> {
     Some(truncate_label(model, TITLE_MAX_CHARS))
 }
 
-pub fn format_tooltip(labels: &TrayLabels, claude: &str, codex: &str) -> String {
-    format!("{}\n{}\n{}", labels.header, claude, codex)
+pub fn format_tooltip(labels: &TrayLabels, claude: &str, codex: &str, pi: &str) -> String {
+    format!("{}\n{}\n{}\n{}", labels.header, claude, codex, pi)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,6 +174,8 @@ pub struct TraySnapshot {
     pub claude_model: Option<String>,
     pub codex_line: String,
     pub codex_model: Option<String>,
+    pub pi_line: String,
+    pub pi_model: Option<String>,
     pub tooltip: String,
     pub sites: Vec<QuickSite>,
 }
@@ -191,13 +197,17 @@ impl TraySnapshot {
             None,
             None,
         );
+        let pi =
+            format_target_status_line(&labels, TargetKind::Pi, ApplyStatus::NotApplied, None, None);
         Self {
             language: language.to_string(),
             claude_line: claude.clone(),
             claude_model: None,
             codex_line: codex.clone(),
             codex_model: None,
-            tooltip: format_tooltip(&labels, &claude, &codex),
+            pi_line: pi.clone(),
+            pi_model: None,
+            tooltip: format_tooltip(&labels, &claude, &codex, &pi),
             sites: vec![],
         }
     }
@@ -270,6 +280,10 @@ fn build_menu(
     if let Some(model) = &snapshot.codex_model {
         append_plain_item(app, &menu, "status_codex_model", model, false)?;
     }
+    append_plain_item(app, &menu, "status_pi", &snapshot.pi_line, false)?;
+    if let Some(model) = &snapshot.pi_model {
+        append_plain_item(app, &menu, "status_pi_model", model, false)?;
+    }
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     append_native_icon_item(
@@ -335,6 +349,7 @@ fn collect_snapshot(app: &AppHandle) -> TraySnapshot {
     let find = |kind: TargetKind| statuses.iter().find(|s| s.kind == kind);
     let claude = find(TargetKind::ClaudeCode);
     let codex = find(TargetKind::Codex);
+    let pi = find(TargetKind::Pi);
 
     let claude_line = match claude {
         Some(s) => format_target_status_line(
@@ -370,6 +385,19 @@ fn collect_snapshot(app: &AppHandle) -> TraySnapshot {
         ),
     };
     let codex_model = codex.and_then(|s| format_model_line(s.applied_model_id.as_deref()));
+    let pi_line = match pi {
+        Some(status) => format_target_status_line(
+            &labels,
+            TargetKind::Pi,
+            status.status,
+            status.applied_site_name.as_deref(),
+            None,
+        ),
+        None => {
+            format_target_status_line(&labels, TargetKind::Pi, ApplyStatus::NotApplied, None, None)
+        }
+    };
+    let pi_model = pi.and_then(|status| format_model_line(status.applied_model_id.as_deref()));
 
     let tooltip_claude = match claude {
         Some(s) => format_target_status_line(
@@ -391,6 +419,16 @@ fn collect_snapshot(app: &AppHandle) -> TraySnapshot {
         ),
         None => codex_line.clone(),
     };
+    let tooltip_pi = match pi {
+        Some(status) => format_target_status_line(
+            &labels,
+            TargetKind::Pi,
+            status.status,
+            status.applied_site_name.as_deref(),
+            status.applied_model_id.as_deref(),
+        ),
+        None => pi_line.clone(),
+    };
 
     let sites = state
         .db
@@ -411,7 +449,9 @@ fn collect_snapshot(app: &AppHandle) -> TraySnapshot {
         claude_model,
         codex_line,
         codex_model,
-        tooltip: format_tooltip(&labels, &tooltip_claude, &tooltip_codex),
+        pi_line,
+        pi_model,
+        tooltip: format_tooltip(&labels, &tooltip_claude, &tooltip_codex, &tooltip_pi),
         sites: pick_quick_sites(&rows, &applied, QUICK_SITE_LIMIT),
     }
 }
@@ -483,7 +523,9 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         | "status_claude"
         | "status_claude_model"
         | "status_codex"
-        | "status_codex_model" => {}
+        | "status_codex_model"
+        | "status_pi"
+        | "status_pi_model" => {}
         other if other.starts_with(APPLY_PREFIX) => {
             let site_id = other[APPLY_PREFIX.len()..].to_string();
             if site_id.is_empty() {
@@ -621,13 +663,19 @@ mod tests {
     }
 
     #[test]
-    fn tooltip_has_product_and_both_targets() {
+    fn tooltip_has_product_and_all_targets() {
         let labels = tray_labels("zh-CN");
-        let tip = format_tooltip(&labels, "Claude Code · 已应用", "Codex · 未应用");
+        let tip = format_tooltip(
+            &labels,
+            "Claude Code · 已应用",
+            "Codex · 未应用",
+            "Pi · 已应用",
+        );
         assert!(tip.starts_with("XiaoBaiSwitch"));
         assert!(tip.contains("Claude Code"));
         assert!(tip.contains("Codex"));
-        assert_eq!(tip.lines().count(), 3);
+        assert!(tip.contains("Pi"));
+        assert_eq!(tip.lines().count(), 4);
     }
 
     #[test]

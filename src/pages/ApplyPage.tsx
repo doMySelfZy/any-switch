@@ -4,6 +4,7 @@ import { ApplySidebar } from "@/components/apply/ApplySidebar";
 import { ApplyPanelSkeleton } from "@/components/apply/ApplyPanelSkeleton";
 import { ClaudeApplyPanel } from "@/components/apply/ClaudeApplyPanel";
 import { CodexApplyPanel } from "@/components/apply/CodexApplyPanel";
+import { PiApplyPanel } from "@/components/apply/PiApplyPanel";
 import { useDeferredTabContent } from "@/hooks/useDeferredTabContent";
 import { useApplyStore, useSiteStore, useUIStore } from "@/stores";
 
@@ -60,6 +61,18 @@ export function ApplyPage() {
             aria-hidden={applyTab !== "codex"}
           >
             <CodexApplyPanel />
+          </div>
+        )}
+        {mounted.has("pi") && (
+          <div
+            className="h-full min-h-0"
+            style={{
+              display: applyTab === "pi" && !showSkeleton ? "flex" : "none",
+              flexDirection: "column",
+            }}
+            aria-hidden={applyTab !== "pi"}
+          >
+            <PiApplyPanel />
           </div>
         )}
       </div>

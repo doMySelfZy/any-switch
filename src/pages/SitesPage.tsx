@@ -189,7 +189,13 @@ export function SitesPage() {
     }
 
     const targetLabels = targets
-      .map((kind) => (kind === "claude_code" ? t("apply.targetClaude") : t("apply.targetCodex")))
+      .map((kind) =>
+        kind === "claude_code"
+          ? t("apply.targetClaude")
+          : kind === "codex"
+            ? t("apply.targetCodex")
+            : t("apply.targetPi"),
+      )
       .join(t("common.listSep"));
 
     const dlg = modal.confirm({

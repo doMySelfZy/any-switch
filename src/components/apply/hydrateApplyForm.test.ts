@@ -4,6 +4,7 @@ import {
   buildModelOptions,
   hydrateClaudeForm,
   hydrateCodexForm,
+  hydratePiForm,
   pickApplySiteId,
   selectableApplySites,
 } from "./hydrateApplyForm";
@@ -292,5 +293,29 @@ describe("buildModelOptions", () => {
     );
     expect(opts[0]).toEqual({ value: "codex-auto-review", label: "codex-auto-review" });
     expect(opts).toHaveLength(2);
+  });
+});
+
+describe("hydratePiForm", () => {
+  it("hydrates the applied model and write-all state from Pi summary", () => {
+    const defaults = hydratePiForm(
+      site({ id: "shuai", selectedModelId: "fallback" }),
+      status({
+        kind: "pi",
+        appliedSiteId: "shuai",
+        appliedModelId: "model-a",
+        liveSummary: { defaultModel: "model-a", modelCount: "1", writeAllModels: "true" },
+      }),
+    );
+    expect(defaults).toEqual({ modelId: "model-a", writeAllModels: true });
+  });
+
+  it("uses the selected site model when switching sites", () => {
+    const defaults = hydratePiForm(
+      site({ id: "other", selectedModelId: "site-model" }),
+      status({ kind: "pi", appliedSiteId: "shuai", liveSummary: { modelCount: "3" } }),
+    );
+    expect(defaults.modelId).toBe("site-model");
+    expect(defaults.writeAllModels).toBe(true);
   });
 });

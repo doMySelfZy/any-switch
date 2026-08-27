@@ -1,7 +1,7 @@
 ---
 title: Import from a link
-description: "Import a site with xiaobaiswitch:// ; import does not apply to Claude Code or Codex automatically."
-order: 9
+description: "Import a site with xiaobaiswitch:// ; import does not apply to Claude Code, Codex, or Pi automatically."
+order: 10
 ---
 
 After the desktop app is installed, a browser or another app can open a `xiaobaiswitch://` link to launch XiaoBaiSwitch and import an upstream site. **Import does not apply to tools automatically**; confirm in Apply Center yourself.

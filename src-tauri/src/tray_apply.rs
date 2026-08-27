@@ -1,7 +1,9 @@
-use crate::capabilities::{capability_on, CODEX_COMPACT, CODEX_IMAGEGEN, CODEX_SEARCH, CODEX_VISION};
+use crate::capabilities::{
+    capability_on, CODEX_COMPACT, CODEX_IMAGEGEN, CODEX_SEARCH, CODEX_VISION,
+};
 use crate::domain::{
-    ApplyTargetResult, CapabilitySource, ClaudeAuthKeyStyle, ClaudeEffortLevel, CodexReasoningEffort,
-    SiteRow, TargetKind, TargetLiveStatus,
+    ApplyTargetResult, CapabilitySource, ClaudeAuthKeyStyle, ClaudeEffortLevel,
+    CodexReasoningEffort, SiteRow, TargetKind, TargetLiveStatus,
 };
 use crate::error::{AppError, AppResult};
 use crate::repo;
@@ -30,6 +32,12 @@ pub struct CodexHydration {
     pub image_generation: bool,
     pub web_search: bool,
     pub capability_source: CapabilitySource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PiHydration {
+    pub model_id: Option<String>,
+    pub write_all_models: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -118,8 +126,7 @@ pub fn hydrate_codex(site: &SiteRow, status: Option<&TargetLiveStatus>) -> Codex
     };
 
     let capability_source = CapabilitySource::parse(
-        live
-            .and_then(|s| live_str(s, &["capability_source"]))
+        live.and_then(|s| live_str(s, &["capability_source"]))
             .as_deref(),
     );
 
@@ -139,9 +146,13 @@ pub fn hydrate_codex(site: &SiteRow, status: Option<&TargetLiveStatus>) -> Codex
                         .and_then(|s| live_str(s, &["provider_display_name"]))
                         .is_some_and(|v| v == "OpenAI"),
                 live.and_then(|s| live_str(s, &["tools_view_image", "view_image"]))
-                    .is_some_and(|v| v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")),
+                    .is_some_and(|v| {
+                        v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
+                    }),
                 live.and_then(|s| live_str(s, &["features_image_generation", "image_generation"]))
-                    .is_some_and(|v| v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")),
+                    .is_some_and(|v| {
+                        v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
+                    }),
                 web_search,
             )
         };
@@ -167,8 +178,34 @@ pub fn hydrate_codex(site: &SiteRow, status: Option<&TargetLiveStatus>) -> Codex
     }
 }
 
-pub fn pick_tray_targets(has_claude_binding: bool, has_codex_binding: bool) -> Vec<TargetKind> {
-    if !has_claude_binding && !has_codex_binding {
+pub fn hydrate_pi(site: &SiteRow, status: Option<&TargetLiveStatus>) -> PiHydration {
+    let live = status.map(|value| &value.live_summary);
+    let on_site = applied_on_site(&site.id, status);
+    let live_model = live
+        .and_then(|summary| live_str(summary, &["defaultModel"]))
+        .or_else(|| status.and_then(|value| value.applied_model_id.clone()));
+    PiHydration {
+        model_id: if on_site {
+            live_model.or_else(|| site.selected_model_id.clone())
+        } else {
+            site.selected_model_id.clone()
+        },
+        write_all_models: live
+            .and_then(|summary| live_str(summary, &["writeAllModels"]))
+            .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+            || live
+                .and_then(|summary| live_str(summary, &["modelCount"]))
+                .and_then(|count| count.parse::<usize>().ok())
+                .is_some_and(|count| count > 1),
+    }
+}
+
+pub fn pick_tray_targets(
+    has_claude_binding: bool,
+    has_codex_binding: bool,
+    has_pi_binding: bool,
+) -> Vec<TargetKind> {
+    if !has_claude_binding && !has_codex_binding && !has_pi_binding {
         return vec![TargetKind::ClaudeCode, TargetKind::Codex];
     }
     let mut out = Vec::new();
@@ -177,6 +214,9 @@ pub fn pick_tray_targets(has_claude_binding: bool, has_codex_binding: bool) -> V
     }
     if has_codex_binding {
         out.push(TargetKind::Codex);
+    }
+    if has_pi_binding {
+        out.push(TargetKind::Pi);
     }
     out
 }
@@ -214,7 +254,8 @@ fn apply_site_from_tray_inner(app: &AppHandle, site_id: &str) -> AppResult<Vec<A
 
     let has_claude = bindings.iter().any(|b| b.target == TargetKind::ClaudeCode);
     let has_codex = bindings.iter().any(|b| b.target == TargetKind::Codex);
-    let targets = pick_tray_targets(has_claude, has_codex);
+    let has_pi = bindings.iter().any(|b| b.target == TargetKind::Pi);
+    let targets = pick_tray_targets(has_claude, has_codex, has_pi);
 
     let mut results = Vec::new();
     let mut attempted = false;
@@ -238,6 +279,7 @@ fn apply_site_from_tray_inner(app: &AppHandle, site_id: &str) -> AppResult<Vec<A
                     h.sonnet_model,
                     h.haiku_model,
                     h.effort.map(|e| e.as_str().into()),
+                    None,
                     None,
                     None,
                     None,
@@ -272,6 +314,36 @@ fn apply_site_from_tray_inner(app: &AppHandle, site_id: &str) -> AppResult<Vec<A
                     Some(h.image_generation),
                     Some(h.web_search),
                     Some(h.capability_source.as_str().into()),
+                    None,
+                )?;
+                results.extend(applied.results);
+            }
+            TargetKind::Pi => {
+                let hydration = hydrate_pi(&site, status);
+                let Some(model_id) = hydration.model_id.filter(|value| !value.trim().is_empty())
+                else {
+                    continue;
+                };
+                attempted = true;
+                let applied = crate::commands::apply::apply_site(
+                    app.clone(),
+                    app.state::<AppState>(),
+                    site.id.clone(),
+                    vec![TargetKind::Pi],
+                    model_id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(hydration.write_all_models),
                 )?;
                 results.extend(applied.results);
             }
@@ -516,10 +588,8 @@ mod tests {
             Some("gpt-4.1"),
             ClaudeAuthKeyStyle::AnthropicAuthToken,
         );
-        row.capabilities
-            .insert(CODEX_COMPACT.into(), true);
-        row.capabilities
-            .insert(CODEX_VISION.into(), true);
+        row.capabilities.insert(CODEX_COMPACT.into(), true);
+        row.capabilities.insert(CODEX_VISION.into(), true);
         let defaults = hydrate_codex(&row, Some(&status));
         assert_eq!(defaults.capability_source, CapabilitySource::Site);
         assert!(defaults.remote_compaction);
@@ -529,16 +599,44 @@ mod tests {
     }
 
     #[test]
+    fn hydrate_pi_preserves_write_all_with_one_live_model() {
+        let mut status = codex_status();
+        status.kind = TargetKind::Pi;
+        status.live_summary = HashMap::from([
+            ("defaultModel".into(), Some("model-a".into())),
+            ("modelCount".into(), Some("1".into())),
+            ("writeAllModels".into(), Some("true".into())),
+        ]);
+        let defaults = hydrate_pi(
+            &site(
+                "shuai",
+                Some("fallback"),
+                ClaudeAuthKeyStyle::AnthropicAuthToken,
+            ),
+            Some(&status),
+        );
+        assert_eq!(defaults.model_id.as_deref(), Some("model-a"));
+        assert!(defaults.write_all_models);
+    }
+
+    #[test]
     fn pick_targets_defaults_to_both_when_unbound() {
         assert_eq!(
-            pick_tray_targets(false, false),
+            pick_tray_targets(false, false, false),
             vec![TargetKind::ClaudeCode, TargetKind::Codex]
         );
-        assert_eq!(pick_tray_targets(true, false), vec![TargetKind::ClaudeCode]);
-        assert_eq!(pick_tray_targets(false, true), vec![TargetKind::Codex]);
         assert_eq!(
-            pick_tray_targets(true, true),
-            vec![TargetKind::ClaudeCode, TargetKind::Codex]
+            pick_tray_targets(true, false, false),
+            vec![TargetKind::ClaudeCode]
+        );
+        assert_eq!(
+            pick_tray_targets(false, true, false),
+            vec![TargetKind::Codex]
+        );
+        assert_eq!(pick_tray_targets(false, false, true), vec![TargetKind::Pi]);
+        assert_eq!(
+            pick_tray_targets(true, true, true),
+            vec![TargetKind::ClaudeCode, TargetKind::Codex, TargetKind::Pi]
         );
     }
 

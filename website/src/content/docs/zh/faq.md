@@ -1,7 +1,7 @@
 ---
 title: 常见问题
 description: macOS 打不开、配置不生效、密钥展示和导入行为。
-order: 13
+order: 14
 ---
 
 ## macOS 说应用已损坏
@@ -10,7 +10,7 @@ order: 13
 
 ## 应用成功了，CLI 还是旧地址
 
-重启终端，或完全退出再打开 Claude Code / Codex。应用只写配置文件，不会热替换已经启动的进程。
+重启终端，或完全退出再打开 Claude Code / Codex / Pi。应用只写配置文件，不会热替换已经启动的进程；Pi 可打开 `/model` 重新加载模型列表。
 
 ## 如何查看完整 API Key？
 

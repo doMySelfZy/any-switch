@@ -101,19 +101,25 @@ pub fn delete_site(
         for b in bindings {
             match b.target {
                 crate::domain::TargetKind::ClaudeCode => {
-                    let _ = crate::adapters::claude_code::surgical_revert(
+                    crate::adapters::claude_code::surgical_revert(
                         &b,
                         settings.claude_home_override.as_deref(),
-                    );
+                    )?;
                 }
                 crate::domain::TargetKind::Codex => {
-                    let _ = crate::adapters::codex::surgical_revert(
+                    crate::adapters::codex::surgical_revert(
                         &b,
                         settings.codex_home_override.as_deref(),
-                    );
+                    )?;
                     if let Some(env_key) = b.managed_env_keys.first() {
-                        let _ = crate::env_inject::remove_codex_env(&settings, env_key);
+                        crate::env_inject::remove_codex_env(&settings, env_key)?;
                     }
+                }
+                crate::domain::TargetKind::Pi => {
+                    crate::adapters::pi::surgical_revert(
+                        &b,
+                        settings.pi_agent_dir_override.as_deref(),
+                    )?;
                 }
             }
             state

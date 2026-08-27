@@ -10,15 +10,15 @@
 
 Website: [https://xiaobaiswitch.com](https://xiaobaiswitch.com)
 
-A beginner-friendly, site-driven desktop app for wiring Claude Code and Codex to an upstream API.
+A beginner-friendly, site-driven desktop app for wiring Claude Code, Codex, and Pi to an upstream API.
 
-Everything starts from an upstream site: enter a Base URL and API key, fetch or type model ids, then apply to Claude Code or Codex in one click.
+Everything starts from an upstream site: enter a Base URL and API key, fetch or type model ids, then apply to Claude Code, Codex, or Pi in one click.
 
 ## Features
 
 - **Sites**: manage multiple upstream relays, with extra routes, speed tests, and one-click switching
 - **Models**: fetch models from a site, or add and test them yourself
-- **Apply Center**: write Claude Code and Codex separately, with their own site, model, and capability options
+- **Apply Center**: write Claude Code, Codex, and Pi separately, with their own site, model, and target options
 - **Route switching**: after a switch, already-applied tool URLs can be updated to match
 - **Backups**: configs are backed up before apply, and can be restored in Apply Center
 - **Link import**: import a site with a `xiaobaiswitch://` link; it is not applied to tools automatically
@@ -36,14 +36,14 @@ Everything starts from an upstream site: enter a Base URL and API key, fetch or 
 
 1. Add an upstream site with a name, Base URL, and API key
 2. Fetch models, or type the model ids you need
-3. Open Apply Center, pick Claude Code or Codex, confirm the model and options, then apply
+3. Open Apply Center, pick Claude Code, Codex, or Pi, confirm the model and options, then apply
 4. Restart the terminal or reopen the matching CLI so the change takes effect
 
 A site can have multiple routes; the first one is the current default, and you can probe and switch at any time.
 
 ## Import a site from a link
 
-After the desktop app is installed, a browser or another app can open a `xiaobaiswitch://` link to launch XiaoBaiSwitch and import an upstream site; import does not apply to Claude Code / Codex automatically, so you still confirm in Apply Center.
+After the desktop app is installed, a browser or another app can open a `xiaobaiswitch://` link to launch XiaoBaiSwitch and import an upstream site; import does not apply to Claude Code / Codex / Pi automatically, so you still confirm in Apply Center.
 
 1. Install and open the desktop app
 2. Click the import link; the app switches to Sites and shows a confirm dialog
@@ -113,7 +113,9 @@ Official desktop builds can check for updates and install them in-app; check man
 
 ## Security
 
-API keys are encrypted inside the app; after apply they are written in plaintext to the matching Claude Code / Codex config, so do not sync those configs to untrusted cloud storage.
+API keys are encrypted inside the app; after apply they may be written in plaintext to Claude Code config, Codex environment files, or `~/.pi/agent/auth.json`, so do not sync those configs to untrusted cloud storage.
+
+Pi uses its official `models.json`, `auth.json`, and `settings.json` interfaces. XiaoBaiSwitch manages only `xiaobai_` providers and preserves other custom providers, OAuth logins, and unknown settings. You can write only the default model or the whole site catalog.
 
 ## License
 
