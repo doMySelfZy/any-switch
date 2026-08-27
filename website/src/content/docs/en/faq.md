@@ -12,9 +12,9 @@ See [Install](../install/). Run `xattr -cr /Applications/XiaoBaiSwitch.app`, the
 
 Restart the terminal, or fully quit and reopen Claude Code / Codex. Apply only writes config files; it does not hot-reload a running process.
 
-## Why is the full API key hidden?
+## How can I view the full API key?
 
-Only a prefix is shown on purpose. The full secret stays in the encrypted database until Apply writes it to the target config.
+Site lists and details show only a prefix. Open the site edit dialog, wait for the complete key to load, then use the eye control on the password field. The key remains encrypted in the app database.
 
 ## Does an import link change Claude / Codex immediately?
 

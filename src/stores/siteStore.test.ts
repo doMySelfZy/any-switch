@@ -40,6 +40,18 @@ describe("siteStore fetchModels", () => {
     expect(ids).toContain("gpt-5.6-terra");
   });
 
+  it("loads the complete API key for site editing", async () => {
+    const site = await useSiteStore.getState().createSite({
+      name: "Relay",
+      baseUrl: "https://api.example.com",
+      apiKey: "sk-full-secret",
+    });
+
+    await expect(useSiteStore.getState().getSiteApiKey(site.id)).resolves.toBe(
+      "sk-full-secret",
+    );
+  });
+
   it("deletes a model and does not bring it back on the next fetch", async () => {
     const site = await useSiteStore.getState().createSite({
       name: "Relay",

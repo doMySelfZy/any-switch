@@ -137,6 +137,13 @@ export async function handleBrowserCommand<T>(
       if (!site) throw { code: "not_found", message: "Site not found" };
       return site as T;
     }
+    case "get_site_api_key": {
+      const id = args?.id as string;
+      if (!sites.some((site) => site.id === id)) {
+        throw { code: "not_found", message: "Site not found" };
+      }
+      return (keys.get(id) ?? "") as T;
+    }
     case "create_site": {
       const input = args?.input as CreateSiteInput;
       const id = uid();

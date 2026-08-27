@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { App, Collapse, Form, Input, Modal, Select } from "antd";
 import { useTranslation } from "react-i18next";
 import type { Site, SiteCapabilities, SiteProtocol } from "@/types/domain";
@@ -46,10 +46,13 @@ interface Props {
 export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: Props) {
   const { t } = useTranslation();
   const { message } = App.useApp();
+  const getSiteApiKey = useSiteStore((s) => s.getSiteApiKey);
   const createSite = useSiteStore((s) => s.createSite);
   const updateSite = useSiteStore((s) => s.updateSite);
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [keyLoading, setKeyLoading] = useState(false);
+  const loadedApiKey = useRef<string | null>(null);
   const [codexFlags, setCodexFlags] = useState<CodexCapabilityFlags>(EMPTY_CODEX_FLAGS);
   const [advancedOpen, setAdvancedOpen] = useState<string[]>([]);
   const [capOpen, setCapOpen] = useState<string[]>([]);
@@ -58,6 +61,7 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     const caps = site?.capabilities ?? initialValues?.capabilities ?? {};
     const flags = codexFlagsFromCapabilities(caps);
     const protocol = site?.protocol ?? initialValues?.protocol ?? "openai_compatible";
@@ -66,6 +70,8 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
     setAdvancedOpen(shouldOpenAdvanced(protocol, notes) ? ["advanced"] : []);
     setCapOpen(anyCodexCapabilityOn(caps) ? ["codex"] : []);
     if (site) {
+      loadedApiKey.current = null;
+      setKeyLoading(site.hasKey);
       form.setFieldsValue({
         name: site.name,
         baseUrls: siteBaseUrls(site),
@@ -73,17 +79,40 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
         protocol: site.protocol,
         notes: site.notes ?? "",
       });
+      if (site.hasKey) {
+        void getSiteApiKey(site.id)
+          .then((apiKey) => {
+            if (cancelled) return;
+            loadedApiKey.current = apiKey;
+            form.setFieldValue("apiKey", apiKey);
+          })
+          .catch((error: unknown) => {
+            if (cancelled) return;
+            message.error(
+              isAppError(error) ? error.message : t("sites.apiKeyLoadFailed"),
+            );
+          })
+          .finally(() => {
+            if (!cancelled) setKeyLoading(false);
+          });
+      }
     } else {
+      const initialApiKey = initialValues?.apiKey ?? "";
+      loadedApiKey.current = initialApiKey;
+      setKeyLoading(false);
       form.resetFields();
       form.setFieldsValue({
         protocol: initialValues?.protocol ?? "openai_compatible",
         baseUrls: initialValues?.baseUrls?.length ? initialValues.baseUrls : [""],
         name: initialValues?.name,
-        apiKey: initialValues?.apiKey ?? "",
+        apiKey: initialApiKey,
         notes: initialValues?.notes ?? "",
       });
     }
-  }, [open, site, form, initialValues]);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, site, form, initialValues, getSiteApiKey, message, t]);
 
   const handleOk = async () => {
     try {
@@ -101,7 +130,7 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
           name: values.name,
           baseUrls,
           baseUrl: baseUrls[0],
-          apiKey: values.apiKey || null,
+          apiKey: values.apiKey && values.apiKey !== loadedApiKey.current ? values.apiKey : null,
           protocol: values.protocol as SiteProtocol,
           notes: values.notes || null,
           capabilities,
@@ -139,6 +168,7 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
       onCancel={onClose}
       onOk={() => void handleOk()}
       confirmLoading={saving}
+      okButtonProps={{ disabled: keyLoading }}
       okText={t("sites.save")}
       cancelText={t("sites.cancel")}
       width={560}
@@ -181,7 +211,16 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
           rules={site ? [] : [{ required: true, message: t("sites.apiKey") }]}
           extra={site ? t("sites.apiKeyKeepHint") : undefined}
         >
-          <Input.Password placeholder="sk-..." allowClear />
+          <Input.Password
+            placeholder={keyLoading ? t("sites.apiKeyLoading") : "sk-..."}
+            allowClear
+            disabled={keyLoading}
+            onFocus={(event) => {
+              if (site && event.currentTarget.value === loadedApiKey.current) {
+                event.currentTarget.select();
+              }
+            }}
+          />
         </Form.Item>
         <div className="flex flex-col gap-2">
           <Collapse

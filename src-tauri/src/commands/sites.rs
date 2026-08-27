@@ -22,6 +22,13 @@ pub fn get_site(state: State<'_, AppState>, id: String) -> AppResult<SiteDto> {
 }
 
 #[tauri::command]
+pub fn get_site_api_key(state: State<'_, AppState>, id: String) -> AppResult<String> {
+    state
+        .db
+        .with_conn(|c| repo::site::get_site_api_key(c, &state.crypto, &id))
+}
+
+#[tauri::command]
 pub fn create_site(
     app: tauri::AppHandle,
     state: State<'_, AppState>,

@@ -66,6 +66,14 @@ pub fn get_site(conn: &Connection, id: &str) -> AppResult<SiteRow> {
         .ok_or_else(|| AppError::new("not_found", "site not found"))
 }
 
+pub fn get_site_api_key(conn: &Connection, crypto: &Crypto, id: &str) -> AppResult<String> {
+    let site = get_site(conn, id)?;
+    if site.api_key_encrypted.is_empty() {
+        return Ok(String::new());
+    }
+    crypto.decrypt(&site.api_key_encrypted)
+}
+
 pub fn create_site(
     conn: &Connection,
     crypto: &Crypto,
@@ -594,6 +602,39 @@ mod tests {
         .unwrap();
         assert_eq!(updated.capabilities.get("codex-search"), Some(&true));
         assert_eq!(updated.capabilities.get("claude-foo"), Some(&true));
-        assert_eq!(get_site(&conn, &created.id).unwrap().capabilities.get("codex-search"), Some(&true));
+        assert_eq!(
+            get_site(&conn, &created.id)
+                .unwrap()
+                .capabilities
+                .get("codex-search"),
+            Some(&true)
+        );
+    }
+
+    #[test]
+    fn get_site_api_key_returns_complete_decrypted_key() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        let crypto = crate::crypto::Crypto::from_key([7u8; 32]);
+        let created = create_site(
+            &conn,
+            &crypto,
+            CreateSiteInput {
+                name: "Relay".into(),
+                base_url: "https://a.example.com".into(),
+                base_urls: None,
+                api_key: "sk-full-secret".into(),
+                protocol: None,
+                claude_auth_key_style: None,
+                notes: None,
+                capabilities: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            get_site_api_key(&conn, &crypto, &created.id).unwrap(),
+            "sk-full-secret"
+        );
     }
 }

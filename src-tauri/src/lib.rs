@@ -106,6 +106,7 @@ pub fn run() {
             commands::preview_urls,
             commands::list_sites,
             commands::get_site,
+            commands::get_site_api_key,
             commands::create_site,
             commands::import_site_from_deep_link,
             commands::update_site,

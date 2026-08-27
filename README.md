@@ -113,7 +113,7 @@ xattr -cr /Applications/XiaoBaiSwitch.app
 
 ## 安全提示
 
-API Key 在应用内加密存储；应用到 Claude Code / Codex 后会以明文写入对应工具的配置，请勿把这些配置同步到不可信云盘。
+API Key 在应用内加密存储；编辑站点时会按需解密到默认隐藏的密码输入框。应用到 Claude Code / Codex 后会以明文写入对应工具的配置，请勿把这些配置同步到不可信云盘。
 
 ## 社区支持
 - [LinuxDO](https://linux.do)

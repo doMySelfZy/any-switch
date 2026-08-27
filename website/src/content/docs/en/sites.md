@@ -12,7 +12,7 @@ A site is one upstream relay: a set of Base URLs plus an API key, then models an
 |-------|--------|
 | Display name | Up to 128 characters |
 | Routes / Base URL | Up to 20; the first item is the current / default route |
-| API key | Encrypted in the app database; the UI only shows a prefix |
+| API key | Encrypted in the app database; lists show a prefix, while editing decrypts it on demand into a hidden password field |
 | Protocol | `OpenAI-compatible` (default) or `Anthropic` |
 | Notes | Optional, up to 2000 characters |
 

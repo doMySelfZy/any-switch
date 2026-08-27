@@ -35,6 +35,7 @@ interface SiteState {
   fetchingModels: boolean;
   error: string | null;
   loadSites: (opts?: { force?: boolean; soft?: boolean }) => Promise<void>;
+  getSiteApiKey: (id: string) => Promise<string>;
   createSite: (input: CreateSiteInput) => Promise<Site>;
   importSiteFromDeepLink: (input: DeepLinkSiteImportInput) => Promise<DeepLinkSiteImportResult>;
   updateSite: (id: string, input: UpdateSiteInput) => Promise<Site>;
@@ -90,6 +91,7 @@ export const useSiteStore = create<SiteState>((set, get) => ({
       set({ loading: false });
     }
   },
+  getSiteApiKey: (id) => invoke<string>("get_site_api_key", { id }),
   createSite: async (input) => {
     const site = await invoke<Site>("create_site", { input });
     set({ sites: [...get().sites, site], hydrated: true });

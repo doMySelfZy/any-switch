@@ -4,7 +4,7 @@ description: Keys are encrypted in the app; after Apply they may appear in plain
 order: 12
 ---
 
-API keys are **encrypted** in the app database (`~/.xiaobai-switch/xiaobai-switch.db` + `master.key`). The UI only shows a prefix and logs never echo the raw secret.
+API keys are **encrypted** in the app database (`~/.xiaobai-switch/xiaobai-switch.db` + `master.key`). Site lists and details show only a prefix. Opening the edit dialog decrypts the key on demand into a password field that stays hidden until you use the eye control. Logs never echo the raw secret.
 
 <div class="not-prose">
 <div role="alert" class="alert alert-warning my-4">

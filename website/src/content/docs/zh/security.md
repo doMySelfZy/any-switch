@@ -4,7 +4,7 @@ description: 密钥在应用内加密；Apply 之后可能以明文出现在 Cla
 order: 12
 ---
 
-API Key 在应用数据库中 **加密存储**（`~/.xiaobai-switch/xiaobai-switch.db` + `master.key`）。界面只展示前缀，不会在日志里回显原始密钥。
+API Key 在应用数据库中 **加密存储**（`~/.xiaobai-switch/xiaobai-switch.db` + `master.key`）。站点列表与详情只展示前缀；打开编辑弹窗时会按需解密到默认隐藏的密码输入框，点击眼睛后可查看完整值。日志不会回显原始密钥。
 
 <div class="not-prose">
 <div role="alert" class="alert alert-warning my-4">

@@ -1,7 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { App as AntdApp, ConfigProvider } from "antd";
 import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useSiteStore } from "@/stores";
 import type { Site } from "@/types/domain";
 import { SiteFormModal } from "./SiteFormModal";
 import "@/i18n";
@@ -36,7 +37,19 @@ function sampleSite(): Site {
   };
 }
 
+const originalGetSiteApiKey = useSiteStore.getState().getSiteApiKey;
+
 describe("SiteFormModal base url list", () => {
+  beforeEach(() => {
+    useSiteStore.setState({
+      getSiteApiKey: vi.fn(() => new Promise<string>(() => undefined)),
+    });
+  });
+
+  afterEach(() => {
+    useSiteStore.setState({ getSiteApiKey: originalGetSiteApiKey });
+  });
+
   it("starts with one row and can add another", () => {
     render(
       <Wrapper>
@@ -66,6 +79,88 @@ describe("SiteFormModal base url list", () => {
     const inputs = screen.getAllByPlaceholderText("https://api.example.com");
     expect(inputs[0]).toHaveValue("https://a.example.com");
     expect(inputs[1]).toHaveValue("https://b.example.com");
+  });
+
+  it("shows the complete saved key when editing a site", async () => {
+    const getSiteApiKey = vi.fn().mockResolvedValue("sk-full-secret");
+    useSiteStore.setState({ getSiteApiKey });
+    render(
+      <Wrapper>
+        <SiteFormModal open site={sampleSite()} onClose={() => undefined} />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("sk-...")).toHaveValue("sk-full-secret");
+    });
+    const apiKeyInput = screen.getByPlaceholderText("sk-...");
+    expect(apiKeyInput).toHaveAttribute("type", "password");
+    fireEvent.click(screen.getByRole("button", { name: "Show" }));
+    expect(apiKeyInput).toHaveAttribute("type", "text");
+    expect(getSiteApiKey).toHaveBeenCalledWith("s1");
+  });
+
+  it("does not write the complete key back when it is unchanged", async () => {
+    const originalUpdateSite = useSiteStore.getState().updateSite;
+    useSiteStore.setState({
+      getSiteApiKey: vi.fn().mockResolvedValue("sk-full-secret"),
+    });
+    const updateSite = vi.fn().mockResolvedValue(sampleSite());
+    useSiteStore.setState({ updateSite });
+
+    try {
+      render(
+        <Wrapper>
+          <SiteFormModal open site={sampleSite()} onClose={() => undefined} />
+        </Wrapper>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText("sk-...")).toHaveValue("sk-full-secret");
+      });
+      fireEvent.click(screen.getByRole("button", { name: /保.*存/ }));
+
+      await waitFor(() => expect(updateSite).toHaveBeenCalledTimes(1));
+      expect(updateSite).toHaveBeenCalledWith(
+        "s1",
+        expect.objectContaining({ apiKey: null }),
+      );
+    } finally {
+      useSiteStore.setState({ updateSite: originalUpdateSite });
+    }
+  });
+
+  it("writes a replacement key when the complete saved key is overwritten", async () => {
+    const originalUpdateSite = useSiteStore.getState().updateSite;
+    useSiteStore.setState({
+      getSiteApiKey: vi.fn().mockResolvedValue("sk-full-secret"),
+    });
+    const updateSite = vi.fn().mockResolvedValue(sampleSite());
+    useSiteStore.setState({ updateSite });
+
+    try {
+      render(
+        <Wrapper>
+          <SiteFormModal open site={sampleSite()} onClose={() => undefined} />
+        </Wrapper>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText("sk-...")).toHaveValue("sk-full-secret");
+      });
+      fireEvent.change(screen.getByPlaceholderText("sk-..."), {
+        target: { value: "sk-replacement" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /保.*存/ }));
+
+      await waitFor(() => expect(updateSite).toHaveBeenCalledTimes(1));
+      expect(updateSite).toHaveBeenCalledWith(
+        "s1",
+        expect.objectContaining({ apiKey: "sk-replacement" }),
+      );
+    } finally {
+      useSiteStore.setState({ updateSite: originalUpdateSite });
+    }
   });
 
   it("keeps advanced config and Codex capabilities collapsed by default", () => {

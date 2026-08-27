@@ -13,6 +13,6 @@ A site can have multiple routes; **the first one is the current default**, and y
 
 ## First launch
 
-If there are no sites yet, the Sites page walks you through adding one. The UI only shows a key prefix; the full value stays in encrypted storage.
+If there are no sites yet, the Sites page walks you through adding one. The site list shows only a key prefix. Editing a site reads the full value from encrypted storage into a password field that is hidden by default.
 
 After a successful apply, the status card shows the site and model. If the CLI still uses the old URL, confirm step 4.
