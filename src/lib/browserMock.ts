@@ -12,6 +12,7 @@ import type {
   DeepLinkSiteImportResult,
   FetchModelsResult,
   HttpBytesResult,
+  LocalBackupInfo,
   ModelProbeResult,
   RemoteBackupInfo,
   Site,
@@ -114,6 +115,7 @@ let webdavConfig: WebDavConfigView = {
   maxRemoteBackups: 10,
 };
 let remoteBackups: RemoteBackupInfo[] = [];
+let localBackups: LocalBackupInfo[] = [];
 let latestLocalBackupAt: number | null = null;
 let webdavLastAttemptAt: number | null = null;
 let webdavLastSuccessAt: number | null = null;
@@ -137,6 +139,7 @@ export function resetBrowserMock() {
     maxRemoteBackups: 10,
   };
   remoteBackups = [];
+  localBackups = [];
   latestLocalBackupAt = null;
   webdavLastAttemptAt = null;
   webdavLastSuccessAt = null;
@@ -159,6 +162,11 @@ export function seedWebDavMock(
 ) {
   webdavConfig = { ...webdavConfig, ...config };
   remoteBackups = items;
+}
+
+export function seedLocalBackups(items: LocalBackupInfo[]) {
+  localBackups = items;
+  latestLocalBackupAt = items[0]?.createdAt ?? null;
 }
 
 function now() {
@@ -589,7 +597,21 @@ export async function handleBrowserCommand<T>(
       const destination = String(args?.destination ?? "");
       const createdAt = now();
       const fileName = `xiaobai-switch-backup-20260827_120000.browser.12345678.zip`;
-      if (destination === "local") latestLocalBackupAt = createdAt;
+      if (destination === "local") {
+        latestLocalBackupAt = createdAt;
+        localBackups = [
+          {
+            fileName,
+            size: 1024,
+            createdAt,
+            deviceName: "browser",
+            reason: "manual",
+            appVersion: "0.0.5",
+            error: null,
+          },
+          ...localBackups,
+        ];
+      }
       if (destination === "webdav") {
         if (!webdavConfig.baseUrl) {
           throw { code: "webdav_not_configured", message: "WebDAV is not configured" };
@@ -633,6 +655,14 @@ export async function handleBrowserCommand<T>(
       };
       return overview as T;
     }
+    case "list_local_backups":
+      return localBackups as T;
+    case "delete_local_backup":
+      localBackups = localBackups.filter((backup) => backup.fileName !== args?.fileName);
+      latestLocalBackupAt = localBackups[0]?.createdAt ?? null;
+      return undefined as T;
+    case "restore_local_backup":
+      return undefined as T;
     case "list_webdav_backups":
       return remoteBackups as T;
     case "delete_webdav_backup":
@@ -656,6 +686,7 @@ export async function handleBrowserCommand<T>(
         dbPath: "~/.xiaobai-switch/xiaobai-switch.db",
         masterKeyPath: "~/.xiaobai-switch/master.key",
         backupsDir: "~/.xiaobai-switch/backups",
+        appBackupsDir: "~/.xiaobai-switch/backups/app",
         codexEnvPath: "~/.xiaobai-switch/env/codex.env",
         logsDir: "~/.xiaobai-switch/logs",
       };

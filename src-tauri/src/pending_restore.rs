@@ -37,6 +37,41 @@ impl Drop for DirectoryCleanup {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestoreRelaunch {
+    RestartInPlace,
+    ExitForDevCli,
+}
+
+pub fn restore_relaunch_kind(debug_build: bool) -> RestoreRelaunch {
+    if debug_build {
+        RestoreRelaunch::ExitForDevCli
+    } else {
+        RestoreRelaunch::RestartInPlace
+    }
+}
+
+pub fn cleanup_restore_staging_dirs(app_dir: &Path) -> AppResult<()> {
+    let entries = match fs::read_dir(app_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if entry.path().is_dir()
+            && (name.starts_with(".webdav-restore-") || name.starts_with(".local-restore-"))
+        {
+            fs::remove_dir_all(entry.path())?;
+        }
+    }
+    Ok(())
+}
+
 pub fn queue_pending_restore(archive_path: &Path, app_dir: &Path) -> AppResult<()> {
     fs::create_dir_all(app_dir)?;
     let pending = app_dir.join(PENDING_NAME);
@@ -76,6 +111,9 @@ pub fn queue_pending_restore(archive_path: &Path, app_dir: &Path) -> AppResult<(
 }
 
 pub fn apply_pending_restore(app_dir: &Path) -> AppResult<Option<RestoreStartupResult>> {
+    if let Err(error) = cleanup_restore_staging_dirs(app_dir) {
+        tracing::warn!(%error, "failed to clean leftover restore download directories");
+    }
     let pending = app_dir.join(PENDING_NAME);
     if !pending.exists() {
         return Ok(None);
@@ -458,5 +496,68 @@ mod tests {
             b"old-wal"
         );
         assert!(!app_dir.join("xiaobai-switch.db-shm").exists());
+    }
+
+    #[test]
+    fn debug_restore_exits_instead_of_reexecing_the_dev_binary() {
+        assert_eq!(
+            restore_relaunch_kind(true),
+            RestoreRelaunch::ExitForDevCli
+        );
+        assert_eq!(
+            restore_relaunch_kind(false),
+            RestoreRelaunch::RestartInPlace
+        );
+    }
+
+    #[test]
+    fn queued_restore_does_not_need_the_source_archive_after_queue() {
+        let temp = tempfile::tempdir().unwrap();
+        let source_dir = temp.path().join("source");
+        let live_dir = temp.path().join("live");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::create_dir_all(&live_dir).unwrap();
+
+        let source_db = source_dir.join("source.db");
+        let source_conn = Connection::open(&source_db).unwrap();
+        crate::db::apply_schema(&source_conn).unwrap();
+        fs::write(source_dir.join("master.key"), [3_u8; 32]).unwrap();
+        let bundle = app_backup::create_backup_in(
+            &source_conn,
+            &source_dir.join("master.key"),
+            &source_dir,
+            "manual",
+        )
+        .unwrap();
+
+        fs::write(live_dir.join("xiaobai-switch.db"), b"old-db").unwrap();
+        fs::write(live_dir.join("master.key"), [9_u8; 32]).unwrap();
+        queue_pending_restore(&bundle.path, &live_dir).unwrap();
+        fs::remove_file(&bundle.path).unwrap();
+        let result = apply_pending_restore(&live_dir).unwrap().unwrap();
+        assert_eq!(result.status, "applied");
+        assert_eq!(
+            fs::read(live_dir.join("master.key")).unwrap(),
+            vec![3_u8; 32]
+        );
+    }
+
+    #[test]
+    fn leftover_restore_download_dirs_are_removed_on_startup() {
+        let temp = tempfile::tempdir().unwrap();
+        let app_dir = temp.path().join("live");
+        fs::create_dir_all(&app_dir).unwrap();
+        let webdav = app_dir.join(".webdav-restore-abc");
+        let local = app_dir.join(".local-restore-xyz");
+        fs::create_dir_all(&webdav).unwrap();
+        fs::create_dir_all(&local).unwrap();
+        fs::write(webdav.join("backup.zip"), b"zip").unwrap();
+        fs::write(app_dir.join("keep-me"), b"ok").unwrap();
+
+        cleanup_restore_staging_dirs(&app_dir).unwrap();
+
+        assert!(!webdav.exists());
+        assert!(!local.exists());
+        assert!(app_dir.join("keep-me").exists());
     }
 }

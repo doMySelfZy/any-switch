@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, App, Button, Popover, Space, Spin, Tag, theme, Tooltip, Typography } from "antd";
+import { App, Button, Popover, Space, Spin, Tag, theme, Tooltip, Typography } from "antd";
 import { CloudUpload, DatabaseBackup, HardDriveDownload, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { invoke, isAppError } from "@/lib/invoke";
@@ -67,18 +67,22 @@ export function BackupQuickPopover() {
 
   const status = overview?.webdavSync.status ?? "never";
   const content = (
-    <div style={{ width: 340 }}>
-      <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 12 }}>
+    <div style={{ width: 320 }}>
+      <div
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          color: token.colorTextSecondary,
+          marginBottom: 6,
+        }}
+      >
         {t("settings.webdav.quickTitle")}
-      </Typography.Title>
-      <Alert
-        type="warning"
-        showIcon
-        className="mb-3"
-        title={t("settings.webdav.quickSecurityWarning")}
-      />
+      </div>
+      <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 12 }}>
+        {t("settings.webdav.quickSecurityWarning")}
+      </Typography.Text>
       {loading && !overview ? (
-        <div className="flex justify-center py-5"><Spin size="small" /></div>
+        <div className="flex justify-center py-4"><Spin size="small" /></div>
       ) : (
         <Space orientation="vertical" size={6} className="w-full">
           <div className="flex justify-between gap-4 text-xs">
@@ -101,7 +105,7 @@ export function BackupQuickPopover() {
           </div>
         </Space>
       )}
-      <Space className="mt-4 w-full" orientation="vertical">
+      <Space className="mt-3 w-full" orientation="vertical">
         <Button
           block
           icon={<HardDriveDownload size={14} />}

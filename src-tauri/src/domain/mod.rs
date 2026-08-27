@@ -504,6 +504,18 @@ pub struct RemoteBackupInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LocalBackupInfo {
+    pub file_name: String,
+    pub size: u64,
+    pub created_at: i64,
+    pub device_name: String,
+    pub reason: Option<String>,
+    pub app_version: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WebDavSyncStatus {
     pub last_attempt_at: Option<i64>,
     pub last_success_at: Option<i64>,

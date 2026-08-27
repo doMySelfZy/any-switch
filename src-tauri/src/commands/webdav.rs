@@ -1,6 +1,6 @@
 use crate::app_backup;
 use crate::domain::{
-    BackupOperationResult, BackupOverview, RemoteBackupInfo, RestoreStartupResult,
+    BackupOperationResult, BackupOverview, LocalBackupInfo, RemoteBackupInfo, RestoreStartupResult,
     SaveWebDavConfigInput, TestWebDavConnectionInput, WebDavConfigView,
 };
 use crate::error::{AppError, AppResult};
@@ -137,6 +137,42 @@ pub fn get_backup_overview(state: State<'_, AppState>) -> AppResult<BackupOvervi
 }
 
 #[tauri::command]
+pub fn list_local_backups() -> AppResult<Vec<LocalBackupInfo>> {
+    app_backup::list_local_backups()
+}
+
+#[tauri::command]
+pub async fn delete_local_backup(state: State<'_, AppState>, file_name: String) -> AppResult<()> {
+    let _guard = state.webdav_operation.lock().await;
+    app_backup::delete_local_backup(&file_name)
+}
+
+#[tauri::command]
+pub async fn restore_local_backup(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    file_name: String,
+) -> AppResult<()> {
+    let _guard = state.webdav_operation.lock().await;
+    let app_dir = crate::paths::app_dir()?;
+    let temp_dir = tempfile::Builder::new()
+        .prefix(".local-restore-")
+        .tempdir_in(&app_dir)?;
+    let staged = temp_dir.path().join("backup.zip");
+    app_backup::stage_local_backup(&file_name, &staged)?;
+    let settings = state.db.with_conn(repo::settings::get_settings)?;
+    state.db.with_conn(|conn| {
+        app_backup::create_local_backup(conn, "pre_restore", settings.max_backup_copies)
+    })?;
+    crate::pending_restore::queue_pending_restore(&staged, &app_dir)?;
+    drop(temp_dir);
+    drop(_guard);
+    relaunch_after_restore(app);
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn list_webdav_backups(state: State<'_, AppState>) -> AppResult<Vec<RemoteBackupInfo>> {
     let _guard = state.webdav_operation.lock().await;
     let client = client_from_state(&state)?;
@@ -169,10 +205,26 @@ pub async fn restore_webdav_backup(
         .download_file(&file_name, &archive)
         .await?;
     crate::pending_restore::queue_pending_restore(&archive, &app_dir)?;
+    drop(temp_dir);
     drop(_guard);
-    app.restart();
+    relaunch_after_restore(app);
     #[allow(unreachable_code)]
     Ok(())
+}
+
+fn relaunch_after_restore(app: AppHandle) {
+    app.state::<AppState>()
+        .is_quitting
+        .store(true, Ordering::Relaxed);
+    match crate::pending_restore::restore_relaunch_kind(cfg!(debug_assertions)) {
+        crate::pending_restore::RestoreRelaunch::ExitForDevCli => {
+            tracing::warn!(
+                "restore queued; exiting debug process so the next `pnpm tauri dev` can apply it with Vite"
+            );
+            app.exit(0);
+        }
+        crate::pending_restore::RestoreRelaunch::RestartInPlace => app.restart(),
+    }
 }
 
 #[tauri::command]

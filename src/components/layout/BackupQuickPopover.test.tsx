@@ -33,7 +33,7 @@ describe("BackupQuickPopover", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "应用数据备份" }));
-    expect(await screen.findByText("备份包含数据库和解密主密钥，请仅保存到可信位置。")).toBeInTheDocument();
+    expect(await screen.findByText("备份包含数据库和解密主密钥，请仅保存到可信位置")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /立即备份到 WebDAV/ })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: /立即创建本地备份/ }));

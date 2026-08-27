@@ -15,7 +15,7 @@ import { openExternalUrl } from "@/lib/openUrl";
 import type { AppPaths, AppSettings, ProxyMode, ProxyProtocol } from "@/types/domain";
 import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
 import { SettingsGroup } from "@/components/settings/SettingsGroup";
-import { WebDavBackupSettings } from "@/components/settings/WebDavBackupSettings";
+import { BackupCenter } from "@/components/settings/BackupCenter";
 import { useUpdateCheckBusy, useUpdateChecker } from "@/hooks/useUpdateChecker";
 import appIconUrl from "../../assets/brand/app-icon-1024.png?url";
 
@@ -344,62 +344,7 @@ function PathsSection() {
 }
 
 function BackupSection() {
-  const { t } = useTranslation();
-  const { token } = theme.useToken();
-  const settings = useSettingsStore((s) => s.settings);
-  const saveSettings = useSettingsStore((s) => s.saveSettings);
-  const [paths, setPaths] = useState<AppPaths | null>(null);
-
-  useEffect(() => {
-    void invoke<AppPaths>("get_app_paths")
-      .then(setPaths)
-      .catch(() => null);
-  }, []);
-
-  const patchCopies = async (value: number | null) => {
-    if (value == null || !Number.isFinite(value)) return;
-    const maxBackupCopies = Math.min(200, Math.max(1, Math.round(value)));
-    await saveSettings({ maxBackupCopies });
-  };
-
-  return (
-    <div className="p-6 pb-12">
-      <SettingsGroup title={t("settings.backupPolicy")}>
-        <div style={rowStyle} className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <div>{t("settings.maxBackupCopies")}</div>
-            <div className="text-xs" style={{ color: token.colorTextSecondary }}>
-              {t("settings.maxBackupCopiesHint")}
-            </div>
-          </div>
-          <InputNumber
-            min={1}
-            max={200}
-            precision={0}
-            style={{ width: 140 }}
-            value={settings.maxBackupCopies}
-            addonAfter={t("settings.maxBackupCopiesUnit")}
-            onChange={(v) => void patchCopies(v)}
-          />
-        </div>
-        {paths && (
-          <>
-            <Divider style={{ margin: "12px 0" }} />
-            <div className="font-mono text-xs break-all" style={{ color: token.colorTextTertiary }}>
-              {paths.backupsDir}
-            </div>
-            <Button
-              className="mt-3"
-              onClick={() => void invoke("open_path", { path: paths.backupsDir })}
-            >
-              {t("settings.openBackupDir")}
-            </Button>
-          </>
-        )}
-      </SettingsGroup>
-      <WebDavBackupSettings />
-    </div>
-  );
+  return <BackupCenter />;
 }
 
 function displayUrl(url: string): string {

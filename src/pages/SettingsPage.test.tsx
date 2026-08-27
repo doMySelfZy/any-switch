@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { App as AntdApp, ConfigProvider } from "antd";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetBrowserMock, seedWebDavMock } from "@/lib/browserMock";
+import { resetBrowserMock, seedLocalBackups, seedWebDavMock } from "@/lib/browserMock";
 import {
   GITHUB_ISSUES_URL,
   GITHUB_RELEASES_URL,
@@ -129,7 +129,7 @@ describe("SettingsPage tray", () => {
   });
 });
 
-describe("SettingsPage WebDAV backups", () => {
+describe("SettingsPage backup center", () => {
   beforeEach(() => {
     resetBrowserMock();
     useUIStore.setState({ settingsTab: "backup" });
@@ -145,29 +145,94 @@ describe("SettingsPage WebDAV backups", () => {
     useUIStore.setState({ settingsTab: "general" });
   });
 
-  it("saves a connection without echoing its password", async () => {
+  it("switches backup targets and keeps local settings in a modal", async () => {
     render(
       <Wrapper>
         <SettingsPage />
       </Wrapper>,
     );
 
-    expect(await screen.findByText("WebDAV 应用数据备份")).toBeInTheDocument();
-    expect(screen.getByText("远端归档包含解密凭据所需的主密钥")).toBeInTheDocument();
+    expect(await screen.findByText("本地备份")).toBeInTheDocument();
+    expect(screen.getByText("WebDAV")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "创建备份" }));
+    expect(await screen.findByText(/xiaobai-switch-backup-.*browser.*\.zip/)).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("服务器地址"), {
+    fireEvent.click(screen.getByRole("button", { name: "备份设置" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("最大保留数量")).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue("~/.xiaobai-switch/backups/app")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /取\s*消/ }));
+
+    fireEvent.click(screen.getByText("WebDAV"));
+    expect(await screen.findByText("请先配置 WebDAV 连接")).toBeInTheDocument();
+  });
+
+  it("restores and batch deletes local snapshots with confirmation", async () => {
+    const fileName = "xiaobai-switch-backup-20260827_120000.browser.12345678.zip";
+    seedLocalBackups([
+      {
+        fileName,
+        size: 1024,
+        createdAt: Date.now(),
+        deviceName: "browser",
+        reason: "manual",
+        appVersion: "0.0.5",
+        error: null,
+      },
+    ]);
+    render(
+      <Wrapper>
+        <SettingsPage />
+      </Wrapper>,
+    );
+
+    const table = await screen.findByRole("table");
+    expect(await within(table).findByText(fileName)).toBeInTheDocument();
+    fireEvent.click(within(table).getByRole("button", { name: "恢复" }));
+    expect((await screen.findAllByText("恢复这份应用快照？")).length).toBeGreaterThan(0);
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: /取\s*消/ }),
+    );
+
+    fireEvent.click(within(table).getAllByRole("checkbox")[1]);
+    fireEvent.click(screen.getByRole("button", { name: "删除 (1)" }));
+    expect((await screen.findAllByText("确定删除选中的 1 个备份？")).length).toBeGreaterThan(0);
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: /删\s*除/ }),
+    );
+    await waitFor(() => {
+      expect(within(table).queryByText(fileName)).toBeNull();
+    });
+  }, 10_000);
+
+  it("saves a connection from the config modal without echoing its password", async () => {
+    render(
+      <Wrapper>
+        <SettingsPage />
+      </Wrapper>,
+    );
+
+    fireEvent.click(await screen.findByText("WebDAV"));
+    fireEvent.click(await screen.findByRole("button", { name: "配置 WebDAV" }));
+    let dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/master\.key/)).toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByLabelText("服务器地址"), {
       target: { value: "https://dav.example.com/" },
     });
-    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "alice" } });
-    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
-    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
-    expect(await screen.findByText("WebDAV 连接成功")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+    fireEvent.change(within(dialog).getByLabelText("用户名"), { target: { value: "alice" } });
+    fireEvent.change(within(dialog).getByLabelText("密码"), { target: { value: "secret" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "测试连接" }));
+    expect(await within(dialog).findByText("连接成功")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存设置" }));
 
     await waitFor(() => {
-      expect(screen.getByText("密码已加密保存；留空会继续使用当前密码。")).toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).toBeNull();
     });
-    expect(screen.getByLabelText("密码")).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "配置 WebDAV" }));
+    dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("密码已加密保存，留空将继续使用当前密码")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("密码")).toHaveValue("");
   }, 10_000);
 
   it("shows an explicit confirmation before restoring a remote snapshot", async () => {
@@ -191,8 +256,10 @@ describe("SettingsPage WebDAV backups", () => {
         <SettingsPage />
       </Wrapper>,
     );
+    fireEvent.click(await screen.findByText("WebDAV"));
+    const remoteTable = await screen.findByRole("table");
     expect(
-      await within(screen.getByRole("table")).findByText(/xiaobai-switch-backup-.*browser.*\.zip/),
+      await within(remoteTable).findByText(/xiaobai-switch-backup-.*browser.*\.zip/),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "恢复" }));
     expect((await screen.findAllByText("恢复这份应用快照？")).length).toBeGreaterThan(0);
@@ -223,13 +290,14 @@ describe("SettingsPage WebDAV backups", () => {
         <SettingsPage />
       </Wrapper>,
     );
-    const remoteTable = screen.getByRole("table");
+    fireEvent.click(await screen.findByText("WebDAV"));
+    const remoteTable = await screen.findByRole("table");
     expect(
       await within(remoteTable).findByText(/xiaobai-switch-backup-.*browser.*\.zip/),
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
-    expect((await screen.findAllByText("删除远端快照？")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("确定删除此备份？")).length).toBeGreaterThan(0);
     fireEvent.click(
       within(screen.getByRole("dialog")).getByRole("button", { name: /删\s*除/ }),
     );

@@ -1,4 +1,5 @@
 use crate::crypto::Crypto;
+use crate::domain::LocalBackupInfo;
 use crate::error::{AppError, AppResult};
 use crate::paths::{
     app_backups_dir, master_key_path, set_private_dir_permissions, set_secret_permissions,
@@ -313,6 +314,154 @@ pub fn latest_local_backup_at() -> AppResult<Option<i64>> {
     Ok(latest)
 }
 
+pub fn list_local_backups() -> AppResult<Vec<LocalBackupInfo>> {
+    list_local_backups_in(&app_backups_dir()?)
+}
+
+fn list_local_backups_in(dir: &Path) -> AppResult<Vec<LocalBackupInfo>> {
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut backups = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if !file_type.is_file() || !is_backup_file(&path) {
+            continue;
+        }
+        let metadata = entry.metadata()?;
+        let file_name = entry.file_name().to_string_lossy().into_owned();
+        let modified_at = metadata
+            .modified()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| AppError::new("backup_invalid", "backup timestamp predates Unix epoch"))?
+            .as_millis() as i64;
+        let (created_at, device_name, reason, app_version, error) =
+            match read_manifest_from_bundle(&path) {
+                Ok(manifest) => (
+                    manifest.created_at,
+                    manifest.device_name,
+                    Some(manifest.reason),
+                    Some(manifest.app_version),
+                    None,
+                ),
+                Err(error) => (
+                    modified_at,
+                    parse_device_from_filename(&file_name),
+                    None,
+                    None,
+                    Some(error.to_string()),
+                ),
+            };
+        backups.push(LocalBackupInfo {
+            file_name,
+            size: metadata.len(),
+            created_at,
+            device_name,
+            reason,
+            app_version,
+            error,
+        });
+    }
+    backups.sort_by(|left, right| {
+        right
+            .created_at
+            .cmp(&left.created_at)
+            .then_with(|| right.file_name.cmp(&left.file_name))
+    });
+    Ok(backups)
+}
+
+pub fn delete_local_backup(file_name: &str) -> AppResult<()> {
+    delete_local_backup_in(&app_backups_dir()?, file_name)
+}
+
+fn delete_local_backup_in(dir: &Path, file_name: &str) -> AppResult<()> {
+    let path = resolve_local_backup_in(dir, file_name)?;
+    fs::remove_file(path)?;
+    Ok(())
+}
+
+pub fn stage_local_backup(file_name: &str, destination: &Path) -> AppResult<()> {
+    stage_local_backup_in(&app_backups_dir()?, file_name, destination)
+}
+
+fn stage_local_backup_in(dir: &Path, file_name: &str, destination: &Path) -> AppResult<()> {
+    let source = resolve_local_backup_in(dir, file_name)?;
+    if fs::metadata(&source)?.len() > MAX_ARCHIVE_BYTES {
+        return Err(AppError::new(
+            "backup_invalid",
+            "backup archive is too large",
+        ));
+    }
+    let mut input = fs::File::open(source)?;
+    let mut output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)?;
+    std::io::copy(&mut input, &mut output)?;
+    output.sync_all()?;
+    set_secret_permissions(destination);
+    Ok(())
+}
+
+fn resolve_local_backup_in(dir: &Path, file_name: &str) -> AppResult<PathBuf> {
+    let name = Path::new(file_name);
+    if name.file_name().and_then(|value| value.to_str()) != Some(file_name)
+        || !file_name.starts_with(BACKUP_PREFIX)
+        || !file_name.ends_with(BACKUP_SUFFIX)
+    {
+        return Err(AppError::new(
+            "backup_invalid",
+            "invalid local backup file name",
+        ));
+    }
+    let path = dir.join(file_name);
+    let metadata = fs::symlink_metadata(&path)
+        .map_err(|_| AppError::new("not_found", "local backup not found"))?;
+    if !metadata.file_type().is_file() {
+        return Err(AppError::new(
+            "backup_invalid",
+            "local backup must be a regular file",
+        ));
+    }
+    Ok(path)
+}
+
+fn read_manifest_from_bundle(path: &Path) -> AppResult<AppBackupManifest> {
+    let file = fs::File::open(path)?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|error| {
+        AppError::new("backup_invalid", format!("invalid ZIP archive: {error}"))
+    })?;
+    let entry = archive.by_name("manifest.json").map_err(|error| {
+        AppError::new("backup_invalid", format!("manifest is missing: {error}"))
+    })?;
+    if entry.size() > MAX_MANIFEST_BYTES {
+        return Err(AppError::new(
+            "backup_invalid",
+            "backup manifest is too large",
+        ));
+    }
+    let mut bytes = Vec::with_capacity(entry.size() as usize);
+    let copied = entry.take(MAX_MANIFEST_BYTES + 1).read_to_end(&mut bytes)?;
+    if copied as u64 > MAX_MANIFEST_BYTES {
+        return Err(AppError::new(
+            "backup_invalid",
+            "backup manifest is too large",
+        ));
+    }
+    let manifest: AppBackupManifest = serde_json::from_slice(&bytes)
+        .map_err(|error| AppError::new("backup_invalid", format!("invalid manifest: {error}")))?;
+    if manifest.format_version != FORMAT_VERSION {
+        return Err(AppError::new(
+            "backup_invalid",
+            format!("unsupported backup format: {}", manifest.format_version),
+        ));
+    }
+    Ok(manifest)
+}
+
 pub fn prune_backups_in(dir: &Path, max_copies: u32) -> AppResult<usize> {
     if !dir.exists() {
         return Ok(0);
@@ -599,5 +748,63 @@ mod tests {
             ),
             "mac-mini"
         );
+    }
+
+    #[test]
+    fn lists_local_backups_with_visible_manifest_errors() {
+        let (temp, conn, key_path) = fixture();
+        let output = temp.path().join("out");
+        let created = create_backup_in(&conn, &key_path, &output, "manual").unwrap();
+        let broken_name = "xiaobai-switch-backup-20260827_120000.test-device.broken01.zip";
+        fs::write(output.join(broken_name), b"not a zip archive").unwrap();
+
+        let backups = list_local_backups_in(&output).unwrap();
+        assert_eq!(backups.len(), 2);
+        let valid = backups
+            .iter()
+            .find(|backup| backup.file_name == created.file_name)
+            .unwrap();
+        assert_eq!(valid.reason.as_deref(), Some("manual"));
+        assert_eq!(
+            valid.app_version.as_deref(),
+            Some(env!("CARGO_PKG_VERSION"))
+        );
+        assert!(valid.error.is_none());
+
+        let broken = backups
+            .iter()
+            .find(|backup| backup.file_name == broken_name)
+            .unwrap();
+        assert_eq!(broken.device_name, "test-device");
+        assert!(broken
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("ZIP")));
+    }
+
+    #[test]
+    fn local_backup_operations_reject_paths_and_non_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("backups");
+        fs::create_dir(&dir).unwrap();
+        let name = "xiaobai-switch-backup-20260827_120000.host.12345678.zip";
+        fs::write(dir.join(name), b"archive").unwrap();
+
+        assert!(resolve_local_backup_in(&dir, "../master.key").is_err());
+        assert!(resolve_local_backup_in(&dir, "unrelated.zip").is_err());
+        let staged = temp.path().join("staged.zip");
+        stage_local_backup_in(&dir, name, &staged).unwrap();
+        assert_eq!(fs::read(&staged).unwrap(), b"archive");
+        delete_local_backup_in(&dir, name).unwrap();
+        assert!(!dir.join(name).exists());
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let outside = temp.path().join("outside.zip");
+            fs::write(&outside, b"outside").unwrap();
+            symlink(&outside, dir.join(name)).unwrap();
+            assert!(resolve_local_backup_in(&dir, name).is_err());
+        }
     }
 }

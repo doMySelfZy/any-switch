@@ -10,6 +10,7 @@ pub struct AppPaths {
     pub db_path: String,
     pub master_key_path: String,
     pub backups_dir: String,
+    pub app_backups_dir: String,
     pub codex_env_path: String,
     pub logs_dir: String,
 }
@@ -113,6 +114,7 @@ pub fn app_paths_dto() -> AppResult<AppPaths> {
         db_path: db_path()?.display().to_string(),
         master_key_path: master_key_path()?.display().to_string(),
         backups_dir: backups_dir()?.display().to_string(),
+        app_backups_dir: app_backups_dir()?.display().to_string(),
         codex_env_path: codex_env_path()?.display().to_string(),
         logs_dir: dir.join("logs").display().to_string(),
     })

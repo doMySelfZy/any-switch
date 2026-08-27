@@ -253,6 +253,16 @@ export interface RemoteBackupInfo {
   deviceName: string;
 }
 
+export interface LocalBackupInfo {
+  fileName: string;
+  size: number;
+  createdAt: number;
+  deviceName: string;
+  reason: string | null;
+  appVersion: string | null;
+  error: string | null;
+}
+
 export interface WebDavSyncStatus {
   lastAttemptAt: number | null;
   lastSuccessAt: number | null;
@@ -380,6 +390,7 @@ export interface AppPaths {
   dbPath: string;
   masterKeyPath: string;
   backupsDir: string;
+  appBackupsDir: string;
   codexEnvPath: string;
   logsDir: string;
 }
