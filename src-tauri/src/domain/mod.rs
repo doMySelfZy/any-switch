@@ -1,4 +1,5 @@
 use crate::capabilities::SiteCapabilities;
+use crate::crypto::key_fingerprint;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -103,6 +104,7 @@ pub struct SiteDto {
     #[serde(default)]
     pub base_urls: Vec<String>,
     pub key_prefix: String,
+    pub quota_revision: String,
     pub has_key: bool,
     pub protocol: String,
     pub claude_auth_key_style: String,
@@ -212,6 +214,8 @@ pub enum QuotaProbeStatus {
     Unsupported,
     Unauthorized,
     Error,
+    #[serde(rename = "invalid_data")]
+    InvalidData,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -777,6 +781,7 @@ impl SiteRow {
                 self.base_urls.clone()
             },
             key_prefix: self.key_prefix.clone(),
+            quota_revision: key_fingerprint(&self.api_key_encrypted),
             has_key: !self.api_key_encrypted.is_empty(),
             protocol: self.protocol.as_str().into(),
             claude_auth_key_style: self.claude_auth_key_style.as_str().into(),

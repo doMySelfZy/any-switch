@@ -22,6 +22,7 @@ function sampleSite(): Site {
     baseUrl: "https://a.example.com",
     baseUrls: ["https://a.example.com", "https://b.example.com"],
     keyPrefix: "sk-t…",
+    quotaRevision: "rev-1",
     hasKey: true,
     protocol: "openai_compatible",
     claudeAuthKeyStyle: "anthropic_auth_token",

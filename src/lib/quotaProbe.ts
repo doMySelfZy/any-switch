@@ -7,8 +7,10 @@ export async function probeSiteQuota(siteId: string): Promise<SiteQuota> {
   return invoke<SiteQuota>("probe_site_quota", { siteId });
 }
 
-export function quotaCacheKey(site: Pick<Site, "id" | "baseUrl" | "keyPrefix">): string {
-  return `${site.id}:${site.baseUrl}:${site.keyPrefix}`;
+export function quotaCacheKey(
+  site: Pick<Site, "id" | "baseUrl" | "quotaRevision">,
+): string {
+  return `${site.id}:${site.baseUrl}:${site.quotaRevision}`;
 }
 
 export function isQuotaCacheFresh(quota: SiteQuota, now = Date.now()): boolean {
@@ -28,24 +30,64 @@ export function normalizeQuotaUnit(unit: string | null | undefined): string {
   const raw = (unit ?? "USD").trim().toUpperCase();
   if (raw === "RMB" || raw === "CNY" || raw === "¥" || raw === "元") return "CNY";
   if (raw === "$" || raw === "USD") return "USD";
+  if (raw === "QUOTA" || raw === "RAW_QUOTA") return "RAW_QUOTA";
   return raw || "USD";
 }
 
-export function formatQuotaAmount(amount: number, unit?: string | null): string {
-  const normalized = normalizeQuotaUnit(unit);
-  if (normalized === "CNY") {
-    return new Intl.NumberFormat("zh-CN", {
-      style: "currency",
-      currency: "CNY",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount);
-  }
-  if (normalized === "USD") return formatUsd(amount);
-  return `${new Intl.NumberFormat("en-US", {
+export type QuotaUnitI18nKey = "sites.quotaUnitRaw";
+
+export interface FormattedQuotaAmountParts {
+  value: string;
+  unit: string | null;
+  unitI18nKey: QuotaUnitI18nKey | null;
+}
+
+function formatQuotaNumber(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(amount)} ${normalized}`;
+  }).format(amount);
+}
+
+export function formatQuotaAmountParts(
+  amount: number,
+  unit?: string | null,
+): FormattedQuotaAmountParts {
+  const normalized = normalizeQuotaUnit(unit);
+  if (normalized === "CNY") {
+    return {
+      value: new Intl.NumberFormat("zh-CN", {
+        style: "currency",
+        currency: "CNY",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(amount),
+      unit: null,
+      unitI18nKey: null,
+    };
+  }
+  if (normalized === "USD") {
+    return { value: formatUsd(amount), unit: null, unitI18nKey: null };
+  }
+  if (normalized === "RAW_QUOTA") {
+    return {
+      value: formatQuotaNumber(amount),
+      unit: null,
+      unitI18nKey: "sites.quotaUnitRaw",
+    };
+  }
+  return {
+    value: formatQuotaNumber(amount),
+    unit: normalized,
+    unitI18nKey: null,
+  };
+}
+
+export function formatQuotaAmount(amount: number, unit?: string | null): string {
+  const parts = formatQuotaAmountParts(amount, unit);
+  if (parts.unit) return `${parts.value} ${parts.unit}`;
+  if (parts.unitI18nKey) return `${parts.value} RAW_QUOTA`;
+  return parts.value;
 }
 
 export function shouldShowExpiry(

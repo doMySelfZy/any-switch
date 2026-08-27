@@ -1,8 +1,13 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App as AntdApp, ConfigProvider } from "antd";
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetBrowserMock, seedTargetStatuses } from "@/lib/browserMock";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  getBrowserQuotaProbeCallCount,
+  resetBrowserMock,
+  seedTargetStatuses,
+} from "@/lib/browserMock";
+import { QUOTA_TTL_MS } from "@/lib/quotaProbe";
 import { useApplyStore, useSiteStore, useUIStore } from "@/stores";
 import { resetQuotaInflight } from "@/stores/siteStore";
 import type { TargetLiveStatus } from "@/types/domain";
@@ -41,7 +46,9 @@ describe("SitesPage", () => {
       modelsBySite: {},
       modelsLoadingBySite: {},
       quotaBySite: {},
+      quotaAttemptBySite: {},
       quotaCacheKeyBySite: {},
+      quotaAttemptCacheKeyBySite: {},
       quotaLoadingBySite: {},
       loading: false,
       hydrated: false,
@@ -684,7 +691,7 @@ describe("SitesPage", () => {
     expect(document.querySelector(".ant-card")).toBeNull();
   });
 
-  it("hides quota when the upstream does not implement billing", async () => {
+  it("shows an actionable quota status when the upstream does not implement billing", async () => {
     await act(async () => {
       const site = await useSiteStore.getState().createSite({
         name: "No Quota",
@@ -705,11 +712,54 @@ describe("SitesPage", () => {
       expect(modelTag("gpt-4.1")).toBeTruthy();
     });
     await waitFor(() => {
-      expect(useSiteStore.getState().quotaBySite[useUIStore.getState().selectedSiteId ?? ""]?.status).toBe(
-        "unsupported",
-      );
+      expect(
+        useSiteStore.getState().quotaAttemptBySite[
+          useUIStore.getState().selectedSiteId ?? ""
+        ]?.status,
+      ).toBe("unsupported");
     });
-    expect(screen.queryByTestId("site-quota-row")).toBeNull();
+    expect(screen.getByTestId("site-quota-status")).toBeInTheDocument();
+    expect(screen.getByText("此站点不支持自动获取额度")).toBeInTheDocument();
+  });
+
+  it("uses the latest-attempt TTL when the window regains focus", async () => {
+    const site = await act(async () => seedSite());
+    const probe = vi.spyOn(useSiteStore.getState(), "probeQuota");
+
+    render(
+      <Wrapper>
+        <SitesPage />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(probe).toHaveBeenCalledWith(site.id);
+    });
+    await waitFor(() => {
+      expect(useSiteStore.getState().quotaAttemptBySite[site.id]).toBeDefined();
+    });
+    expect(getBrowserQuotaProbeCallCount()).toBe(1);
+    probe.mockClear();
+
+    fireEvent.focus(window);
+
+    await waitFor(() => {
+      expect(probe).toHaveBeenCalledWith(site.id);
+    });
+    expect(getBrowserQuotaProbeCallCount()).toBe(1);
+
+    const attempt = useSiteStore.getState().quotaAttemptBySite[site.id];
+    useSiteStore.setState({
+      quotaAttemptBySite: {
+        ...useSiteStore.getState().quotaAttemptBySite,
+        [site.id]: { ...attempt, fetchedAt: Date.now() - QUOTA_TTL_MS },
+      },
+    });
+    fireEvent.focus(window);
+    await waitFor(() => {
+      expect(getBrowserQuotaProbeCallCount()).toBe(2);
+    });
+    probe.mockRestore();
   });
 });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SiteQuota } from "@/types/domain";
 import {
+  formatQuotaAmountParts,
   formatQuotaAmount,
   formatUsd,
   isQuotaCacheFresh,
@@ -39,14 +40,27 @@ describe("quotaProbe helpers", () => {
     expect(formatQuotaAmount(1000, "cny")).toBe("¥1,000.00");
   });
 
-  it("builds a cache key from id, route, and key prefix", () => {
+  it("returns a localizable unit key for raw quota amounts", () => {
+    expect(formatQuotaAmountParts(108_886_337, "quota")).toEqual({
+      value: "108,886,337.00",
+      unit: null,
+      unitI18nKey: "sites.quotaUnitRaw",
+    });
+    expect(formatQuotaAmountParts(24_035, "RAW_QUOTA")).toEqual({
+      value: "24,035.00",
+      unit: null,
+      unitI18nKey: "sites.quotaUnitRaw",
+    });
+  });
+
+  it("builds a cache key only from quota-relevant site configuration", () => {
     expect(
       quotaCacheKey({
         id: "site-1",
         baseUrl: "https://api.example.com",
-        keyPrefix: "sk-a…test",
+        quotaRevision: "credential-2",
       }),
-    ).toBe("site-1:https://api.example.com:sk-a…test");
+    ).toBe("site-1:https://api.example.com:credential-2");
   });
 
   it("treats quota snapshots as fresh inside the TTL window", () => {

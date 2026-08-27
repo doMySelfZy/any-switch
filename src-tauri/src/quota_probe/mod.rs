@@ -1,16 +1,14 @@
-use crate::domain::{
-    AppSettings, QuotaProbeStatus, QuotaSource, SiteQuota, SiteRow,
-};
+use crate::domain::{AppSettings, QuotaProbeStatus, QuotaSource, SiteQuota, SiteRow};
 use crate::error::AppResult;
 use crate::model_probe::sanitize_error;
 use crate::url_normalize::normalize_base_url;
 use chrono::{Datelike, NaiveDate, Utc};
 use serde_json::Value;
 use std::time::{Duration, Instant};
+use url::Url;
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 const MAX_BODY_BYTES: usize = 64 * 1024;
-const UNLIMITED_USD: f64 = 100_000.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BillingUrls {
@@ -45,6 +43,25 @@ pub struct TokenUsage {
     pub unit: String,
     pub unlimited: bool,
     pub expires_at: Option<i64>,
+    pub has_display: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuotaDisplayType {
+    Usd,
+    Cny,
+    Tokens,
+    Custom,
+    Raw,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct QuotaStatus {
+    pub quota_per_unit: Option<f64>,
+    pub display_type: QuotaDisplayType,
+    pub usd_exchange_rate: Option<f64>,
+    pub custom_currency_symbol: Option<String>,
+    pub custom_currency_exchange_rate: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,6 +70,8 @@ pub enum Hit {
     Subscription(Subscription),
     Usage(Usage),
     Token(TokenUsage),
+    Status(QuotaStatus),
+    InvalidData(String),
     NotFound,
     Unauthorized,
     Unsupported,
@@ -90,6 +109,28 @@ pub fn origin_without_v1(codex_base_url: &str) -> Option<String> {
     }
 }
 
+pub fn site_origin(codex_base_url: &str) -> Option<String> {
+    let parsed = Url::parse(codex_base_url).ok()?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return None;
+    }
+    let origin = parsed.origin().ascii_serialization();
+    (origin != "null").then_some(origin)
+}
+
+pub fn public_api_bases(codex_base_url: &str) -> Vec<String> {
+    let mut bases = Vec::new();
+    if let Some(path_base) = origin_without_v1(codex_base_url) {
+        bases.push(path_base);
+    }
+    if let Some(root_base) = site_origin(codex_base_url) {
+        if !bases.contains(&root_base) {
+            bases.push(root_base);
+        }
+    }
+    bases
+}
+
 pub fn usage_date_range(today: NaiveDate) -> (String, String) {
     let start = NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today);
     let end = today.succ_opt().unwrap_or(today);
@@ -113,6 +154,10 @@ pub fn token_usage_url(origin: &str) -> String {
     format!("{}/api/usage/token", strip_trailing_slash(origin))
 }
 
+pub fn quota_status_url(origin: &str) -> String {
+    format!("{}/api/status", strip_trailing_slash(origin))
+}
+
 pub fn normalize_quota_unit(raw: &str) -> String {
     match raw.trim().to_ascii_uppercase().as_str() {
         "RMB" | "CNY" | "¥" | "元" => "CNY".into(),
@@ -125,10 +170,7 @@ pub fn normalize_quota_unit(raw: &str) -> String {
 pub fn usage_to_usd(total_usage: f64, limit: Option<f64>) -> f64 {
     let scaled = total_usage / 100.0;
     if let Some(limit) = limit {
-        if limit > 0.0
-            && scaled > limit * 1.5
-            && (0.0..=limit * 1.5).contains(&total_usage)
-        {
+        if limit > 0.0 && scaled > limit * 1.5 && (0.0..=limit * 1.5).contains(&total_usage) {
             return total_usage;
         }
     }
@@ -223,38 +265,35 @@ pub fn parse_token_usage(value: &Value) -> Option<TokenUsage> {
         return None;
     }
     let data = value.get("data").filter(|d| d.is_object())?;
-    let display = data.get("display").filter(|d| d.is_object());
-    let remaining = display
-        .and_then(|d| field_f64(d, "remaining"))
-        .or_else(|| field_f64(data, "total_available"));
-    let used = display
-        .and_then(|d| field_f64(d, "used"))
-        .or_else(|| field_f64(data, "total_used"));
-    let total = display
-        .and_then(|d| field_f64(d, "total"))
-        .or_else(|| field_f64(data, "total_granted"));
+    let display = data.get("display").filter(|d| d.is_object()).and_then(|d| {
+        Some((
+            field_f64(d, "remaining")?,
+            field_f64(d, "used")?,
+            field_f64(d, "total")?,
+            normalize_quota_unit(d.get("unit")?.as_str()?),
+        ))
+    });
+    let (remaining, used, total, unit, has_display) = match display {
+        Some((remaining, used, total, unit)) => {
+            (Some(remaining), Some(used), Some(total), unit, true)
+        }
+        None => (
+            field_f64(data, "total_available"),
+            field_f64(data, "total_used"),
+            field_f64(data, "total_granted"),
+            "quota".into(),
+            false,
+        ),
+    };
     if remaining.is_none() && used.is_none() && total.is_none() {
         return None;
     }
-    let unit = display
-        .and_then(|d| d.get("unit").and_then(Value::as_str))
-        .map(normalize_quota_unit)
-        .unwrap_or_else(|| {
-            if display.is_some() {
-                "USD".into()
-            } else {
-                "quota".into()
-            }
-        });
     let flag = data
         .get("unlimited_quota")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let unlimited = flag && !total.is_some_and(|t| t > 0.0 && t < UNLIMITED_USD);
-    let expires_at = data
-        .get("expires_at")
-        .and_then(json_i64)
-        .filter(|v| *v > 0);
+    let unlimited = if has_display { false } else { flag };
+    let expires_at = data.get("expires_at").and_then(json_i64).filter(|v| *v > 0);
     Some(TokenUsage {
         remaining,
         used,
@@ -262,7 +301,137 @@ pub fn parse_token_usage(value: &Value) -> Option<TokenUsage> {
         unit,
         unlimited,
         expires_at,
+        has_display,
     })
+}
+
+fn parse_quota_display_type(data: &Value) -> Option<QuotaDisplayType> {
+    if let Some(raw) = data.get("quota_display_type").and_then(Value::as_str) {
+        return match raw.trim().to_ascii_uppercase().as_str() {
+            "USD" => Some(QuotaDisplayType::Usd),
+            "CNY" => Some(QuotaDisplayType::Cny),
+            "TOKENS" => Some(QuotaDisplayType::Tokens),
+            "CUSTOM" => Some(QuotaDisplayType::Custom),
+            _ => None,
+        };
+    }
+    data.get("display_in_currency")
+        .and_then(Value::as_bool)
+        .map(|enabled| {
+            if enabled {
+                QuotaDisplayType::Usd
+            } else {
+                QuotaDisplayType::Tokens
+            }
+        })
+}
+
+pub fn parse_quota_status(value: &Value) -> Option<QuotaStatus> {
+    if value.get("success").and_then(Value::as_bool) == Some(false) {
+        return None;
+    }
+    let data = value.get("data").filter(|data| data.is_object())?;
+    let display_type = parse_quota_display_type(data).unwrap_or(QuotaDisplayType::Raw);
+    Some(QuotaStatus {
+        quota_per_unit: field_f64(data, "quota_per_unit").filter(|value| *value > 0.0),
+        display_type,
+        usd_exchange_rate: field_f64(data, "usd_exchange_rate").filter(|value| *value > 0.0),
+        custom_currency_symbol: data
+            .get("custom_currency_symbol")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        custom_currency_exchange_rate: field_f64(data, "custom_currency_exchange_rate")
+            .filter(|value| *value > 0.0),
+    })
+}
+
+fn raw_quota_scale(status: &QuotaStatus) -> Option<(f64, String)> {
+    match status.display_type {
+        QuotaDisplayType::Tokens => Some((1.0, "TOKENS".into())),
+        QuotaDisplayType::Usd => status
+            .quota_per_unit
+            .map(|quota_per_unit| (1.0 / quota_per_unit, "USD".into())),
+        QuotaDisplayType::Cny => status
+            .quota_per_unit
+            .zip(status.usd_exchange_rate)
+            .map(|(quota_per_unit, rate)| (rate / quota_per_unit, "CNY".into())),
+        QuotaDisplayType::Custom => status
+            .quota_per_unit
+            .zip(status.custom_currency_exchange_rate)
+            .map(|(quota_per_unit, rate)| {
+                (
+                    rate / quota_per_unit,
+                    status
+                        .custom_currency_symbol
+                        .clone()
+                        .unwrap_or_else(|| "CUSTOM".into()),
+                )
+            }),
+        QuotaDisplayType::Raw => None,
+    }
+}
+
+fn quota_values_are_consistent(
+    remaining: Option<f64>,
+    used: Option<f64>,
+    total: Option<f64>,
+    unlimited: bool,
+) -> bool {
+    if unlimited {
+        return used.map_or(true, |value| value >= 0.0);
+    }
+    let values = [remaining, used, total];
+    if values.into_iter().flatten().any(|value| value < 0.0) {
+        return false;
+    }
+    if let Some(total) = total {
+        let tolerance = total.abs() * 1e-6 + 1e-6;
+        if used.is_some_and(|used| used - total > tolerance)
+            || remaining.is_some_and(|remaining| remaining - total > tolerance)
+        {
+            return false;
+        }
+    }
+    let (Some(remaining), Some(used), Some(total)) = (remaining, used, total) else {
+        return true;
+    };
+    let tolerance = total.abs().max(remaining.abs()).max(used.abs()) * 1e-6 + 1e-6;
+    (total - remaining - used).abs() <= tolerance
+}
+
+pub fn normalize_token_usage(
+    mut token: TokenUsage,
+    status: Option<&QuotaStatus>,
+) -> Result<TokenUsage, String> {
+    if !token.has_display {
+        let (scale, unit) = status
+            .and_then(raw_quota_scale)
+            .unwrap_or_else(|| (1.0, "RAW_QUOTA".into()));
+        token.remaining = token.remaining.map(|value| value * scale);
+        token.used = token.used.map(|value| value * scale);
+        token.total = token.total.map(|value| value * scale);
+        token.unit = unit;
+    }
+    if !quota_values_are_consistent(token.remaining, token.used, token.total, token.unlimited) {
+        return Err("inconsistent quota data".into());
+    }
+    Ok(token)
+}
+
+fn normalize_token_hit(token: &Hit, status: &Hit) -> Hit {
+    let Hit::Token(token) = token else {
+        return token.clone();
+    };
+    let metadata = match status {
+        Hit::Status(metadata) => Some(metadata),
+        _ => None,
+    };
+    match normalize_token_usage(token.clone(), metadata) {
+        Ok(token) => Hit::Token(token),
+        Err(error) => Hit::InvalidData(error),
+    }
 }
 
 fn looks_like_html(body: &str) -> bool {
@@ -270,7 +439,47 @@ fn looks_like_html(body: &str) -> bool {
     trimmed.starts_with("<!doctype") || trimmed.starts_with("<html")
 }
 
+fn token_response_is_unauthorized(value: &Value) -> bool {
+    let failed = value.get("success").and_then(Value::as_bool) == Some(false)
+        || value.get("code").and_then(Value::as_bool) == Some(false);
+    if !failed {
+        return false;
+    }
+    let message = value
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    [
+        "authorization",
+        "bearer",
+        "token not found",
+        "invalid token",
+        "unauthorized",
+        "forbidden",
+    ]
+    .iter()
+    .any(|fragment| message.contains(fragment))
+}
+
+fn response_indicates_failure(value: &Value) -> bool {
+    let failed_flag = value.get("success").and_then(Value::as_bool) == Some(false)
+        || value.get("code").and_then(Value::as_bool) == Some(false);
+    let has_error = value.get("error").is_some_and(|error| match error {
+        Value::Null => false,
+        Value::String(message) => !message.trim().is_empty(),
+        Value::Array(items) => !items.is_empty(),
+        Value::Object(fields) => !fields.is_empty(),
+        Value::Bool(value) => *value,
+        Value::Number(_) => true,
+    });
+    failed_flag || has_error
+}
+
 pub fn classify_status(status: u16, body: &str, expected: Expected) -> Hit {
+    if status == 408 {
+        return Hit::Error("request timed out".into());
+    }
     if status == 401 {
         return Hit::Unauthorized;
     }
@@ -290,6 +499,12 @@ pub fn classify_status(status: u16, body: &str, expected: Expected) -> Hit {
         let Ok(value) = serde_json::from_str::<Value>(body) else {
             return Hit::Unsupported;
         };
+        if matches!(expected, Expected::Token) && token_response_is_unauthorized(&value) {
+            return Hit::Unauthorized;
+        }
+        if response_indicates_failure(&value) {
+            return Hit::Error("upstream response indicated failure".into());
+        }
         return match expected {
             Expected::Grants => parse_credit_grants(&value)
                 .map(Hit::Grants)
@@ -300,15 +515,19 @@ pub fn classify_status(status: u16, body: &str, expected: Expected) -> Hit {
             Expected::Usage => parse_usage(&value)
                 .map(Hit::Usage)
                 .unwrap_or(Hit::Unsupported),
-            Expected::Token => parse_token_usage(&value)
-                .map(Hit::Token)
+            Expected::Token => match parse_token_usage(&value) {
+                Some(token) => Hit::Token(token),
+                None if value.get("data").is_some_and(Value::is_object) => {
+                    Hit::InvalidData("invalid quota data".into())
+                }
+                None => Hit::Unsupported,
+            },
+            Expected::Status => parse_quota_status(&value)
+                .map(Hit::Status)
                 .unwrap_or(Hit::Unsupported),
         };
     }
-    if (500..600).contains(&status) {
-        return Hit::Error(format!("HTTP {status}"));
-    }
-    Hit::Unsupported
+    Hit::Error(format!("HTTP {status}"))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -317,10 +536,7 @@ pub enum Expected {
     Subscription,
     Usage,
     Token,
-}
-
-fn is_unlimited(limit: Option<f64>) -> bool {
-    limit.is_some_and(|v| v >= UNLIMITED_USD)
+    Status,
 }
 
 fn clamp_remaining(value: Option<f64>) -> Option<f64> {
@@ -360,8 +576,11 @@ fn available(
     endpoint: Option<String>,
     fetched_at: i64,
     latency_ms: u64,
-) -> SiteQuota {
-    SiteQuota {
+) -> Result<SiteQuota, String> {
+    if !quota_values_are_consistent(remaining, used, total, unlimited) {
+        return Err("inconsistent quota data".into());
+    }
+    Ok(SiteQuota {
         status: QuotaProbeStatus::Available,
         remaining_usd: if unlimited {
             None
@@ -378,7 +597,7 @@ fn available(
         fetched_at,
         latency_ms,
         error: None,
-    }
+    })
 }
 
 pub fn interpret_round(
@@ -398,9 +617,13 @@ pub fn interpret_round(
         Hit::Subscription(s) => s.expires_at,
         _ => None,
     };
+    let mut invalid = match token {
+        Hit::InvalidData(error) => Some((error.clone(), token_url.to_string())),
+        _ => None,
+    };
 
     if let Hit::Token(t) = token {
-        return RoundOutcome::Available(available(
+        match available(
             QuotaSource::TokenUsage,
             t.remaining,
             t.used,
@@ -411,23 +634,30 @@ pub fn interpret_round(
             Some(token_url.to_string()),
             fetched_at,
             latency_ms,
-        ));
+        ) {
+            Ok(quota) => return RoundOutcome::Available(quota),
+            Err(error) => invalid = Some((error, token_url.to_string())),
+        }
     }
 
     if let Hit::Grants(g) = grants {
-        let unlimited = is_unlimited(g.total);
-        return RoundOutcome::Available(available(
+        match available(
             QuotaSource::CreditGrants,
             g.remaining,
             g.used,
             g.total,
-            unlimited,
+            false,
             Some("USD"),
             expires,
             Some(grants_url.to_string()),
             fetched_at,
             latency_ms,
-        ));
+        ) {
+            Ok(quota) => return RoundOutcome::Available(quota),
+            Err(error) => {
+                invalid.get_or_insert((error, grants_url.to_string()));
+            }
+        }
     }
 
     let sub = match subscription {
@@ -440,46 +670,46 @@ pub fn interpret_round(
     };
 
     if let (Some(s), Some(u)) = (sub, usg) {
-        let unlimited = is_unlimited(s.limit_usd);
         let used = usage_to_usd(u.total_usage, s.limit_usd);
-        let remaining = if unlimited {
-            None
-        } else {
-            s.limit_usd.map(|limit| limit - used)
-        };
-        return RoundOutcome::Available(available(
+        let remaining = s.limit_usd.map(|limit| limit - used);
+        match available(
             QuotaSource::SubscriptionUsage,
             remaining,
             Some(used),
             s.limit_usd,
-            unlimited,
+            false,
             Some("USD"),
             s.expires_at,
             Some(subscription_url.to_string()),
             fetched_at,
             latency_ms,
-        ));
-    }
-
-    if let Some(s) = sub {
-        let unlimited = is_unlimited(s.limit_usd);
-        return RoundOutcome::Available(available(
+        ) {
+            Ok(quota) => return RoundOutcome::Available(quota),
+            Err(error) => {
+                invalid.get_or_insert((error, subscription_url.to_string()));
+            }
+        }
+    } else if let Some(s) = sub.filter(|subscription| subscription.limit_usd.is_some()) {
+        match available(
             QuotaSource::SubscriptionOnly,
             None,
             None,
             s.limit_usd,
-            unlimited,
+            false,
             Some("USD"),
             s.expires_at,
             Some(subscription_url.to_string()),
             fetched_at,
             latency_ms,
-        ));
-    }
-
-    if let Some(u) = usg {
+        ) {
+            Ok(quota) => return RoundOutcome::Available(quota),
+            Err(error) => {
+                invalid.get_or_insert((error, subscription_url.to_string()));
+            }
+        }
+    } else if let Some(u) = usg {
         let used = usage_to_usd(u.total_usage, None);
-        return RoundOutcome::Available(available(
+        match available(
             QuotaSource::UsageOnly,
             None,
             Some(used),
@@ -490,14 +720,26 @@ pub fn interpret_round(
             Some(usage_url.to_string()),
             fetched_at,
             latency_ms,
-        ));
-    }
-
-    if allow_fallback {
-        return RoundOutcome::Fallback;
+        ) {
+            Ok(quota) => return RoundOutcome::Available(quota),
+            Err(error) => {
+                invalid.get_or_insert((error, usage_url.to_string()));
+            }
+        }
     }
 
     let hits = [grants, subscription, usage, token];
+    if allow_fallback {
+        return RoundOutcome::Fallback;
+    }
+    if let Some((error, endpoint)) = invalid {
+        return RoundOutcome::Quiet(quiet(
+            QuotaProbeStatus::InvalidData,
+            Some(error),
+            latency_ms,
+            Some(endpoint),
+        ));
+    }
     if hits.iter().any(|h| matches!(h, Hit::Unauthorized)) {
         return RoundOutcome::Quiet(quiet(
             QuotaProbeStatus::Unauthorized,
@@ -514,12 +756,61 @@ pub fn interpret_round(
             None,
         ));
     }
-    RoundOutcome::Quiet(quiet(
-        QuotaProbeStatus::Unsupported,
-        None,
-        latency_ms,
-        None,
-    ))
+    RoundOutcome::Quiet(quiet(QuotaProbeStatus::Unsupported, None, latency_ms, None))
+}
+
+fn quota_source_rank(source: Option<QuotaSource>) -> u8 {
+    match source {
+        Some(QuotaSource::TokenUsage) => 5,
+        Some(QuotaSource::CreditGrants) => 4,
+        Some(QuotaSource::SubscriptionUsage) => 3,
+        Some(QuotaSource::SubscriptionOnly) => 2,
+        Some(QuotaSource::UsageOnly) => 1,
+        None => 0,
+    }
+}
+
+fn quota_status_rank(status: QuotaProbeStatus) -> u8 {
+    match status {
+        QuotaProbeStatus::InvalidData => 4,
+        QuotaProbeStatus::Unauthorized => 3,
+        QuotaProbeStatus::Error => 2,
+        QuotaProbeStatus::Unsupported => 1,
+        QuotaProbeStatus::Available => 0,
+    }
+}
+
+pub fn combine_round_outcomes(first: RoundOutcome, second: RoundOutcome) -> RoundOutcome {
+    match (first, second) {
+        (RoundOutcome::Fallback, outcome) | (outcome, RoundOutcome::Fallback) => outcome,
+        (RoundOutcome::Available(first), RoundOutcome::Available(second)) => {
+            if quota_source_rank(first.source) >= quota_source_rank(second.source) {
+                RoundOutcome::Available(first)
+            } else {
+                RoundOutcome::Available(second)
+            }
+        }
+        (RoundOutcome::Available(quota), RoundOutcome::Quiet(_))
+        | (RoundOutcome::Quiet(_), RoundOutcome::Available(quota)) => {
+            RoundOutcome::Available(quota)
+        }
+        (RoundOutcome::Quiet(first), RoundOutcome::Quiet(second)) => {
+            if quota_status_rank(first.status) >= quota_status_rank(second.status) {
+                RoundOutcome::Quiet(first)
+            } else {
+                RoundOutcome::Quiet(second)
+            }
+        }
+    }
+}
+
+fn outcome_needs_fallback(outcome: &RoundOutcome) -> bool {
+    match outcome {
+        RoundOutcome::Available(quota) => {
+            quota_source_rank(quota.source) < quota_source_rank(Some(QuotaSource::CreditGrants))
+        }
+        RoundOutcome::Quiet(_) | RoundOutcome::Fallback => true,
+    }
 }
 
 async fn fetch_hit(
@@ -527,17 +818,21 @@ async fn fetch_hit(
     url: &str,
     api_key: &str,
     expected: Expected,
+    authenticated: bool,
 ) -> Hit {
-    match client
-        .get(url)
-        .bearer_auth(api_key)
-        .header("Accept", "application/json")
-        .send()
-        .await
-    {
+    let request = client.get(url).header("Accept", "application/json");
+    let request = if authenticated {
+        request.bearer_auth(api_key)
+    } else {
+        request
+    };
+    match request.send().await {
         Ok(resp) => {
             let status = resp.status().as_u16();
-            let bytes = resp.bytes().await.unwrap_or_default();
+            let bytes = match resp.bytes().await {
+                Ok(bytes) => bytes,
+                Err(error) => return Hit::Error(sanitize_error(&error.to_string(), api_key)),
+            };
             let slice = if bytes.len() > MAX_BODY_BYTES {
                 &bytes[..MAX_BODY_BYTES]
             } else {
@@ -557,6 +852,31 @@ async fn fetch_hit(
     }
 }
 
+async fn fetch_public_pair(
+    client: &reqwest::Client,
+    bases: &[String],
+    api_key: &str,
+) -> (Hit, String, Hit) {
+    for (index, base) in bases.iter().enumerate() {
+        let status_url = quota_status_url(base);
+        let status = fetch_hit(client, &status_url, api_key, Expected::Status, false).await;
+        if index > 0 && !matches!(status, Hit::Status(_)) {
+            continue;
+        }
+
+        let token_url = token_usage_url(base);
+        let token = fetch_hit(client, &token_url, api_key, Expected::Token, true).await;
+        match token {
+            Hit::Token(_) | Hit::Unauthorized | Hit::Error(_) => {
+                return (token, token_url, status);
+            }
+            Hit::NotFound | Hit::Unsupported => {}
+            _ => return (token, token_url, status),
+        }
+    }
+    (Hit::Unsupported, String::new(), Hit::Unsupported)
+}
+
 struct ProbeRound {
     urls: BillingUrls,
     token_url: String,
@@ -564,25 +884,35 @@ struct ProbeRound {
     subscription: Hit,
     usage: Hit,
     token: Hit,
+    status: Hit,
 }
 
-async fn fetch_round(client: &reqwest::Client, api_root: &str, api_key: &str) -> ProbeRound {
+async fn fetch_round(
+    client: &reqwest::Client,
+    api_root: &str,
+    public_bases: &[String],
+    api_key: &str,
+    include_public: bool,
+) -> ProbeRound {
     let urls = billing_urls(api_root, Utc::now().date_naive());
-    let token_url = origin_without_v1(api_root)
-        .map(|origin| token_usage_url(&origin))
-        .unwrap_or_default();
-    let token_fut = async {
-        if token_url.is_empty() {
-            Hit::Unsupported
+    let public_fut = async {
+        if include_public {
+            fetch_public_pair(client, public_bases, api_key).await
         } else {
-            fetch_hit(client, &token_url, api_key, Expected::Token).await
+            (Hit::Unsupported, String::new(), Hit::Unsupported)
         }
     };
-    let (grants, subscription, usage, token) = tokio::join!(
-        fetch_hit(client, &urls.credit_grants, api_key, Expected::Grants),
-        fetch_hit(client, &urls.subscription, api_key, Expected::Subscription),
-        fetch_hit(client, &urls.usage, api_key, Expected::Usage),
-        token_fut,
+    let (grants, subscription, usage, (token, token_url, status)) = tokio::join!(
+        fetch_hit(client, &urls.credit_grants, api_key, Expected::Grants, true),
+        fetch_hit(
+            client,
+            &urls.subscription,
+            api_key,
+            Expected::Subscription,
+            true
+        ),
+        fetch_hit(client, &urls.usage, api_key, Expected::Usage, true),
+        public_fut,
     );
     ProbeRound {
         urls,
@@ -591,6 +921,7 @@ async fn fetch_round(client: &reqwest::Client, api_root: &str, api_key: &str) ->
         subscription,
         usage,
         token,
+        status,
     }
 }
 
@@ -602,11 +933,12 @@ fn finish_round(
     allow_fallback: bool,
 ) -> RoundOutcome {
     let latency_ms = start.elapsed().as_millis() as u64;
+    let token = normalize_token_hit(&round.token, &round.status);
     let outcome = interpret_round(
         &round.grants,
         &round.subscription,
         &round.usage,
-        &round.token,
+        &token,
         &round.urls.credit_grants,
         &round.urls.subscription,
         &round.urls.usage,
@@ -639,39 +971,39 @@ pub async fn probe_quota(
 
     let preview = normalize_base_url(&site.base_url)?;
     let client = crate::http_client::build_client(settings, PROBE_TIMEOUT)?;
-    let round = fetch_round(&client, &preview.codex_base_url, api_key).await;
-
-    match finish_round(&round, start, fetched_at, api_key, true) {
-        RoundOutcome::Available(q) | RoundOutcome::Quiet(q) => Ok(q),
-        RoundOutcome::Fallback => {
-            let Some(origin) = origin_without_v1(&preview.codex_base_url) else {
-                return Ok(quiet(
-                    QuotaProbeStatus::Unsupported,
-                    None,
-                    start.elapsed().as_millis() as u64,
-                    None,
-                ));
-            };
-            if origin == preview.codex_base_url {
-                return Ok(quiet(
-                    QuotaProbeStatus::Unsupported,
-                    None,
-                    start.elapsed().as_millis() as u64,
-                    None,
-                ));
+    let public_bases = public_api_bases(&preview.codex_base_url);
+    let round = fetch_round(
+        &client,
+        &preview.codex_base_url,
+        &public_bases,
+        api_key,
+        true,
+    )
+    .await;
+    let first = finish_round(&round, start, fetched_at, api_key, false);
+    let combined = if outcome_needs_fallback(&first) {
+        match origin_without_v1(&preview.codex_base_url) {
+            Some(origin) if origin != preview.codex_base_url => {
+                let round = fetch_round(&client, &origin, &[], api_key, false).await;
+                combine_round_outcomes(
+                    first,
+                    finish_round(&round, start, fetched_at, api_key, false),
+                )
             }
-            let round = fetch_round(&client, &origin, api_key).await;
-            Ok(match finish_round(&round, start, fetched_at, api_key, false) {
-                RoundOutcome::Available(q) | RoundOutcome::Quiet(q) => q,
-                RoundOutcome::Fallback => quiet(
-                    QuotaProbeStatus::Unsupported,
-                    None,
-                    start.elapsed().as_millis() as u64,
-                    None,
-                ),
-            })
+            _ => first,
         }
-    }
+    } else {
+        first
+    };
+    Ok(match combined {
+        RoundOutcome::Available(quota) | RoundOutcome::Quiet(quota) => quota,
+        RoundOutcome::Fallback => quiet(
+            QuotaProbeStatus::Unsupported,
+            None,
+            start.elapsed().as_millis() as u64,
+            None,
+        ),
+    })
 }
 
 #[cfg(test)]
@@ -679,30 +1011,60 @@ mod tests {
     use super::*;
     use crate::url_normalize::normalize_base_url;
     use serde_json::json;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn today() -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 8, 21).unwrap()
     }
 
-    fn interpret(
-        grants: Hit,
-        sub: Hit,
-        usage: Hit,
-        token: Hit,
-        fallback: bool,
-    ) -> RoundOutcome {
+    async fn mock_quota_server() -> (String, tokio::task::JoinHandle<Vec<String>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for _ in 0..7 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                let mut buffer = [0_u8; 2048];
+                loop {
+                    let read = socket.read(&mut buffer).await.unwrap();
+                    if read == 0 {
+                        break;
+                    }
+                    bytes.extend_from_slice(&buffer[..read]);
+                    if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let request = String::from_utf8_lossy(&bytes).to_string();
+                let (status, body) = if request.starts_with("GET /api/usage/token ") {
+                    (
+                        "200 OK",
+                        r#"{"code":true,"data":{"total_available":750000,"total_used":250000,"total_granted":1000000,"unlimited_quota":false}}"#,
+                    )
+                } else if request.starts_with("GET /api/status ") {
+                    (
+                        "200 OK",
+                        r#"{"success":true,"data":{"quota_per_unit":500000,"quota_display_type":"USD"}}"#,
+                    )
+                } else {
+                    ("404 Not Found", "")
+                };
+                requests.push(request);
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+            requests
+        });
+        (format!("http://{address}"), task)
+    }
+
+    fn interpret(grants: Hit, sub: Hit, usage: Hit, token: Hit, fallback: bool) -> RoundOutcome {
         interpret_round(
-            &grants,
-            &sub,
-            &usage,
-            &token,
-            "g",
-            "s",
-            "u",
-            "t",
-            1,
-            10,
-            fallback,
+            &grants, &sub, &usage, &token, "g", "s", "u", "t", 1, 10, fallback,
         )
     }
 
@@ -733,6 +1095,56 @@ mod tests {
             token_usage_url("https://api.example.com"),
             "https://api.example.com/api/usage/token"
         );
+        assert_eq!(
+            quota_status_url("https://api.example.com"),
+            "https://api.example.com/api/status"
+        );
+    }
+
+    #[tokio::test]
+    async fn quota_http_probe_uses_public_fallback_paths_and_correct_auth_headers() {
+        let (base, server) = mock_quota_server().await;
+        let api_root = format!("{base}/newapi/v1");
+        let public_bases = public_api_bases(&api_root);
+        let client = reqwest::Client::builder().build().unwrap();
+
+        let round = fetch_round(&client, &api_root, &public_bases, "sk-test", true).await;
+        let outcome = finish_round(&round, Instant::now(), 1, "sk-test", false);
+        match outcome {
+            RoundOutcome::Available(quota) => {
+                assert_eq!(quota.source, Some(QuotaSource::TokenUsage));
+                assert_eq!(quota.remaining_usd, Some(1.5));
+                assert_eq!(quota.used_usd, Some(0.5));
+                assert_eq!(quota.total_usd, Some(2.0));
+                assert_eq!(quota.unit.as_deref(), Some("USD"));
+                assert_eq!(
+                    quota.endpoint.as_deref(),
+                    Some(format!("{base}/api/usage/token").as_str())
+                );
+            }
+            other => panic!("expected available token quota, got {other:?}"),
+        }
+
+        let requests = server.await.unwrap();
+        assert_eq!(requests.len(), 7);
+        let token_request = requests
+            .iter()
+            .find(|request| request.starts_with("GET /api/usage/token "))
+            .unwrap()
+            .to_ascii_lowercase();
+        assert!(token_request.contains("authorization: bearer sk-test"));
+        let status_request = requests
+            .iter()
+            .find(|request| request.starts_with("GET /api/status "))
+            .unwrap()
+            .to_ascii_lowercase();
+        assert!(!status_request.contains("authorization:"));
+        assert!(requests
+            .iter()
+            .any(|request| request.starts_with("GET /newapi/api/usage/token ")));
+        assert!(requests
+            .iter()
+            .any(|request| request.starts_with("GET /newapi/api/status ")));
     }
 
     #[test]
@@ -747,6 +1159,33 @@ mod tests {
         );
         assert_eq!(origin_without_v1("https://api.example.com"), None);
         assert_eq!(origin_without_v1("https://v1"), None);
+    }
+
+    #[test]
+    fn public_api_origin_ignores_openai_compatible_path() {
+        assert_eq!(
+            site_origin("https://relay.example.com/openai/v1").as_deref(),
+            Some("https://relay.example.com")
+        );
+        assert_eq!(
+            site_origin("https://relay.example.com:8443/openai/v1").as_deref(),
+            Some("https://relay.example.com:8443")
+        );
+    }
+
+    #[test]
+    fn public_api_candidates_support_path_mounted_and_root_deployments() {
+        assert_eq!(
+            public_api_bases("https://relay.example.com/newapi/v1"),
+            vec![
+                "https://relay.example.com/newapi".to_string(),
+                "https://relay.example.com".to_string(),
+            ]
+        );
+        assert_eq!(
+            public_api_bases("https://relay.example.com/v1"),
+            vec!["https://relay.example.com".to_string()]
+        );
     }
 
     #[test]
@@ -831,12 +1270,64 @@ mod tests {
             Hit::Error(_)
         ));
         assert_eq!(
+            classify_status(408, "slow", Expected::Token),
+            Hit::Error("request timed out".into())
+        );
+        assert_eq!(
+            classify_status(429, "busy", Expected::Token),
+            Hit::Error("HTTP 429".into())
+        );
+        assert_eq!(
             classify_status(403, "<!DOCTYPE html><html>", Expected::Grants),
             Hit::Unsupported
         );
         assert_eq!(
-            classify_status(403, r#"{"error":{"message":"forbidden"}}"#, Expected::Grants),
+            classify_status(
+                403,
+                r#"{"error":{"message":"forbidden"}}"#,
+                Expected::Grants
+            ),
             Hit::Unauthorized
+        );
+        assert_eq!(
+            classify_status(
+                200,
+                r#"{"success":false,"message":"token not found"}"#,
+                Expected::Token
+            ),
+            Hit::Unauthorized
+        );
+        assert_eq!(
+            classify_status(
+                200,
+                r#"{"success":false,"message":"service unavailable"}"#,
+                Expected::Token
+            ),
+            Hit::Error("upstream response indicated failure".into())
+        );
+        assert_eq!(
+            classify_status(
+                200,
+                r#"{"error":{"message":"database unavailable"}}"#,
+                Expected::Grants
+            ),
+            Hit::Error("upstream response indicated failure".into())
+        );
+        assert_eq!(
+            classify_status(
+                200,
+                r#"{"success":false,"message":"status unavailable"}"#,
+                Expected::Status
+            ),
+            Hit::Error("upstream response indicated failure".into())
+        );
+        assert_eq!(
+            classify_status(
+                200,
+                r#"{"code":true,"data":{"total_available":"NaN"}}"#,
+                Expected::Token
+            ),
+            Hit::InvalidData("invalid quota data".into())
         );
     }
 
@@ -868,12 +1359,343 @@ mod tests {
     }
 
     #[test]
+    fn raw_token_usage_respects_unlimited_flag_with_small_negative_balance() {
+        let parsed = parse_token_usage(&json!({
+            "code": true,
+            "data": {
+                "total_available": -108_862_302,
+                "total_granted": 24_035,
+                "total_used": 108_886_337,
+                "unlimited_quota": true
+            },
+            "message": "ok"
+        }))
+        .unwrap();
+
+        assert_eq!(parsed.remaining, Some(-108_862_302.0));
+        assert_eq!(parsed.total, Some(24_035.0));
+        assert!(parsed.unlimited);
+
+        let normalized = normalize_token_usage(parsed, None).unwrap();
+        assert_eq!(normalized.unit, "RAW_QUOTA");
+        let outcome = interpret(
+            Hit::NotFound,
+            Hit::NotFound,
+            Hit::NotFound,
+            Hit::Token(normalized),
+            false,
+        );
+        match outcome {
+            RoundOutcome::Available(quota) => {
+                assert!(quota.unlimited);
+                assert_eq!(quota.remaining_usd, None);
+                assert_eq!(quota.total_usd, None);
+                assert_eq!(quota.unit.as_deref(), Some("RAW_QUOTA"));
+            }
+            other => panic!("expected unlimited quota, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn official_new_api_raw_quota_uses_status_metadata_for_usd() {
+        let token_body = json!({
+            "code": true,
+            "data": {
+                "total_available": 1_000_000,
+                "total_granted": 1_500_000,
+                "total_used": 500_000,
+                "unlimited_quota": false
+            },
+            "message": "ok"
+        })
+        .to_string();
+        let status_body = json!({
+            "success": true,
+            "data": {
+                "quota_per_unit": 500_000,
+                "quota_display_type": "USD",
+                "display_in_currency": true,
+                "usd_exchange_rate": 7.2,
+                "custom_currency_symbol": "¤",
+                "custom_currency_exchange_rate": 2.5
+            }
+        })
+        .to_string();
+
+        let token = classify_status(200, &token_body, Expected::Token);
+        let status = classify_status(200, &status_body, Expected::Status);
+        let Hit::Token(normalized) = normalize_token_hit(&token, &status) else {
+            panic!("expected normalized token usage");
+        };
+        assert_eq!(normalized.remaining, Some(2.0));
+        assert_eq!(normalized.used, Some(1.0));
+        assert_eq!(normalized.total, Some(3.0));
+        assert_eq!(normalized.unit, "USD");
+    }
+
+    #[test]
+    fn raw_quota_supports_cny_tokens_and_custom_display_types() {
+        let raw = parse_token_usage(&json!({
+            "code": true,
+            "data": {
+                "total_available": 500_000,
+                "total_granted": 750_000,
+                "total_used": 250_000,
+                "unlimited_quota": false
+            }
+        }))
+        .unwrap();
+        let cny = parse_quota_status(&json!({
+            "success": true,
+            "data": {
+                "quota_per_unit": 500_000,
+                "quota_display_type": "CNY",
+                "usd_exchange_rate": 7
+            }
+        }))
+        .unwrap();
+        let tokens = parse_quota_status(&json!({
+            "success": true,
+            "data": {
+                "quota_display_type": "TOKENS"
+            }
+        }))
+        .unwrap();
+        let custom = parse_quota_status(&json!({
+            "success": true,
+            "data": {
+                "quota_per_unit": 500_000,
+                "quota_display_type": "CUSTOM",
+                "custom_currency_symbol": "CR",
+                "custom_currency_exchange_rate": 2.5
+            }
+        }))
+        .unwrap();
+
+        let cny = normalize_token_usage(raw.clone(), Some(&cny)).unwrap();
+        assert_eq!(
+            (cny.remaining, cny.used, cny.total),
+            (Some(7.0), Some(3.5), Some(10.5))
+        );
+        assert_eq!(cny.unit, "CNY");
+
+        let tokens = normalize_token_usage(raw.clone(), Some(&tokens)).unwrap();
+        assert_eq!(tokens.remaining, Some(500_000.0));
+        assert_eq!(tokens.unit, "TOKENS");
+
+        let custom = normalize_token_usage(raw, Some(&custom)).unwrap();
+        assert_eq!(custom.remaining, Some(2.5));
+        assert_eq!(custom.used, Some(1.25));
+        assert!((custom.total.unwrap() - 3.75).abs() < 1e-9);
+        assert_eq!(custom.unit, "CR");
+    }
+
+    #[test]
+    fn legacy_currency_flag_and_missing_status_have_explicit_units() {
+        let raw = parse_token_usage(&json!({
+            "code": true,
+            "data": {
+                "total_available": 2,
+                "total_granted": 3,
+                "total_used": 1,
+                "unlimited_quota": false
+            }
+        }))
+        .unwrap();
+        let legacy_tokens = parse_quota_status(&json!({
+            "success": true,
+            "data": {
+                "display_in_currency": false
+            }
+        }))
+        .unwrap();
+        let no_metadata = parse_quota_status(&json!({
+            "success": true,
+            "data": {}
+        }))
+        .unwrap();
+
+        let tokens = normalize_token_usage(raw.clone(), Some(&legacy_tokens)).unwrap();
+        assert_eq!(tokens.unit, "TOKENS");
+        assert_eq!(no_metadata.display_type, QuotaDisplayType::Raw);
+        let raw_from_status = normalize_token_usage(raw.clone(), Some(&no_metadata)).unwrap();
+        assert_eq!(raw_from_status.unit, "RAW_QUOTA");
+        let raw = normalize_token_usage(raw, None).unwrap();
+        assert_eq!(raw.unit, "RAW_QUOTA");
+    }
+
+    #[test]
+    fn token_display_values_take_priority_over_status_conversion() {
+        let token = parse_token_usage(&json!({
+            "code": true,
+            "data": {
+                "display": {
+                    "remaining": 7,
+                    "used": 3,
+                    "total": 10,
+                    "unit": "CNY"
+                },
+                "unlimited_quota": false
+            }
+        }))
+        .unwrap();
+        let status = parse_quota_status(&json!({
+            "success": true,
+            "data": {
+                "quota_per_unit": 500_000,
+                "quota_display_type": "USD"
+            }
+        }))
+        .unwrap();
+
+        let normalized = normalize_token_usage(token, Some(&status)).unwrap();
+        assert_eq!(
+            (normalized.remaining, normalized.used, normalized.total),
+            (Some(7.0), Some(3.0), Some(10.0))
+        );
+        assert_eq!(normalized.unit, "CNY");
+    }
+
+    #[test]
+    fn partial_token_display_does_not_mix_display_and_raw_units() {
+        let token = parse_token_usage(&json!({
+            "code": true,
+            "data": {
+                "display": {
+                    "remaining": 7,
+                    "unit": "CNY"
+                },
+                "total_available": 500_000,
+                "total_granted": 750_000,
+                "total_used": 250_000,
+                "unlimited_quota": false
+            }
+        }))
+        .unwrap();
+        let status = parse_quota_status(&json!({
+            "success": true,
+            "data": {
+                "quota_per_unit": 500_000,
+                "quota_display_type": "USD"
+            }
+        }))
+        .unwrap();
+
+        let normalized = normalize_token_usage(token, Some(&status)).unwrap();
+        assert_eq!(
+            (normalized.remaining, normalized.used, normalized.total),
+            (Some(1.0), Some(0.5), Some(1.5))
+        );
+        assert_eq!(normalized.unit, "USD");
+    }
+
+    #[test]
+    fn complete_display_values_do_not_use_a_currency_agnostic_unlimited_threshold() {
+        let token = parse_token_usage(&json!({
+            "code": true,
+            "data": {
+                "display": {
+                    "remaining": 150_000,
+                    "used": 50_000,
+                    "total": 200_000,
+                    "unit": "TOKENS"
+                },
+                "total_available": -1,
+                "total_granted": 1,
+                "total_used": 2,
+                "unlimited_quota": true
+            }
+        }))
+        .unwrap();
+
+        assert!(!token.unlimited);
+        assert_eq!(token.total, Some(200_000.0));
+    }
+
+    #[test]
+    fn inconsistent_finite_token_data_returns_invalid_data_without_fallback() {
+        let token = parse_token_usage(&json!({
+            "code": true,
+            "data": {
+                "total_available": 0,
+                "total_granted": 24_035,
+                "total_used": 108_886_337,
+                "unlimited_quota": false
+            },
+            "message": "ok"
+        }))
+        .unwrap();
+        let error = normalize_token_usage(token, None).unwrap_err();
+        let outcome = interpret(
+            Hit::NotFound,
+            Hit::NotFound,
+            Hit::NotFound,
+            Hit::InvalidData(error),
+            false,
+        );
+
+        match outcome {
+            RoundOutcome::Quiet(quota) => {
+                assert_eq!(quota.status, QuotaProbeStatus::InvalidData);
+                assert_eq!(quota.error.as_deref(), Some("inconsistent quota data"));
+            }
+            other => panic!("expected invalid data, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn valid_credit_grants_win_when_token_data_is_invalid() {
+        let token = parse_token_usage(&json!({
+            "code": true,
+            "data": {
+                "total_available": 0,
+                "total_granted": 10,
+                "total_used": 11,
+                "unlimited_quota": false
+            }
+        }))
+        .unwrap();
+        let token = normalize_token_usage(token, None)
+            .map(Hit::Token)
+            .unwrap_or_else(Hit::InvalidData);
+        let outcome = interpret(
+            Hit::Grants(Grants {
+                remaining: Some(8.0),
+                used: Some(2.0),
+                total: Some(10.0),
+            }),
+            Hit::NotFound,
+            Hit::NotFound,
+            token,
+            false,
+        );
+
+        match outcome {
+            RoundOutcome::Available(quota) => {
+                assert_eq!(quota.source, Some(QuotaSource::CreditGrants));
+                assert_eq!(quota.remaining_usd, Some(8.0));
+            }
+            other => panic!("expected credit grants, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn invalid_data_status_serializes_with_snake_case_contract() {
+        assert_eq!(
+            serde_json::to_string(&QuotaProbeStatus::InvalidData).unwrap(),
+            r#""invalid_data""#
+        );
+    }
+
+    #[test]
     fn token_usage_wins_over_dummy_unlimited_subscription() {
         let sub = Hit::Subscription(Subscription {
             limit_usd: Some(100_000_000.0),
             expires_at: None,
         });
-        let usage = Hit::Usage(Usage { total_usage: 8.9686 });
+        let usage = Hit::Usage(Usage {
+            total_usage: 8.9686,
+        });
         let token = Hit::Token(TokenUsage {
             remaining: Some(999.69),
             used: Some(0.31),
@@ -881,6 +1703,7 @@ mod tests {
             unit: "CNY".into(),
             unlimited: false,
             expires_at: None,
+            has_display: true,
         });
         let outcome = interpret(Hit::NotFound, sub, usage, token, true);
         match outcome {
@@ -935,27 +1758,36 @@ mod tests {
     }
 
     #[test]
-    fn subscription_usage_converts_and_clamps() {
+    fn inconsistent_subscription_usage_tries_fallback_before_invalid_data() {
         let grants = Hit::NotFound;
         let sub = Hit::Subscription(Subscription {
             limit_usd: Some(20.0),
             expires_at: None,
         });
-        let usage = Hit::Usage(Usage { total_usage: 2500.0 });
-        let outcome = interpret(grants, sub, usage, Hit::Unsupported, true);
+        let usage = Hit::Usage(Usage {
+            total_usage: 2500.0,
+        });
+        let outcome = interpret(
+            grants.clone(),
+            sub.clone(),
+            usage.clone(),
+            Hit::Unsupported,
+            true,
+        );
+        assert_eq!(outcome, RoundOutcome::Fallback);
+
+        let outcome = interpret(grants, sub, usage, Hit::Unsupported, false);
         match outcome {
-            RoundOutcome::Available(q) => {
-                assert_eq!(q.source, Some(QuotaSource::SubscriptionUsage));
-                assert_eq!(q.used_usd, Some(25.0));
-                assert_eq!(q.remaining_usd, Some(0.0));
-                assert_eq!(q.total_usd, Some(20.0));
+            RoundOutcome::Quiet(q) => {
+                assert_eq!(q.status, QuotaProbeStatus::InvalidData);
+                assert_eq!(q.error.as_deref(), Some("inconsistent quota data"));
             }
-            other => panic!("expected available, got {other:?}"),
+            other => panic!("expected invalid data, got {other:?}"),
         }
     }
 
     #[test]
-    fn huge_hard_limit_is_unlimited() {
+    fn legacy_hard_limit_is_not_guessed_as_unlimited() {
         let grants = Hit::NotFound;
         let sub = Hit::Subscription(Subscription {
             limit_usd: Some(100_000_000.0),
@@ -965,12 +1797,86 @@ mod tests {
         let outcome = interpret(grants, sub, usage, Hit::Unsupported, true);
         match outcome {
             RoundOutcome::Available(q) => {
-                assert!(q.unlimited);
-                assert_eq!(q.total_usd, None);
+                assert!(!q.unlimited);
+                assert_eq!(q.total_usd, Some(100_000_000.0));
                 assert_eq!(q.remaining_usd, None);
                 assert_eq!(q.source, Some(QuotaSource::SubscriptionOnly));
             }
             other => panic!("expected available, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn subscription_expiry_without_amount_is_not_available_quota() {
+        let outcome = interpret(
+            Hit::NotFound,
+            Hit::Subscription(Subscription {
+                limit_usd: None,
+                expires_at: Some(1_767_225_600),
+            }),
+            Hit::NotFound,
+            Hit::Unsupported,
+            false,
+        );
+        match outcome {
+            RoundOutcome::Quiet(quota) => {
+                assert_eq!(quota.status, QuotaProbeStatus::Unsupported)
+            }
+            other => panic!("expected unsupported quota, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn combined_rounds_keep_strongest_diagnostic_and_source_priority() {
+        let unauthorized = interpret(
+            Hit::Unauthorized,
+            Hit::NotFound,
+            Hit::NotFound,
+            Hit::Unsupported,
+            false,
+        );
+        let unsupported = interpret(
+            Hit::NotFound,
+            Hit::NotFound,
+            Hit::NotFound,
+            Hit::Unsupported,
+            false,
+        );
+        let combined = combine_round_outcomes(unauthorized, unsupported);
+        match combined {
+            RoundOutcome::Quiet(quota) => {
+                assert_eq!(quota.status, QuotaProbeStatus::Unauthorized)
+            }
+            other => panic!("expected unauthorized quota, got {other:?}"),
+        }
+
+        let subscription = interpret(
+            Hit::NotFound,
+            Hit::Subscription(Subscription {
+                limit_usd: Some(100.0),
+                expires_at: None,
+            }),
+            Hit::NotFound,
+            Hit::Unsupported,
+            false,
+        );
+        let grants = interpret(
+            Hit::Grants(Grants {
+                remaining: Some(80.0),
+                used: Some(20.0),
+                total: Some(100.0),
+            }),
+            Hit::NotFound,
+            Hit::NotFound,
+            Hit::Unsupported,
+            false,
+        );
+        let combined = combine_round_outcomes(subscription, grants);
+        match combined {
+            RoundOutcome::Available(quota) => {
+                assert_eq!(quota.source, Some(QuotaSource::CreditGrants))
+            }
+            other => panic!("expected grants quota, got {other:?}"),
         }
     }
 

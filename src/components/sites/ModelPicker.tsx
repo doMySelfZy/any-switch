@@ -18,6 +18,34 @@ interface Props {
   onFetch?: () => void | Promise<void>;
 }
 
+interface ModelFetchErrorPresentation {
+  messageKey: string;
+  details?: string;
+}
+
+function modelFetchErrorPresentation(error: string): ModelFetchErrorPresentation {
+  if (error === "unauthorized") {
+    return { messageKey: "sites.modelListUnauthorized" };
+  }
+  if (error === "timeout" || error === "request timed out") {
+    return { messageKey: "errors.timeout" };
+  }
+  const knownCode = ["network", "not_found", "invalid_response", "ssl"].find(
+    (code) => code === error,
+  );
+  if (knownCode) {
+    return { messageKey: `errors.${knownCode}` };
+  }
+  const httpStatus = error.match(/\bHTTP\s+([45]\d\d)\b/i)?.[1];
+  if (httpStatus) {
+    return {
+      messageKey: "sites.modelListFetchTechnicalDetails",
+      details: `HTTP ${httpStatus}`,
+    };
+  }
+  return { messageKey: "sites.modelListFetchRetry" };
+}
+
 export function ModelPicker({
   site,
   models: modelsProp,
@@ -41,6 +69,9 @@ export function ModelPicker({
   const [testOpen, setTestOpen] = useState(false);
   const modelsFromStore = useSiteStore((s) => s.modelsBySite[site.id]);
   const models = modelsFromStore ?? modelsProp;
+  const fetchError = site.lastModelFetchError
+    ? modelFetchErrorPresentation(site.lastModelFetchError)
+    : null;
 
   // Default primary model to the first fetched model.
   useEffect(() => {
@@ -94,7 +125,13 @@ export function ModelPicker({
         await setSelectedModel(site.id, result.models[0].modelId);
       }
     } catch (e) {
-      message.error(isAppError(e) ? e.message : String(e));
+      message.error(
+        isAppError(e)
+          ? e.code === "unauthorized"
+            ? t("sites.modelListUnauthorized")
+            : t(`errors.${e.code}`)
+          : t("sites.modelListFetchRetry"),
+      );
     }
   };
 
@@ -255,8 +292,17 @@ export function ModelPicker({
       )}
 
       {site.lastModelFetchError && (
-        <div className="shrink-0 text-xs text-red-500">
-          {t("sites.lastError", { error: site.lastModelFetchError })}
+        <div
+          className="shrink-0 text-xs"
+          style={{ color: token.colorError }}
+          role="alert"
+        >
+          <div className="font-medium">{t("sites.modelListFetchFailed")}</div>
+          <div>
+            {fetchError?.details
+              ? t(fetchError.messageKey, { details: fetchError.details })
+              : t(fetchError?.messageKey ?? "sites.modelListFetchRetry")}
+          </div>
         </div>
       )}
 

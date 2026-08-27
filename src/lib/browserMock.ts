@@ -127,6 +127,8 @@ let webdavLastSuccessAt: number | null = null;
 const models = new Map<string, SiteModel[]>();
 const keys = new Map<string, string>();
 const exclusions = new Map<string, Set<string>>();
+let quotaProbeCallCount = 0;
+let quotaProbeHandler: ((site: Site) => SiteQuota | Promise<SiteQuota>) | null = null;
 
 export function resetBrowserMock() {
   settings = { ...DEFAULT_SETTINGS };
@@ -151,6 +153,18 @@ export function resetBrowserMock() {
   models.clear();
   keys.clear();
   exclusions.clear();
+  quotaProbeCallCount = 0;
+  quotaProbeHandler = null;
+}
+
+export function getBrowserQuotaProbeCallCount() {
+  return quotaProbeCallCount;
+}
+
+export function setBrowserQuotaProbeHandler(
+  handler: ((site: Site) => SiteQuota | Promise<SiteQuota>) | null,
+) {
+  quotaProbeHandler = handler;
 }
 
 export function seedTargetStatuses(items: TargetLiveStatus[]) {
@@ -228,6 +242,7 @@ export async function handleBrowserCommand<T>(
         baseUrl: urls[0] ?? "",
         baseUrls: urls,
         keyPrefix: keyPrefix(input.apiKey),
+        quotaRevision: uid(),
         hasKey: true,
         protocol: input.protocol ?? "openai_compatible",
         claudeAuthKeyStyle: input.claudeAuthKeyStyle ?? "anthropic_auth_token",
@@ -275,6 +290,7 @@ export async function handleBrowserCommand<T>(
           name,
           notes: input.notes !== undefined ? input.notes : existing.notes,
           keyPrefix: sameKey ? existing.keyPrefix : keyPrefix(apiKey),
+          quotaRevision: sameKey ? existing.quotaRevision : uid(),
           capabilities:
             input.capabilities !== undefined ? input.capabilities : existing.capabilities,
           updatedAt: now(),
@@ -335,6 +351,7 @@ export async function handleBrowserCommand<T>(
           baseUrl,
           baseUrls,
           keyPrefix: input.apiKey ? keyPrefix(input.apiKey) : s.keyPrefix,
+          quotaRevision: input.apiKey ? uid() : s.quotaRevision,
           protocol: input.protocol ?? s.protocol,
           claudeAuthKeyStyle: input.claudeAuthKeyStyle ?? s.claudeAuthKeyStyle,
           notes: input.notes !== undefined ? input.notes : s.notes,
@@ -767,9 +784,11 @@ export async function handleBrowserCommand<T>(
       return results as T;
     }
     case "probe_site_quota": {
+      quotaProbeCallCount += 1;
       const siteId = String(args?.siteId ?? "");
       const site = sites.find((s) => s.id === siteId);
       if (!site) throw { code: "not_found", message: "Site not found" };
+      if (quotaProbeHandler) return (await quotaProbeHandler(site)) as T;
       if (!site.hasKey || /no-quota/i.test(site.baseUrl) || /no-quota/i.test(site.name)) {
         const unsupported: SiteQuota = {
           status: "unsupported",

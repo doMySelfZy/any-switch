@@ -31,6 +31,7 @@ const site: Site = {
   baseUrl: "https://api.example.com",
   baseUrls: ["https://api.example.com"],
   keyPrefix: "sk-",
+  quotaRevision: "rev-1",
   hasKey: true,
   protocol: "openai_compatible",
   claudeAuthKeyStyle: "anthropic_auth_token",

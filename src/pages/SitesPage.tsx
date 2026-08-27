@@ -37,7 +37,9 @@ export function SitesPage() {
   const fetchModels = useSiteStore((s) => s.fetchModels);
   const probeQuota = useSiteStore((s) => s.probeQuota);
   const quotaBySite = useSiteStore((s) => s.quotaBySite);
+  const quotaAttemptBySite = useSiteStore((s) => s.quotaAttemptBySite);
   const quotaCacheKeyBySite = useSiteStore((s) => s.quotaCacheKeyBySite);
+  const quotaAttemptCacheKeyBySite = useSiteStore((s) => s.quotaAttemptCacheKeyBySite);
   const quotaLoadingBySite = useSiteStore((s) => s.quotaLoadingBySite);
   const setSelectedModel = useSiteStore((s) => s.setSelectedModel);
   const deleteSite = useSiteStore((s) => s.deleteSite);
@@ -110,8 +112,37 @@ export function SitesPage() {
 
   useEffect(() => {
     if (!selected?.id || !selected.hasKey) return;
-    void probeQuota(selected.id).catch(() => undefined);
-  }, [selected?.id, selected?.baseUrl, selected?.keyPrefix, selected?.hasKey, probeQuota]);
+    void probeQuota(selected.id).catch(() => {
+      message.error(t("sites.quotaRefreshFailed"));
+    });
+  }, [
+    selected?.id,
+    selected?.baseUrl,
+    selected?.quotaRevision,
+    selected?.hasKey,
+    probeQuota,
+    message,
+    t,
+  ]);
+
+  useEffect(() => {
+    if (!selected?.id || !selected.hasKey) return;
+    const refreshOnFocus = () => {
+      void probeQuota(selected.id).catch(() => {
+        message.error(t("sites.quotaRefreshFailed"));
+      });
+    };
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+  }, [
+    selected?.id,
+    selected?.baseUrl,
+    selected?.quotaRevision,
+    selected?.hasKey,
+    probeQuota,
+    message,
+    t,
+  ]);
 
   const handleFetchModels = useCallback(
     async (site: Site) => {
@@ -122,7 +153,13 @@ export function SitesPage() {
         }
         message.success(t("sites.fetchModelsSuccess", { count: result.models.length }));
       } catch (e) {
-        message.error(isAppError(e) ? e.message : String(e));
+        message.error(
+          isAppError(e)
+            ? e.code === "unauthorized"
+              ? t("sites.modelListUnauthorized")
+              : t(`errors.${e.code}`)
+            : t("sites.modelListFetchRetry"),
+        );
       }
     },
     [fetchModels, setSelectedModel, message, t],
@@ -425,6 +462,11 @@ export function SitesPage() {
                   quota={
                     quotaCacheKeyBySite[selected.id] === quotaCacheKey(selected)
                       ? (quotaBySite[selected.id] ?? null)
+                      : null
+                  }
+                  attempt={
+                    quotaAttemptCacheKeyBySite[selected.id] === quotaCacheKey(selected)
+                      ? (quotaAttemptBySite[selected.id] ?? null)
                       : null
                   }
                   loading={Boolean(quotaLoadingBySite[selected.id])}

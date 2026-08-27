@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { SiteQuota } from "@/types/domain";
 import {
   formatExpiryDate,
-  formatQuotaAmount,
+  formatQuotaAmountParts,
   quotaRemainingPercent,
   quotaTone,
   shouldShowExpiry,
@@ -12,20 +12,69 @@ import {
 
 interface Props {
   quota: SiteQuota | null;
+  attempt?: SiteQuota | null;
   loading: boolean;
   refreshing?: boolean;
   onRefresh: () => void;
 }
 
-export function SiteQuotaRow({ quota, loading, refreshing, onRefresh }: Props) {
+const quotaStatusMessageKeys: Record<string, string> = {
+  unsupported: "sites.quotaUnsupported",
+  unauthorized: "sites.quotaUnauthorized",
+  error: "sites.quotaError",
+  invalid_data: "sites.quotaInvalidData",
+};
+
+function quotaStatusMessageKey(quota: SiteQuota | null): string | null {
+  if (!quota) return null;
+  if (quota.status === "error" && quota.error === "request timed out") {
+    return "sites.quotaTimeout";
+  }
+  if (quota.status === "error" && /^HTTP 5\d\d$/.test(quota.error ?? "")) {
+    return "sites.quotaUpstreamError";
+  }
+  return quotaStatusMessageKeys[quota.status] ?? null;
+}
+
+export function SiteQuotaRow({ quota, attempt, loading, refreshing, onRefresh }: Props) {
   const { t, i18n } = useTranslation();
   const { token } = theme.useToken();
+  const latestAttempt = attempt ?? quota;
 
   if (loading && quota?.status !== "available") {
     return (
       <div className="flex gap-2" data-testid="site-quota-loading">
         <span className="w-28 shrink-0 opacity-50">{t("sites.quota")}</span>
         <Skeleton.Input active size="small" style={{ width: 180, minWidth: 180, height: 18 }} />
+      </div>
+    );
+  }
+
+  const statusMessageKey = quotaStatusMessageKey(latestAttempt);
+  if (quota?.status !== "available" && statusMessageKey) {
+    return (
+      <div
+        className="flex gap-2"
+        data-testid="site-quota-status"
+        role="status"
+        aria-live="polite"
+      >
+        <span className="w-28 shrink-0 opacity-50">{t("sites.quota")}</span>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span className="min-w-0 text-xs" style={{ color: token.colorTextSecondary }}>
+            {t(statusMessageKey)}
+          </span>
+          <Tooltip title={t("sites.quotaRefresh")}>
+            <Button
+              type="text"
+              size="small"
+              loading={Boolean(refreshing)}
+              icon={<RefreshCw size={14} />}
+              onClick={onRefresh}
+              aria-label={t("sites.quotaRefresh")}
+            />
+          </Tooltip>
+        </div>
       </div>
     );
   }
@@ -41,7 +90,11 @@ export function SiteQuotaRow({ quota, loading, refreshing, onRefresh }: Props) {
         ? token.colorWarning
         : token.colorPrimary;
 
-  const money = (n: number) => formatQuotaAmount(n, quota.unit);
+  const money = (n: number) => {
+    const parts = formatQuotaAmountParts(n, quota.unit);
+    const unit = parts.unitI18nKey ? t(parts.unitI18nKey) : parts.unit;
+    return unit ? `${parts.value} ${unit}` : parts.value;
+  };
   const primary = quota.unlimited
     ? t("sites.quotaUnlimited")
     : quota.remainingUsd != null
@@ -50,19 +103,25 @@ export function SiteQuotaRow({ quota, loading, refreshing, onRefresh }: Props) {
         ? t("sites.quotaUsed", { amount: money(quota.usedUsd) })
         : quota.totalUsd != null
           ? money(quota.totalUsd)
-          : t("sites.quotaUnlimited");
+          : t("sites.quotaUnknown");
 
-  let secondary: string | null = null;
+  const secondary: string[] = [];
   if (!quota.unlimited && quota.usedUsd != null && quota.totalUsd != null) {
-    secondary = t("sites.quotaUsedOfTotal", {
-      used: money(quota.usedUsd),
-      total: money(quota.totalUsd),
-    });
+    secondary.push(
+      t("sites.quotaUsedOfTotal", {
+        used: money(quota.usedUsd),
+        total: money(quota.totalUsd),
+      }),
+    );
   } else if (quota.unlimited && quota.usedUsd != null) {
-    secondary = t("sites.quotaUsed", { amount: money(quota.usedUsd) });
+    secondary.push(t("sites.quotaCumulativeUsed", { amount: money(quota.usedUsd) }));
+  }
+  if (quota.unlimited) {
+    secondary.push(t("sites.quotaBalanceUnknown"));
   }
 
   const showExpiry = shouldShowExpiry(quota.expiresAt);
+  const latestAttemptFailed = latestAttempt?.status !== "available";
   const mins = Math.max(0, Math.round((Date.now() - quota.fetchedAt) / 60_000));
   const updated =
     mins < 1
@@ -75,12 +134,12 @@ export function SiteQuotaRow({ quota, loading, refreshing, onRefresh }: Props) {
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="min-w-0 truncate">{primary}</span>
-          {secondary && (
-            <>
+          {secondary.map((detail) => (
+            <span className="contents" key={detail}>
               <span className="opacity-40">·</span>
-              <span className="min-w-0 truncate opacity-70">{secondary}</span>
-            </>
-          )}
+              <span className="min-w-0 truncate opacity-70">{detail}</span>
+            </span>
+          ))}
           <Tooltip title={t("sites.quotaRefresh")}>
             <Button
               type="text"
@@ -100,6 +159,16 @@ export function SiteQuotaRow({ quota, loading, refreshing, onRefresh }: Props) {
             strokeColor={stroke}
             style={{ marginBottom: 0, marginTop: 4 }}
           />
+        )}
+        {latestAttemptFailed && (
+          <div
+            className="mt-0.5 text-xs"
+            style={{ color: token.colorWarning }}
+            role="status"
+            aria-live="polite"
+          >
+            {t("sites.quotaLastSuccessRefreshFailed")}
+          </div>
         )}
         <div className="mt-0.5 text-xs opacity-50">
           {showExpiry && quota.expiresAt != null && (

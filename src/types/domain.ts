@@ -46,6 +46,8 @@ export interface Site {
   baseUrl: string;
   baseUrls: string[];
   keyPrefix: string;
+  /** Opaque revision of the stored credential, never the credential itself. */
+  quotaRevision: string;
   hasKey: boolean;
   protocol: SiteProtocol;
   claudeAuthKeyStyle: ClaudeAuthKeyStyle;
@@ -314,7 +316,12 @@ export interface ModelProbeResult {
   endpoint: string;
 }
 
-export type QuotaProbeStatus = "available" | "unsupported" | "unauthorized" | "error";
+export type QuotaProbeStatus =
+  | "available"
+  | "unsupported"
+  | "unauthorized"
+  | "invalid_data"
+  | "error";
 
 export type QuotaSource =
   | "credit_grants"

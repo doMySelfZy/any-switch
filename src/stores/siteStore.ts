@@ -27,7 +27,9 @@ interface SiteState {
   /** Per-site model list fetch in progress. */
   modelsLoadingBySite: Record<string, boolean>;
   quotaBySite: Record<string, SiteQuota>;
+  quotaAttemptBySite: Record<string, SiteQuota>;
   quotaCacheKeyBySite: Record<string, string>;
+  quotaAttemptCacheKeyBySite: Record<string, string>;
   quotaLoadingBySite: Record<string, boolean>;
   loading: boolean;
   /** True after at least one successful sites load. */
@@ -53,12 +55,33 @@ interface SiteState {
   clearModels: (siteId: string) => Promise<void>;
 }
 
+function withoutSite<T>(record: Record<string, T>, siteId: string): Record<string, T> {
+  const next = { ...record };
+  delete next[siteId];
+  return next;
+}
+
+function clearSiteQuotaState(state: SiteState, siteId: string) {
+  for (const key of quotaInflight.keys()) {
+    if (key.startsWith(`${siteId}:`)) quotaInflight.delete(key);
+  }
+  return {
+    quotaBySite: withoutSite(state.quotaBySite, siteId),
+    quotaAttemptBySite: withoutSite(state.quotaAttemptBySite, siteId),
+    quotaCacheKeyBySite: withoutSite(state.quotaCacheKeyBySite, siteId),
+    quotaAttemptCacheKeyBySite: withoutSite(state.quotaAttemptCacheKeyBySite, siteId),
+    quotaLoadingBySite: withoutSite(state.quotaLoadingBySite, siteId),
+  };
+}
+
 export const useSiteStore = create<SiteState>((set, get) => ({
   sites: [],
   modelsBySite: {},
   modelsLoadingBySite: {},
   quotaBySite: {},
+  quotaAttemptBySite: {},
   quotaCacheKeyBySite: {},
+  quotaAttemptCacheKeyBySite: {},
   quotaLoadingBySite: {},
   loading: false,
   hydrated: false,
@@ -103,18 +126,30 @@ export const useSiteStore = create<SiteState>((set, get) => ({
     });
     const sites = get().sites;
     const idx = sites.findIndex((s) => s.id === result.site.id);
+    const previous = idx >= 0 ? sites[idx] : undefined;
+    const quotaConfigChanged = Boolean(
+      previous && quotaCacheKey(previous) !== quotaCacheKey(result.site),
+    );
     set({
       sites:
         idx >= 0
           ? sites.map((s) => (s.id === result.site.id ? result.site : s))
           : [...sites, result.site],
       hydrated: true,
+      ...(quotaConfigChanged ? clearSiteQuotaState(get(), result.site.id) : {}),
     });
     return result;
   },
   updateSite: async (id, input) => {
+    const previous = get().sites.find((s) => s.id === id);
     const site = await invoke<Site>("update_site", { id, input });
-    set({ sites: get().sites.map((s) => (s.id === id ? site : s)) });
+    const quotaConfigChanged = Boolean(
+      previous && quotaCacheKey(previous) !== quotaCacheKey(site),
+    );
+    set({
+      sites: get().sites.map((s) => (s.id === id ? site : s)),
+      ...(quotaConfigChanged ? clearSiteQuotaState(get(), id) : {}),
+    });
     return site;
   },
   switchRoute: async (siteId, baseUrl, opts) => {
@@ -124,7 +159,12 @@ export const useSiteStore = create<SiteState>((set, get) => ({
       baseUrl,
       apply: opts?.apply !== false,
     });
-    set({ sites: get().sites.map((s) => (s.id === siteId ? result.site : s)) });
+    set({
+      sites: get().sites.map((s) => (s.id === siteId ? result.site : s)),
+      ...(prev && quotaCacheKey(prev) !== quotaCacheKey(result.site)
+        ? clearSiteQuotaState(get(), siteId)
+        : {}),
+    });
     const prevOrigin = prev ? originFromBaseUrl(prev.baseUrl) : null;
     const nextOrigin = originFromBaseUrl(result.site.baseUrl);
     if (prevOrigin !== nextOrigin) {
@@ -139,20 +179,11 @@ export const useSiteStore = create<SiteState>((set, get) => ({
     delete modelsBySite[id];
     const modelsLoadingBySite = { ...get().modelsLoadingBySite };
     delete modelsLoadingBySite[id];
-    const quotaBySite = { ...get().quotaBySite };
-    delete quotaBySite[id];
-    const quotaCacheKeyBySite = { ...get().quotaCacheKeyBySite };
-    delete quotaCacheKeyBySite[id];
-    const quotaLoadingBySite = { ...get().quotaLoadingBySite };
-    delete quotaLoadingBySite[id];
-    quotaInflight.delete(id);
     set({
       sites: get().sites.filter((s) => s.id !== id),
       modelsBySite,
       modelsLoadingBySite,
-      quotaBySite,
-      quotaCacheKeyBySite,
-      quotaLoadingBySite,
+      ...clearSiteQuotaState(get(), id),
     });
   },
   fetchModels: async (siteId) => {
@@ -229,8 +260,12 @@ export const useSiteStore = create<SiteState>((set, get) => ({
       throw { code: "not_found", message: "site not found" };
     }
     const key = quotaCacheKey(site);
-    const cached = get().quotaBySite[siteId];
-    const cachedKey = get().quotaCacheKeyBySite[siteId];
+    const pending = quotaInflight.get(key);
+    if (pending) {
+      return pending;
+    }
+    const cached = get().quotaAttemptBySite[siteId];
+    const cachedKey = get().quotaAttemptCacheKeyBySite[siteId];
     if (
       !opts?.force &&
       cached &&
@@ -239,25 +274,34 @@ export const useSiteStore = create<SiteState>((set, get) => ({
     ) {
       return cached;
     }
-    const pending = quotaInflight.get(siteId);
-    if (!opts?.force && pending) {
-      return pending;
-    }
 
     set({
       quotaLoadingBySite: { ...get().quotaLoadingBySite, [siteId]: true },
     });
+    let run: Promise<SiteQuota>;
     const storeIfCurrent = (quota: SiteQuota) => {
       const current = get().sites.find((s) => s.id === siteId);
-      if (current && quotaCacheKey(current) === key) {
-        set({
-          quotaBySite: { ...get().quotaBySite, [siteId]: quota },
-          quotaCacheKeyBySite: { ...get().quotaCacheKeyBySite, [siteId]: key },
-        });
+      if (quotaInflight.get(key) === run && current && quotaCacheKey(current) === key) {
+        const next = {
+          quotaAttemptBySite: { ...get().quotaAttemptBySite, [siteId]: quota },
+          quotaAttemptCacheKeyBySite: {
+            ...get().quotaAttemptCacheKeyBySite,
+            [siteId]: key,
+          },
+        };
+        set(
+          quota.status === "available"
+            ? {
+                ...next,
+                quotaBySite: { ...get().quotaBySite, [siteId]: quota },
+                quotaCacheKeyBySite: { ...get().quotaCacheKeyBySite, [siteId]: key },
+              }
+            : next,
+        );
       }
       return quota;
     };
-    const run = invoke<SiteQuota>("probe_site_quota", { siteId })
+    run = invoke<SiteQuota>("probe_site_quota", { siteId })
       .then(storeIfCurrent)
       .catch((e) => {
         const message =
@@ -280,12 +324,19 @@ export const useSiteStore = create<SiteState>((set, get) => ({
         });
       })
       .finally(() => {
-        quotaInflight.delete(siteId);
+        if (quotaInflight.get(key) === run) quotaInflight.delete(key);
+        const current = get().sites.find((s) => s.id === siteId);
+        const loading = { ...get().quotaLoadingBySite };
+        if (current) {
+          loading[siteId] = quotaInflight.has(quotaCacheKey(current));
+        } else {
+          delete loading[siteId];
+        }
         set({
-          quotaLoadingBySite: { ...get().quotaLoadingBySite, [siteId]: false },
+          quotaLoadingBySite: loading,
         });
       });
-    quotaInflight.set(siteId, run);
+    quotaInflight.set(key, run);
     return run;
   },
   setSelectedModel: async (siteId, modelId) => {
