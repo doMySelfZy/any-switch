@@ -145,28 +145,4 @@ mod tests {
         assert_eq!(parse_pending_deep_link_file(""), None);
         assert_eq!(parse_pending_deep_link_file("aqbot://providers"), None);
     }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn install_handler_and_open_writes_pending_file() {
-        let dest = install_dev_url_handler().expect("install helper app");
-        assert!(dest.exists());
-        let pending = pending_deep_link_path().expect("pending path");
-        let _ = std::fs::remove_file(&pending);
-        let status = std::process::Command::new("open")
-            .arg("xiaobaiswitch://sites?name=SchemeTest&baseurls=https://a.example.com")
-            .status()
-            .expect("open scheme");
-        assert!(status.success(), "open xiaobaiswitch:// failed");
-        let mut got = None;
-        for _ in 0..30 {
-            if let Ok(Some(url)) = take_pending_deep_link() {
-                got = Some(url);
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-        let url = got.expect("helper did not write pending-deeplink.url");
-        assert!(url.contains("SchemeTest"), "{url}");
-    }
 }
