@@ -15,6 +15,7 @@ import { openExternalUrl } from "@/lib/openUrl";
 import type { AppPaths, AppSettings, ProxyMode, ProxyProtocol } from "@/types/domain";
 import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
 import { SettingsGroup } from "@/components/settings/SettingsGroup";
+import { WebDavBackupSettings } from "@/components/settings/WebDavBackupSettings";
 import { useUpdateCheckBusy, useUpdateChecker } from "@/hooks/useUpdateChecker";
 import appIconUrl from "../../assets/brand/app-icon-1024.png?url";
 
@@ -396,6 +397,7 @@ function BackupSection() {
           </>
         )}
       </SettingsGroup>
+      <WebDavBackupSettings />
     </div>
   );
 }

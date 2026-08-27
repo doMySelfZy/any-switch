@@ -113,6 +113,27 @@ CREATE TABLE IF NOT EXISTS site_model_exclusions (
   PRIMARY KEY (site_id, model_id)
 );
 
+CREATE TABLE IF NOT EXISTS webdav_config (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  base_url TEXT NOT NULL,
+  username TEXT NOT NULL,
+  password_encrypted TEXT NOT NULL,
+  remote_path TEXT NOT NULL DEFAULT 'xiaobai-switch',
+  accept_invalid_certs INTEGER NOT NULL DEFAULT 0,
+  auto_sync_enabled INTEGER NOT NULL DEFAULT 0,
+  sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
+  max_remote_backups INTEGER NOT NULL DEFAULT 10,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS webdav_sync_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  last_attempt_at INTEGER,
+  last_success_at INTEGER,
+  status TEXT NOT NULL DEFAULT 'never',
+  error TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_apply_records_target_time ON apply_records(target, applied_at DESC);
 CREATE INDEX IF NOT EXISTS idx_target_bindings_orphan ON target_bindings(orphan);
 "#,

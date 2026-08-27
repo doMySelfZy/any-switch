@@ -437,6 +437,117 @@ pub struct AppSettings {
     pub start_in_tray: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebDavConfigView {
+    pub base_url: String,
+    pub username: String,
+    pub remote_path: String,
+    pub accept_invalid_certs: bool,
+    pub has_password: bool,
+    pub auto_sync_enabled: bool,
+    pub sync_interval_minutes: u32,
+    pub max_remote_backups: u32,
+}
+
+impl Default for WebDavConfigView {
+    fn default() -> Self {
+        Self {
+            base_url: String::new(),
+            username: String::new(),
+            remote_path: "xiaobai-switch".into(),
+            accept_invalid_certs: false,
+            has_password: false,
+            auto_sync_enabled: false,
+            sync_interval_minutes: 60,
+            max_remote_backups: 10,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveWebDavConfigInput {
+    pub base_url: String,
+    pub username: String,
+    #[serde(default)]
+    pub password: Option<String>,
+    pub remote_path: String,
+    #[serde(default)]
+    pub accept_invalid_certs: bool,
+    #[serde(default)]
+    pub auto_sync_enabled: bool,
+    pub sync_interval_minutes: u32,
+    pub max_remote_backups: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestWebDavConnectionInput {
+    pub base_url: String,
+    pub username: String,
+    #[serde(default)]
+    pub password: Option<String>,
+    pub remote_path: String,
+    #[serde(default)]
+    pub accept_invalid_certs: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteBackupInfo {
+    pub file_name: String,
+    pub size: u64,
+    pub last_modified: String,
+    pub device_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebDavSyncStatus {
+    pub last_attempt_at: Option<i64>,
+    pub last_success_at: Option<i64>,
+    pub status: String,
+    pub error: Option<String>,
+}
+
+impl Default for WebDavSyncStatus {
+    fn default() -> Self {
+        Self {
+            last_attempt_at: None,
+            last_success_at: None,
+            status: "never".into(),
+            error: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupOverview {
+    pub latest_local_backup_at: Option<i64>,
+    pub webdav_configured: bool,
+    pub webdav_auto_sync_enabled: bool,
+    pub webdav_sync: WebDavSyncStatus,
+    pub next_scheduled_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupOperationResult {
+    pub file_name: String,
+    pub local_path: Option<String>,
+    pub uploaded: bool,
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreStartupResult {
+    pub status: String,
+    pub message: String,
+}
+
 pub fn default_max_backup_copies() -> u32 {
     30
 }

@@ -8,6 +8,7 @@ import { invoke, isTauri } from "@/lib/invoke";
 import { LANG_OPTIONS, APP_NAME, GITHUB_REPO_URL } from "@/lib/constants";
 import { openExternalUrl } from "@/lib/openUrl";
 import { useUpdateCheckBusy, useUpdateChecker } from "@/hooks/useUpdateChecker";
+import { BackupQuickPopover } from "./BackupQuickPopover";
 
 const IS_WINDOWS = navigator.userAgent.includes("Windows");
 
@@ -203,6 +204,8 @@ export function TitleBar() {
               {pinned ? <Pin size={14} /> : <PinOff size={14} />}
             </button>
           </Tooltip>
+
+          <BackupQuickPopover />
 
           <Dropdown
             menu={{

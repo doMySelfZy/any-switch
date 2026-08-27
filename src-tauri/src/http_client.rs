@@ -214,11 +214,20 @@ pub fn apply_resolved_proxy(
 }
 
 pub fn build_client(settings: &AppSettings, timeout: Duration) -> AppResult<reqwest::Client> {
+    build_client_with_tls(settings, timeout, false)
+}
+
+pub fn build_client_with_tls(
+    settings: &AppSettings,
+    timeout: Duration,
+    accept_invalid_certs: bool,
+) -> AppResult<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
         .timeout(timeout)
         .connect_timeout(timeout)
         .redirect(reqwest::redirect::Policy::limited(5))
-        .user_agent(default_user_agent());
+        .user_agent(default_user_agent())
+        .danger_accept_invalid_certs(accept_invalid_certs);
 
     builder = apply_resolved_proxy(builder, &resolve_proxy(settings)?)?;
 

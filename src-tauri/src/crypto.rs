@@ -41,6 +41,18 @@ impl Crypto {
         }
     }
 
+    pub(crate) fn from_restore_key(bytes: &[u8]) -> AppResult<Self> {
+        if bytes.len() != 32 {
+            return Err(AppError::new(
+                "backup_invalid",
+                "backup master.key must contain exactly 32 bytes",
+            ));
+        }
+        let mut key = [0u8; 32];
+        key.copy_from_slice(bytes);
+        Ok(Self { key })
+    }
+
     pub fn ensure_can_decrypt_db(db_has_encrypted_rows: bool) -> AppResult<Self> {
         let path = master_key_path()?;
         if !path.exists() && db_has_encrypted_rows {

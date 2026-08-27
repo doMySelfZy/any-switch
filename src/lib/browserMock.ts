@@ -2,6 +2,8 @@ import type {
   AppPaths,
   AppSettings,
   ApplyResult,
+  BackupOperationResult,
+  BackupOverview,
   BackupInfo,
   BackupPreview,
   CliToolInfo,
@@ -11,6 +13,7 @@ import type {
   FetchModelsResult,
   HttpBytesResult,
   ModelProbeResult,
+  RemoteBackupInfo,
   Site,
   SiteQuota,
   SiteModel,
@@ -19,6 +22,7 @@ import type {
   TargetLiveStatus,
   UpdateSiteInput,
   UrlProbeResult,
+  WebDavConfigView,
 } from "@/types/domain";
 import { keyPrefix, normalizeBaseUrl } from "./urlNormalize";
 
@@ -99,6 +103,20 @@ let settings: AppSettings = { ...DEFAULT_SETTINGS };
 let sites: Site[] = [];
 let backups: BackupInfo[] = [];
 let targetStatuses: TargetLiveStatus[] = defaultTargetStatuses();
+let webdavConfig: WebDavConfigView = {
+  baseUrl: "",
+  username: "",
+  remotePath: "xiaobai-switch",
+  acceptInvalidCerts: false,
+  hasPassword: false,
+  autoSyncEnabled: false,
+  syncIntervalMinutes: 60,
+  maxRemoteBackups: 10,
+};
+let remoteBackups: RemoteBackupInfo[] = [];
+let latestLocalBackupAt: number | null = null;
+let webdavLastAttemptAt: number | null = null;
+let webdavLastSuccessAt: number | null = null;
 const models = new Map<string, SiteModel[]>();
 const keys = new Map<string, string>();
 const exclusions = new Map<string, Set<string>>();
@@ -108,6 +126,20 @@ export function resetBrowserMock() {
   sites = [];
   backups = [];
   targetStatuses = defaultTargetStatuses();
+  webdavConfig = {
+    baseUrl: "",
+    username: "",
+    remotePath: "xiaobai-switch",
+    acceptInvalidCerts: false,
+    hasPassword: false,
+    autoSyncEnabled: false,
+    syncIntervalMinutes: 60,
+    maxRemoteBackups: 10,
+  };
+  remoteBackups = [];
+  latestLocalBackupAt = null;
+  webdavLastAttemptAt = null;
+  webdavLastSuccessAt = null;
   models.clear();
   keys.clear();
   exclusions.clear();
@@ -119,6 +151,14 @@ export function seedTargetStatuses(items: TargetLiveStatus[]) {
 
 export function seedBackups(items: BackupInfo[]) {
   backups = items;
+}
+
+export function seedWebDavMock(
+  config: Partial<WebDavConfigView>,
+  items: RemoteBackupInfo[] = [],
+) {
+  webdavConfig = { ...webdavConfig, ...config };
+  remoteBackups = items;
 }
 
 function now() {
@@ -518,6 +558,90 @@ export async function handleBrowserCommand<T>(
     }
     case "restore_backup":
       return undefined as T;
+    case "get_webdav_config":
+      return webdavConfig as T;
+    case "save_webdav_config": {
+      const input = args?.input as {
+        baseUrl: string;
+        username: string;
+        password?: string | null;
+        remotePath: string;
+        acceptInvalidCerts: boolean;
+        autoSyncEnabled: boolean;
+        syncIntervalMinutes: number;
+        maxRemoteBackups: number;
+      };
+      webdavConfig = {
+        baseUrl: input.baseUrl,
+        username: input.username,
+        remotePath: input.remotePath,
+        acceptInvalidCerts: input.acceptInvalidCerts,
+        hasPassword: webdavConfig.hasPassword || Boolean(input.password),
+        autoSyncEnabled: input.autoSyncEnabled,
+        syncIntervalMinutes: input.syncIntervalMinutes,
+        maxRemoteBackups: input.maxRemoteBackups,
+      };
+      return webdavConfig as T;
+    }
+    case "test_webdav_connection":
+      return undefined as T;
+    case "create_app_backup": {
+      const destination = String(args?.destination ?? "");
+      const createdAt = now();
+      const fileName = `xiaobai-switch-backup-20260827_120000.browser.12345678.zip`;
+      if (destination === "local") latestLocalBackupAt = createdAt;
+      if (destination === "webdav") {
+        if (!webdavConfig.baseUrl) {
+          throw { code: "webdav_not_configured", message: "WebDAV is not configured" };
+        }
+        webdavLastAttemptAt = createdAt;
+        webdavLastSuccessAt = createdAt;
+        remoteBackups = [
+          {
+            fileName,
+            size: 1024,
+            lastModified: new Date(createdAt).toUTCString(),
+            deviceName: "browser",
+          },
+          ...remoteBackups,
+        ];
+      }
+      const result: BackupOperationResult = {
+        fileName,
+        localPath:
+          destination === "local" ? `~/.xiaobai-switch/backups/app/${fileName}` : null,
+        uploaded: destination === "webdav",
+        warning: null,
+      };
+      return result as T;
+    }
+    case "get_backup_overview": {
+      const overview: BackupOverview = {
+        latestLocalBackupAt,
+        webdavConfigured: Boolean(webdavConfig.baseUrl),
+        webdavAutoSyncEnabled: webdavConfig.autoSyncEnabled,
+        webdavSync: {
+          lastAttemptAt: webdavLastAttemptAt,
+          lastSuccessAt: webdavLastSuccessAt,
+          status: webdavLastSuccessAt ? "success" : "never",
+          error: null,
+        },
+        nextScheduledAt:
+          webdavConfig.autoSyncEnabled && webdavLastAttemptAt
+            ? webdavLastAttemptAt + webdavConfig.syncIntervalMinutes * 60_000
+            : null,
+      };
+      return overview as T;
+    }
+    case "list_webdav_backups":
+      return remoteBackups as T;
+    case "delete_webdav_backup":
+      remoteBackups = remoteBackups.filter((backup) => backup.fileName !== args?.fileName);
+      return undefined as T;
+    case "restore_webdav_backup":
+      return undefined as T;
+    case "take_restore_result":
+      return null as T;
     case "detect_cli_tools": {
       const tools: CliToolInfo[] = [
         { kind: "claude_code", installed: false, version: null, path: null },

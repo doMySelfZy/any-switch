@@ -6,6 +6,7 @@ pub mod settings;
 pub mod sites;
 pub mod targets;
 pub mod update;
+pub mod webdav;
 pub mod window;
 
 pub use apply::*;
@@ -16,4 +17,5 @@ pub use settings::*;
 pub use sites::*;
 pub use targets::*;
 pub use update::*;
+pub use webdav::*;
 pub use window::*;
