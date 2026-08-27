@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App as AntdApp, ConfigProvider } from "antd";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetBrowserMock } from "@/lib/browserMock";
+import { resetBrowserMock, seedWebDavMock } from "@/lib/browserMock";
 import {
   GITHUB_ISSUES_URL,
   GITHUB_RELEASES_URL,
@@ -17,7 +17,7 @@ import "@/i18n";
 
 function Wrapper({ children }: { children: ReactNode }) {
   return (
-    <ConfigProvider>
+    <ConfigProvider theme={{ token: { motion: false } }}>
       <AntdApp>{children}</AntdApp>
     </ConfigProvider>
   );
@@ -127,6 +127,116 @@ describe("SettingsPage tray", () => {
       expect(useSettingsStore.getState().settings.autoStart).toBe(true);
     });
   });
+});
+
+describe("SettingsPage WebDAV backups", () => {
+  beforeEach(() => {
+    resetBrowserMock();
+    useUIStore.setState({ settingsTab: "backup" });
+    useSettingsStore.setState({
+      settings: useSettingsStore.getState().settings,
+      loaded: false,
+      loading: false,
+    });
+  });
+
+  afterEach(() => {
+    resetBrowserMock();
+    useUIStore.setState({ settingsTab: "general" });
+  });
+
+  it("saves a connection without echoing its password", async () => {
+    render(
+      <Wrapper>
+        <SettingsPage />
+      </Wrapper>,
+    );
+
+    expect(await screen.findByText("WebDAV 应用数据备份")).toBeInTheDocument();
+    expect(screen.getByText("远端归档包含解密凭据所需的主密钥")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("服务器地址"), {
+      target: { value: "https://dav.example.com/" },
+    });
+    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "alice" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+    expect(await screen.findByText("WebDAV 连接成功")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("密码已加密保存；留空会继续使用当前密码。")).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText("密码")).toHaveValue("");
+  }, 10_000);
+
+  it("shows an explicit confirmation before restoring a remote snapshot", async () => {
+    seedWebDavMock(
+      {
+        baseUrl: "https://dav.example.com/",
+        username: "alice",
+        hasPassword: true,
+      },
+      [
+        {
+          fileName: "xiaobai-switch-backup-20260827_120000.browser.12345678.zip",
+          size: 1024,
+          lastModified: new Date().toUTCString(),
+          deviceName: "browser",
+        },
+      ],
+    );
+    render(
+      <Wrapper>
+        <SettingsPage />
+      </Wrapper>,
+    );
+    expect(
+      await within(screen.getByRole("table")).findByText(/xiaobai-switch-backup-.*browser.*\.zip/),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "恢复" }));
+    expect((await screen.findAllByText("恢复这份应用快照？")).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Claude\/Codex 配置不会被自动覆盖/)).toBeInTheDocument();
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: /取\s*消/ }),
+    );
+  }, 10_000);
+
+  it("deletes a remote snapshot after confirmation", async () => {
+    seedWebDavMock(
+      {
+        baseUrl: "https://dav.example.com/",
+        username: "alice",
+        hasPassword: true,
+      },
+      [
+        {
+          fileName: "xiaobai-switch-backup-20260827_120000.browser.12345678.zip",
+          size: 1024,
+          lastModified: new Date().toUTCString(),
+          deviceName: "browser",
+        },
+      ],
+    );
+    render(
+      <Wrapper>
+        <SettingsPage />
+      </Wrapper>,
+    );
+    const remoteTable = screen.getByRole("table");
+    expect(
+      await within(remoteTable).findByText(/xiaobai-switch-backup-.*browser.*\.zip/),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    expect((await screen.findAllByText("删除远端快照？")).length).toBeGreaterThan(0);
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: /删\s*除/ }),
+    );
+    await waitFor(() => {
+      expect(within(remoteTable).queryByText(/xiaobai-switch-backup-.*browser.*\.zip/)).toBeNull();
+    });
+  }, 10_000);
 });
 
 describe("SettingsPage about", () => {

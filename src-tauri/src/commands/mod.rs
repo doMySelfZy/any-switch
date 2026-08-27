@@ -7,6 +7,7 @@ pub mod sites;
 pub mod targets;
 pub mod update;
 pub mod window;
+pub mod webdav;
 
 pub use apply::*;
 pub use models::*;
@@ -17,3 +18,4 @@ pub use sites::*;
 pub use targets::*;
 pub use update::*;
 pub use window::*;
+pub use webdav::*;

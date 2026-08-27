@@ -26,6 +26,7 @@ pub fn ensure_app_dirs() -> AppResult<PathBuf> {
     let dir = app_dir()?;
     fs::create_dir_all(&dir)?;
     fs::create_dir_all(dir.join("backups"))?;
+    fs::create_dir_all(dir.join("backups").join("app"))?;
     fs::create_dir_all(dir.join("env"))?;
     fs::create_dir_all(dir.join("locks"))?;
     fs::create_dir_all(dir.join("logs"))?;
@@ -46,6 +47,10 @@ pub fn codex_env_path() -> AppResult<PathBuf> {
 
 pub fn backups_dir() -> AppResult<PathBuf> {
     Ok(app_dir()?.join("backups"))
+}
+
+pub fn app_backups_dir() -> AppResult<PathBuf> {
+    Ok(backups_dir()?.join("app"))
 }
 
 pub fn locks_dir() -> AppResult<PathBuf> {
@@ -105,5 +110,18 @@ pub fn set_secret_permissions(path: &std::path::Path) {
     }
 }
 
+#[cfg(unix)]
+pub fn set_private_dir_permissions(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(meta) = fs::metadata(path) {
+        let mut perms = meta.permissions();
+        perms.set_mode(0o700);
+        let _ = fs::set_permissions(path, perms);
+    }
+}
+
 #[cfg(not(unix))]
 pub fn set_secret_permissions(_path: &std::path::Path) {}
+
+#[cfg(not(unix))]
+pub fn set_private_dir_permissions(_path: &std::path::Path) {}

@@ -14,6 +14,7 @@ import { useSiteDeepLink } from "@/hooks/useSiteDeepLink";
 import { useTrayEvents } from "@/hooks/useTrayEvents";
 import { useAutoCheckUpdate } from "@/hooks/useUpdateChecker";
 import { invoke, isTauri } from "@/lib/invoke";
+import type { RestoreStartupResult } from "@/types/domain";
 import "./i18n";
 
 async function showWindow() {
@@ -85,10 +86,12 @@ function KeepAlivePages({ activePage }: { activePage: AppPage }) {
 function AppInner({ isDark }: { isDark: boolean }) {
   const { token } = theme.useToken();
   const { modal, message } = AntdApp.useApp();
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const activePage = useUIStore((s) => s.activePage);
   const fetchSettings = useSettingsStore((s) => s.fetchSettings);
+  const settingsLoaded = useSettingsStore((s) => s.loaded);
   const rootRef = useRef<HTMLDivElement>(null);
+  const restoreResultReadRef = useRef(false);
   useSiteDeepLink({ modal, message });
   useTrayEvents();
   useAutoCheckUpdate();
@@ -102,6 +105,26 @@ function AppInner({ isDark }: { isDark: boolean }) {
         if (isTauri() && !startInTray) void showWindow();
       });
   }, [fetchSettings, i18n]);
+
+  useEffect(() => {
+    if (!settingsLoaded || restoreResultReadRef.current) return;
+    restoreResultReadRef.current = true;
+    const language = useSettingsStore.getState().settings.language;
+    void i18n.changeLanguage(language)
+      .then(() => invoke<RestoreStartupResult | null>("take_restore_result"))
+      .then((result) => {
+        if (!result) return;
+        if (result.status === "applied") {
+          message.success(t("settings.webdav.restoreApplied"));
+        } else {
+          console.error("Application restore failed safely:", result.message);
+          message.error(t("settings.webdav.restoreFailed"));
+        }
+      })
+      .catch((error) => {
+        console.error("Could not read application restore result:", error);
+      });
+  }, [i18n, message, settingsLoaded, t]);
 
   useEffect(() => {
     const root = document.documentElement;

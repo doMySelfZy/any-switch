@@ -31,7 +31,11 @@ export interface AppError {
     | "master_key_missing"
     | "invalid_config"
     | "internal"
-    | "autostart_failed";
+    | "autostart_failed"
+    | "webdav_not_configured"
+    | "webdav_auth_failed"
+    | "backup_invalid"
+    | "restore_pending";
   message: string;
   details?: string | null;
 }
@@ -207,6 +211,70 @@ export interface AppSettings {
   closeToTray: boolean;
   /** Keep the main window hidden on launch. Disabled when closeToTray is off. */
   startInTray: boolean;
+}
+
+export interface WebDavConfigView {
+  baseUrl: string;
+  username: string;
+  remotePath: string;
+  acceptInvalidCerts: boolean;
+  hasPassword: boolean;
+  autoSyncEnabled: boolean;
+  syncIntervalMinutes: number;
+  maxRemoteBackups: number;
+}
+
+export interface SaveWebDavConfigInput {
+  baseUrl: string;
+  username: string;
+  password?: string | null;
+  remotePath: string;
+  acceptInvalidCerts: boolean;
+  autoSyncEnabled: boolean;
+  syncIntervalMinutes: number;
+  maxRemoteBackups: number;
+}
+
+export interface TestWebDavConnectionInput {
+  baseUrl: string;
+  username: string;
+  password?: string | null;
+  remotePath: string;
+  acceptInvalidCerts: boolean;
+}
+
+export interface RemoteBackupInfo {
+  fileName: string;
+  size: number;
+  lastModified: string;
+  deviceName: string;
+}
+
+export interface WebDavSyncStatus {
+  lastAttemptAt: number | null;
+  lastSuccessAt: number | null;
+  status: "never" | "running" | "success" | "warning" | "failed";
+  error: string | null;
+}
+
+export interface BackupOverview {
+  latestLocalBackupAt: number | null;
+  webdavConfigured: boolean;
+  webdavAutoSyncEnabled: boolean;
+  webdavSync: WebDavSyncStatus;
+  nextScheduledAt: number | null;
+}
+
+export interface BackupOperationResult {
+  fileName: string;
+  localPath: string | null;
+  uploaded: boolean;
+  warning: string | null;
+}
+
+export interface RestoreStartupResult {
+  status: "applied" | "failed";
+  message: string;
 }
 
 export interface SwitchRouteResult {

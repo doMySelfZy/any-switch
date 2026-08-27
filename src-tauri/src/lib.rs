@@ -1,4 +1,5 @@
 mod adapters;
+mod app_backup;
 mod autostart;
 mod backup;
 mod capabilities;
@@ -16,6 +17,7 @@ mod macos_scheme;
 mod model_probe;
 mod models_fetch;
 mod paths;
+mod pending_restore;
 mod quota_probe;
 mod redact;
 mod repo;
@@ -25,6 +27,7 @@ mod tray;
 mod tray_apply;
 mod url_normalize;
 mod window_lifecycle;
+mod webdav;
 
 use state::AppState;
 use std::sync::atomic::Ordering;
@@ -66,6 +69,14 @@ pub fn run() {
                 .unwrap_or_else(|_| "zh-CN".into());
             let start_in_tray = state.start_in_tray.load(Ordering::Relaxed);
             app.manage(state);
+            let scheduler_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) =
+                    commands::webdav::restart_webdav_scheduler(scheduler_app).await
+                {
+                    tracing::warn!(error = %error, "failed to initialize WebDAV scheduler");
+                }
+            });
             autostart::sync_from_settings(app.handle());
             commands::apply_platform_window_chrome(app);
             if let Err(e) = tray::create_tray(app.handle(), &language) {
@@ -146,6 +157,15 @@ pub fn run() {
             commands::restore_main_window,
             commands::force_quit,
             commands::refresh_tray_menu,
+            commands::get_webdav_config,
+            commands::save_webdav_config,
+            commands::test_webdav_connection,
+            commands::create_app_backup,
+            commands::get_backup_overview,
+            commands::list_webdav_backups,
+            commands::delete_webdav_backup,
+            commands::restore_webdav_backup,
+            commands::take_restore_result,
         ])
         .on_window_event(|window, event| {
             if window.label() != "main" {
