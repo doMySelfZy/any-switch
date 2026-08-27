@@ -46,6 +46,35 @@ fn optional_model(id: &Option<String>) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+const CONTEXT_1M_SUFFIX: &str = "[1m]";
+
+pub fn has_1m_suffix(model_id: &str) -> bool {
+    model_id
+        .trim()
+        .to_ascii_lowercase()
+        .ends_with(CONTEXT_1M_SUFFIX)
+}
+
+pub fn strip_1m_suffix(model_id: &str) -> String {
+    let trimmed = model_id.trim();
+    if has_1m_suffix(trimmed) {
+        trimmed[..trimmed.len() - CONTEXT_1M_SUFFIX.len()]
+            .trim_end()
+            .to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn declare_1m_context(model_id: &str, enabled: bool) -> String {
+    let trimmed = model_id.trim();
+    if enabled && !has_1m_suffix(trimmed) {
+        format!("{trimmed}{CONTEXT_1M_SUFFIX}")
+    } else {
+        trimmed.to_string()
+    }
+}
+
 pub fn apply(
     site: &SiteRow,
     api_key: &str,
@@ -80,8 +109,11 @@ pub fn apply(
     let preview = crate::url_normalize::normalize_base_url(&site.base_url)?;
     let auth_key = auth.env_key();
     let other_key = auth.other_env_key();
-    let opus = optional_model(&options.opus_model_id);
-    let sonnet = optional_model(&options.sonnet_model_id);
+    let declared_model = declare_1m_context(model_id, options.use_1m_context);
+    let opus = optional_model(&options.opus_model_id)
+        .map(|id| declare_1m_context(&id, options.use_1m_context));
+    let sonnet = optional_model(&options.sonnet_model_id)
+        .map(|id| declare_1m_context(&id, options.use_1m_context));
     let haiku = optional_model(&options.haiku_model_id);
 
     // Scope env mutations so the object borrow ends before top-level edits
@@ -101,7 +133,10 @@ pub fn apply(
             Value::String(preview.claude_base_url.clone()),
         );
         env_obj.insert(auth_key.into(), Value::String(api_key.into()));
-        env_obj.insert("ANTHROPIC_MODEL".into(), Value::String(model_id.into()));
+        env_obj.insert(
+            "ANTHROPIC_MODEL".into(),
+            Value::String(declared_model.clone()),
+        );
 
         for (key, val) in [
             ("ANTHROPIC_DEFAULT_OPUS_MODEL", &opus),
@@ -176,7 +211,7 @@ pub fn apply(
         let obj = root
             .as_object_mut()
             .ok_or_else(|| AppError::new("invalid_config", "settings root must be object"))?;
-        obj.insert("model".into(), Value::String(model_id.into()));
+        obj.insert("model".into(), Value::String(declared_model.clone()));
         if let Some(level) = effort_toplevel {
             obj.insert("effortLevel".into(), Value::String(level));
         } else if clear_effort_toplevel {
@@ -218,13 +253,13 @@ pub fn apply(
     {
         return Err(AppError::new("invalid_config", "self-check auth key empty"));
     }
-    if venv.get("ANTHROPIC_MODEL").and_then(|v| v.as_str()) != Some(model_id) {
+    if venv.get("ANTHROPIC_MODEL").and_then(|v| v.as_str()) != Some(declared_model.as_str()) {
         return Err(AppError::new("invalid_config", "self-check MODEL failed"));
     }
 
     let mut expected = HashMap::new();
     expected.insert("ANTHROPIC_BASE_URL".into(), preview.claude_base_url.clone());
-    expected.insert("ANTHROPIC_MODEL".into(), model_id.into());
+    expected.insert("ANTHROPIC_MODEL".into(), declared_model.clone());
     expected.insert("auth_env_key".into(), auth_key.into());
     if let Some(v) = &opus {
         expected.insert("ANTHROPIC_DEFAULT_OPUS_MODEL".into(), v.clone());
@@ -264,7 +299,7 @@ pub fn apply(
         Some(preview.claude_base_url.clone()),
     );
     live_summary.insert(auth_key.into(), Some(key_prefix(api_key)));
-    live_summary.insert("ANTHROPIC_MODEL".into(), Some(model_id.into()));
+    live_summary.insert("ANTHROPIC_MODEL".into(), Some(declared_model));
     if let Some(v) = &opus {
         live_summary.insert("ANTHROPIC_DEFAULT_OPUS_MODEL".into(), Some(v.clone()));
     }
@@ -579,6 +614,85 @@ pub fn rewrite_base_url(
         expected_fields: expected,
         message: "Updated Claude Code ANTHROPIC_BASE_URL".into(),
     })
+}
+
+#[cfg(test)]
+mod context_1m_tests {
+    use super::*;
+
+    fn row() -> SiteRow {
+        SiteRow {
+            id: "s1".into(),
+            name: "Relay".into(),
+            base_url: "https://api.example.com".into(),
+            base_urls: vec!["https://api.example.com".into()],
+            api_key_encrypted: "x".into(),
+            key_prefix: "sk-xx".into(),
+            protocol: crate::domain::SiteProtocol::OpenaiCompatible,
+            claude_auth_key_style: ClaudeAuthKeyStyle::AnthropicAuthToken,
+            notes: None,
+            enabled: true,
+            sort_order: 0,
+            selected_model_id: Some("relay-default".into()),
+            last_model_fetch_at: None,
+            last_model_fetch_latency_ms: None,
+            last_model_fetch_error: None,
+            created_at: 1,
+            updated_at: 1,
+            capabilities: Default::default(),
+        }
+    }
+
+    #[test]
+    fn apply_declares_1m_for_default_opus_and_sonnet_models() {
+        let dir = tempfile::tempdir().unwrap();
+        let backup_root = dir.path().join("backups");
+        fs::create_dir_all(&backup_root).unwrap();
+        let options = ClaudeApplyOptions {
+            opus_model_id: Some("relay-opus".into()),
+            sonnet_model_id: Some("relay-sonnet[1M]".into()),
+            haiku_model_id: Some("relay-haiku".into()),
+            effort_level: None,
+            use_1m_context: true,
+        };
+
+        let outcome = apply(
+            &row(),
+            "sk-test",
+            "relay-default",
+            ClaudeAuthKeyStyle::AnthropicAuthToken,
+            false,
+            &options,
+            None,
+            Some(dir.path().to_str().unwrap()),
+            &backup_root,
+        )
+        .unwrap();
+
+        let settings = read_settings(&dir.path().join("settings.json")).unwrap();
+        let env = settings["env"].as_object().unwrap();
+        assert_eq!(env["ANTHROPIC_MODEL"], "relay-default[1m]");
+        assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "relay-opus[1m]");
+        assert_eq!(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "relay-sonnet[1M]");
+        assert_eq!(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "relay-haiku");
+        assert_eq!(settings["model"], "relay-default[1m]");
+        assert_eq!(
+            outcome.binding.expected_fields.get("ANTHROPIC_MODEL"),
+            Some(&"relay-default[1m]".to_string())
+        );
+        assert_eq!(
+            outcome.live_summary.get("ANTHROPIC_MODEL"),
+            Some(&Some("relay-default[1m]".into()))
+        );
+    }
+
+    #[test]
+    fn suffix_helpers_are_case_insensitive_and_trim_values() {
+        assert!(has_1m_suffix(" relay-model[1M] "));
+        assert_eq!(strip_1m_suffix(" relay-model[1M] "), "relay-model");
+        assert_eq!(declare_1m_context(" relay-model ", true), "relay-model[1m]");
+        assert_eq!(declare_1m_context("relay-model", false), "relay-model");
+    }
 }
 
 #[cfg(test)]

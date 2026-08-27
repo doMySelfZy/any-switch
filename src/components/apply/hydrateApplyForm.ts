@@ -82,6 +82,7 @@ export interface ClaudeFormDefaults {
   haikuModel: string | undefined;
   effort: ClaudeEffortLevel | undefined;
   auth: ClaudeAuthKeyStyle;
+  use1mContext: boolean;
 }
 
 export interface CodexFormDefaults {
@@ -104,6 +105,18 @@ function appliedOnSite(site: Site | null, status: TargetLiveStatus | undefined):
   return Boolean(site && status?.appliedSiteId && status.appliedSiteId === site.id);
 }
 
+const CLAUDE_1M_SUFFIX = "[1m]";
+
+function hasClaude1mSuffix(value: string | undefined): boolean {
+  return value?.trim().toLowerCase().endsWith(CLAUDE_1M_SUFFIX) ?? false;
+}
+
+function stripClaude1mSuffix(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed || !hasClaude1mSuffix(trimmed)) return trimmed || undefined;
+  return trimmed.slice(0, -CLAUDE_1M_SUFFIX.length).trimEnd() || undefined;
+}
+
 export function hydrateClaudeForm(
   site: Site | null,
   status: TargetLiveStatus | undefined,
@@ -114,13 +127,17 @@ export function hydrateClaudeForm(
   const fallbackAuth = site?.claudeAuthKeyStyle ?? "anthropic_auth_token";
 
   if (onSite) {
+    const liveOpus = liveStr(live, "ANTHROPIC_DEFAULT_OPUS_MODEL");
+    const liveSonnet = liveStr(live, "ANTHROPIC_DEFAULT_SONNET_MODEL");
+    const liveHaiku = liveStr(live, "ANTHROPIC_DEFAULT_HAIKU_MODEL");
     return {
-      modelId: liveModel ?? site?.selectedModelId ?? undefined,
-      opusModel: liveStr(live, "ANTHROPIC_DEFAULT_OPUS_MODEL"),
-      sonnetModel: liveStr(live, "ANTHROPIC_DEFAULT_SONNET_MODEL"),
-      haikuModel: liveStr(live, "ANTHROPIC_DEFAULT_HAIKU_MODEL"),
+      modelId: stripClaude1mSuffix(liveModel) ?? site?.selectedModelId ?? undefined,
+      opusModel: stripClaude1mSuffix(liveOpus),
+      sonnetModel: stripClaude1mSuffix(liveSonnet),
+      haikuModel: stripClaude1mSuffix(liveHaiku),
       effort: parseClaudeEffort(liveStr(live, "CLAUDE_CODE_EFFORT_LEVEL", "effortLevel")),
       auth: inferClaudeAuth(live) ?? fallbackAuth,
+      use1mContext: [liveModel, liveOpus, liveSonnet].some(hasClaude1mSuffix),
     };
   }
 
@@ -131,6 +148,7 @@ export function hydrateClaudeForm(
     haikuModel: undefined,
     effort: parseClaudeEffort(liveStr(live, "CLAUDE_CODE_EFFORT_LEVEL", "effortLevel")),
     auth: site?.claudeAuthKeyStyle ?? fallbackAuth,
+    use1mContext: false,
   };
 }
 

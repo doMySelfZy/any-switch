@@ -155,6 +155,8 @@ export interface ApplyRequest {
   /** Maps Claude Code "haiku" alias to a site model id */
   claudeHaikuModelId?: string | null;
   claudeEffortLevel?: ClaudeEffortLevel | null;
+  /** Append Claude Code's official `[1m]` declaration to compatible model ids. */
+  claudeUse1mContext?: boolean;
   /** Write site model list into Codex model catalog for switching */
   codexWriteAllModels?: boolean;
   codexReasoningEffort?: CodexReasoningEffort | null;

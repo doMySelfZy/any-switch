@@ -34,6 +34,7 @@ pub fn apply_site(
     claude_sonnet_model_id: Option<String>,
     claude_haiku_model_id: Option<String>,
     claude_effort_level: Option<String>,
+    claude_use_1m_context: Option<bool>,
     codex_write_all_models: Option<bool>,
     codex_reasoning_effort: Option<String>,
     codex_remote_compaction: Option<bool>,
@@ -69,6 +70,7 @@ pub fn apply_site(
         effort_level: claude_effort_level
             .as_deref()
             .and_then(ClaudeEffortLevel::parse),
+        use_1m_context: claude_use_1m_context.unwrap_or(false),
     };
 
     let capability_source = CapabilitySource::parse(codex_capability_source.as_deref());

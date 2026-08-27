@@ -109,6 +109,26 @@ describe("hydrateClaudeForm", () => {
     expect(defaults.haikuModel).toBe("haiku-live");
     expect(defaults.effort).toBe("high");
     expect(defaults.auth).toBe("anthropic_auth_token");
+    expect(defaults.use1mContext).toBe(false);
+  });
+
+  it("hydrates the 1M declaration without leaking the suffix into model selects", () => {
+    const defaults = hydrateClaudeForm(
+      site({ id: "shuai", selectedModelId: "gpt-4.1" }),
+      status({
+        liveSummary: {
+          ANTHROPIC_MODEL: "codex-auto-review[1m]",
+          ANTHROPIC_DEFAULT_OPUS_MODEL: "opus-live[1M]",
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "sonnet-live[1m]",
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "haiku-live",
+        },
+      }),
+    );
+    expect(defaults.modelId).toBe("codex-auto-review");
+    expect(defaults.opusModel).toBe("opus-live");
+    expect(defaults.sonnetModel).toBe("sonnet-live");
+    expect(defaults.haikuModel).toBe("haiku-live");
+    expect(defaults.use1mContext).toBe(true);
   });
 
   it("does not copy the site primary model into aliases when applying a different site", () => {
@@ -122,6 +142,7 @@ describe("hydrateClaudeForm", () => {
     expect(defaults.haikuModel).toBeUndefined();
     expect(defaults.auth).toBe("anthropic_api_key");
     expect(defaults.effort).toBe("high");
+    expect(defaults.use1mContext).toBe(false);
   });
 
   it("leaves effort empty when nothing is written yet", () => {
@@ -129,6 +150,7 @@ describe("hydrateClaudeForm", () => {
     expect(defaults.modelId).toBe("gpt-4.1");
     expect(defaults.effort).toBeUndefined();
     expect(defaults.opusModel).toBeUndefined();
+    expect(defaults.use1mContext).toBe(false);
   });
 });
 

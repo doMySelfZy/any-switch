@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, App, Divider, Select, Space, Skeleton } from "antd";
+import { Alert, App, Divider, Select, Space, Skeleton, Switch } from "antd";
 import { useTranslation } from "react-i18next";
 import { SettingsGroup } from "@/components/settings/SettingsGroup";
 import { useApplyStore, useSiteStore } from "@/stores";
@@ -42,6 +42,7 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
   const [sonnetModel, setSonnetModel] = useState<string | undefined>();
   const [haikuModel, setHaikuModel] = useState<string | undefined>();
   const [effort, setEffort] = useState<ClaudeEffortLevel | undefined>();
+  const [use1mContext, setUse1mContext] = useState(false);
 
   const models = siteId ? (modelsBySite[siteId] ?? []) : [];
   const modelsLoading = siteId ? Boolean(modelsLoadingBySite[siteId]) : false;
@@ -59,6 +60,7 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
       setOpusModel(undefined);
       setSonnetModel(undefined);
       setHaikuModel(undefined);
+      setUse1mContext(false);
       return;
     }
     const stamp = status?.lastAppliedAt ?? null;
@@ -71,6 +73,7 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
     setHaikuModel(defaults.haikuModel);
     setEffort(defaults.effort);
     setClaudeAuth(defaults.auth);
+    setUse1mContext(defaults.use1mContext);
     lastHydrate.current = { siteId: site.id, stamp };
   }, [site, status]);
 
@@ -104,6 +107,7 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
         claudeSonnetModelId: sonnetModel ?? null,
         claudeHaikuModelId: haikuModel ?? null,
         claudeEffortLevel: effort ?? null,
+        claudeUse1mContext: use1mContext,
       });
       showApplyOutcome(
         modal,
@@ -225,6 +229,20 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
                   </div>
                 </div>
               ))}
+            </SettingsGroup>
+
+            <SettingsGroup title={t("apply.groupContextWindow")}>
+              <div style={rowStyle} className="flex items-center justify-between gap-4">
+                <div>
+                  <div>{t("apply.context1m")}</div>
+                  <div className="text-xs opacity-50">{t("apply.context1mHint")}</div>
+                </div>
+                <Switch
+                  aria-label={t("apply.context1m")}
+                  checked={use1mContext}
+                  onChange={setUse1mContext}
+                />
+              </div>
             </SettingsGroup>
 
             <SettingsGroup title={t("apply.groupEffort")}>

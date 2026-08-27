@@ -77,8 +77,8 @@ describe("ClaudeApplyPanel", () => {
       providerId: null,
       orphan: false,
       liveSummary: {
-        ANTHROPIC_MODEL: "codex-auto-review",
-        ANTHROPIC_DEFAULT_OPUS_MODEL: "opus-live",
+        ANTHROPIC_MODEL: "codex-auto-review[1m]",
+        ANTHROPIC_DEFAULT_OPUS_MODEL: "opus-live[1m]",
         ANTHROPIC_AUTH_TOKEN: "sk-live",
         CLAUDE_CODE_EFFORT_LEVEL: "high",
       },
@@ -110,6 +110,7 @@ describe("ClaudeApplyPanel", () => {
     expect(
       document.querySelector('.ant-select-content[title="ANTHROPIC_AUTH_TOKEN（推荐）"]'),
     ).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "1M 上下文" })).toBeChecked();
 
     const footer = screen.getByTestId("apply-footer");
     expect(footer).toBeInTheDocument();
@@ -183,6 +184,8 @@ describe("ClaudeApplyPanel", () => {
       expect(screen.getByRole("button", { name: "应用配置" })).toBeEnabled();
     });
 
+    fireEvent.click(screen.getByRole("switch", { name: "1M 上下文" }));
+
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "应用配置" }));
     });
@@ -195,6 +198,10 @@ describe("ClaudeApplyPanel", () => {
     ).toBeInTheDocument();
     expect(within(dialog).queryByText(/settings.json updated/i)).not.toBeInTheDocument();
     expect(within(dialog).queryByText(/Browser mock/i)).not.toBeInTheDocument();
+    expect(
+      useApplyStore.getState().statuses.find((row) => row.kind === "claude_code")?.liveSummary
+        .ANTHROPIC_MODEL,
+    ).toBe("gpt-4.1[1m]");
   });
 
   it("groups disabled sites as unselectable in the apply picker", async () => {

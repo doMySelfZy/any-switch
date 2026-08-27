@@ -50,6 +50,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   startInTray: false,
 };
 
+function declareClaude1m(modelId: string, enabled: boolean): string {
+  if (!enabled || modelId.trim().toLowerCase().endsWith("[1m]")) return modelId;
+  return `${modelId}[1m]`;
+}
+
 function defaultTargetStatuses(): TargetLiveStatus[] {
   return [
     {
@@ -476,6 +481,30 @@ export async function handleBrowserCommand<T>(
       const site = sites.find((s) => s.id === siteId);
       const targets = ((args?.targets as string[]) ?? []) as TargetKind[];
       const appliedAt = now();
+      const claudeUse1mContext = Boolean(args?.claudeUse1mContext);
+      const claudeLiveSummary: Record<string, string | null> = {
+        ANTHROPIC_MODEL: declareClaude1m(modelId, claudeUse1mContext),
+      };
+      for (const [argKey, envKey, supports1m] of [
+        ["claudeOpusModelId", "ANTHROPIC_DEFAULT_OPUS_MODEL", true],
+        ["claudeSonnetModelId", "ANTHROPIC_DEFAULT_SONNET_MODEL", true],
+        ["claudeHaikuModelId", "ANTHROPIC_DEFAULT_HAIKU_MODEL", false],
+      ] as const) {
+        const aliasModel = args?.[argKey];
+        if (typeof aliasModel === "string" && aliasModel.trim()) {
+          claudeLiveSummary[envKey] = declareClaude1m(
+            aliasModel,
+            supports1m && claudeUse1mContext,
+          );
+        }
+      }
+      const authKey = args?.claudeAuthKeyStyle === "anthropic_api_key"
+        ? "ANTHROPIC_API_KEY"
+        : "ANTHROPIC_AUTH_TOKEN";
+      claudeLiveSummary[authKey] = site?.keyPrefix ?? "sk-xx";
+      if (typeof args?.claudeEffortLevel === "string") {
+        claudeLiveSummary.CLAUDE_CODE_EFFORT_LEVEL = args.claudeEffortLevel;
+      }
       const piWriteAllModels = Boolean(args?.piWriteAllModels);
       const piModelCount = piWriteAllModels ? Math.max(models.get(siteId)?.length ?? 0, 1) : 1;
       targetStatuses = targetStatuses.map((row) =>
@@ -495,7 +524,9 @@ export async function handleBrowserCommand<T>(
                       modelCount: String(piModelCount),
                       writeAllModels: String(piWriteAllModels),
                     }
-                  : row.liveSummary,
+                  : row.kind === "claude_code"
+                    ? claudeLiveSummary
+                    : row.liveSummary,
               lastAppliedAt: appliedAt,
             }
           : row,

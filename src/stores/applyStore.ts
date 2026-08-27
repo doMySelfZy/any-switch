@@ -97,6 +97,7 @@ export const useApplyStore = create<ApplyState>((set, get) => ({
         claudeSonnetModelId: req.claudeSonnetModelId ?? null,
         claudeHaikuModelId: req.claudeHaikuModelId ?? null,
         claudeEffortLevel: req.claudeEffortLevel ?? null,
+        claudeUse1mContext: req.claudeUse1mContext ?? false,
         codexWriteAllModels: req.codexWriteAllModels ?? false,
         codexReasoningEffort: req.codexReasoningEffort ?? null,
         codexRemoteCompaction: req.codexRemoteCompaction ?? false,

@@ -353,6 +353,7 @@ pub struct ClaudeApplyOptions {
     pub sonnet_model_id: Option<String>,
     pub haiku_model_id: Option<String>,
     pub effort_level: Option<ClaudeEffortLevel>,
+    pub use_1m_context: bool,
 }
 
 /// Extra options for Codex apply.
