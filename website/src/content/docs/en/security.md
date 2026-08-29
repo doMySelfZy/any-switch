@@ -1,6 +1,6 @@
 ---
 title: Security
-description: Keys are encrypted in the app; after Apply they may appear in plaintext in Claude / Codex / Pi config and the shell environment.
+description: Keys are encrypted in the app; after Apply they may appear in plaintext in Claude / Codex / Pi / Prime config and the shell environment.
 order: 13
 ---
 
@@ -8,7 +8,7 @@ API keys are **encrypted** in the app database (`~/.xiaobai-switch/xiaobai-switc
 
 <div class="not-prose">
 <div role="alert" class="alert alert-warning my-4">
-<p><strong>After Apply</strong>, keys may appear in plaintext in <code>~/.claude</code>, <code>~/.codex</code>, <code>~/.pi/agent/auth.json</code>, <code>codex.env</code>, or shell rc files. Do not sync those directories to untrusted cloud storage.</p>
+<p><strong>After Apply</strong>, keys may appear in plaintext in <code>~/.claude</code>, <code>~/.codex</code>, <code>~/.pi/agent/auth.json</code>, <code>~/.prime/agent/auth.json</code>, <code>codex.env</code>, or shell rc files. Do not sync those directories to untrusted cloud storage.</p>
 </div>
 </div>
 

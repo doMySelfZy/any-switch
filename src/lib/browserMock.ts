@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   claudeHomeOverride: null,
   codexHomeOverride: null,
   piAgentDirOverride: null,
+  primeAgentDirOverride: null,
   codexEnvInjectMode: "auto",
   forceExclusiveClaudeAuthKey: false,
   autoCheckUpdate: true,
@@ -92,6 +93,21 @@ function defaultTargetStatuses(): TargetLiveStatus[] {
       installed: false,
       version: null,
       configPath: "~/.pi/agent/models.json",
+      status: "not_applied",
+      appliedSiteId: null,
+      appliedSiteName: null,
+      appliedModelId: null,
+      providerId: null,
+      orphan: false,
+      liveSummary: {},
+      lastAppliedAt: null,
+      staleReason: null,
+    },
+    {
+      kind: "prime",
+      installed: false,
+      version: null,
+      configPath: "~/.prime/agent/models.json",
       status: "not_applied",
       appliedSiteId: null,
       appliedSiteName: null,
@@ -524,6 +540,10 @@ export async function handleBrowserCommand<T>(
       }
       const piWriteAllModels = Boolean(args?.piWriteAllModels);
       const piModelCount = piWriteAllModels ? Math.max(models.get(siteId)?.length ?? 0, 1) : 1;
+      const primeWriteAllModels = Boolean(args?.primeWriteAllModels);
+      const primeModelCount = primeWriteAllModels
+        ? Math.max(models.get(siteId)?.length ?? 0, 1)
+        : 1;
       targetStatuses = targetStatuses.map((row) =>
         targets.includes(row.kind)
           ? {
@@ -532,7 +552,10 @@ export async function handleBrowserCommand<T>(
               appliedSiteId: siteId,
               appliedSiteName: site?.name ?? null,
               appliedModelId: modelId,
-              providerId: row.kind === "pi" ? `xiaobai_${siteId.slice(0, 8)}` : row.providerId,
+              providerId:
+                row.kind === "pi" || row.kind === "prime"
+                  ? `xiaobai_${siteId.slice(0, 8)}`
+                  : row.providerId,
               liveSummary:
                 row.kind === "pi"
                   ? {
@@ -541,6 +564,13 @@ export async function handleBrowserCommand<T>(
                       modelCount: String(piModelCount),
                       writeAllModels: String(piWriteAllModels),
                     }
+                  : row.kind === "prime"
+                    ? {
+                        defaultProvider: `xiaobai_${siteId.slice(0, 8)}`,
+                        defaultModel: modelId,
+                        modelCount: String(primeModelCount),
+                        writeAllModels: String(primeWriteAllModels),
+                      }
                   : row.kind === "claude_code"
                     ? claudeLiveSummary
                     : row.liveSummary,
@@ -725,6 +755,7 @@ export async function handleBrowserCommand<T>(
         { kind: "claude_code", installed: false, version: null, path: null },
         { kind: "codex", installed: false, version: null, path: null },
         { kind: "pi", installed: false, version: null, path: null },
+        { kind: "prime", installed: false, version: null, path: null },
       ];
       return tools as T;
     }

@@ -2,18 +2,20 @@ import { Menu, theme } from "antd";
 import ClaudeCode from "@lobehub/icons/es/ClaudeCode";
 import Codex from "@lobehub/icons/es/Codex";
 import Pi from "@lobehub/icons/es/Pi";
+import { Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { StatusDot } from "@/components/StatusDot";
 import { useApplyStore } from "@/stores";
 import { useUIStore, type ApplyTargetTab } from "@/stores/uiStore";
-import { isConfiguredStatus } from "./TargetStatusCard";
+import { isConfiguredStatus, targetKindLabelKey } from "./TargetStatusCard";
 
-const TAB_KEYS: ApplyTargetTab[] = ["claude_code", "codex", "pi"];
+const TAB_KEYS: ApplyTargetTab[] = ["claude_code", "codex", "pi", "prime"];
 
 const MENU_ICONS: Record<ApplyTargetTab, React.ReactNode> = {
   claude_code: <ClaudeCode size={16} />,
   codex: <Codex size={16} />,
   pi: <Pi size={16} />,
+  prime: <Sparkles size={16} data-icon="prime" />,
 };
 
 export function ApplySidebar() {
@@ -25,12 +27,7 @@ export function ApplySidebar() {
 
   const items = TAB_KEYS.map((key) => {
     const configured = isConfiguredStatus(statuses.find((s) => s.kind === key)?.status);
-    const name =
-      key === "claude_code"
-        ? t("apply.targetClaude")
-        : key === "codex"
-          ? t("apply.targetCodex")
-          : t("apply.targetPi");
+    const name = t(targetKindLabelKey(key));
     return {
       key,
       icon: MENU_ICONS[key],

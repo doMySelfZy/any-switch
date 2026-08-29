@@ -5,7 +5,7 @@ use crate::capabilities::{
 use crate::domain::{
     ApplyRecordDto, ApplyResult, ApplyStatus, ApplyTargetResult, BackupInfo, BackupPreview,
     CapabilitySource, ClaudeApplyOptions, ClaudeAuthKeyStyle, ClaudeEffortLevel, CodexApplyOptions,
-    CodexReasoningEffort, PiApplyOptions, TargetKind, TouchedKeys,
+    CodexReasoningEffort, PiApplyOptions, PrimeApplyOptions, TargetKind, TouchedKeys,
 };
 use crate::error::{AppError, AppResult};
 use crate::lock::try_lock_target;
@@ -43,6 +43,7 @@ pub fn apply_site(
     codex_web_search: Option<bool>,
     codex_capability_source: Option<String>,
     pi_write_all_models: Option<bool>,
+    prime_write_all_models: Option<bool>,
 ) -> AppResult<ApplyResult> {
     if targets.is_empty() {
         return Err(AppError::new("validation_failed", "no targets selected"));
@@ -133,6 +134,23 @@ pub fn apply_site(
         catalog_models: pi_catalog_models,
     };
 
+    let prime_write_all = prime_write_all_models.unwrap_or(false);
+    let prime_catalog_models = if prime_write_all && targets.contains(&TargetKind::Prime) {
+        state.db.with_conn(|c| {
+            let models = repo::site::list_models(c, &site_id)?;
+            Ok(models
+                .into_iter()
+                .map(|model| (model.model_id, model.display_name))
+                .collect::<Vec<_>>())
+        })?
+    } else {
+        Vec::new()
+    };
+    let prime_opts = PrimeApplyOptions {
+        write_all_models: prime_write_all,
+        catalog_models: prime_catalog_models,
+    };
+
     let applied_at = Utc::now().timestamp_millis();
     let mut results = Vec::new();
 
@@ -155,6 +173,94 @@ pub fn apply_site(
                 &pi_opts,
                 binding_before.as_ref(),
                 settings.pi_agent_dir_override.as_deref(),
+                &backup_root,
+            ) {
+                Ok(outcome) => {
+                    let record_id = outcome
+                        .binding
+                        .apply_record_id
+                        .clone()
+                        .unwrap_or_else(|| Uuid::new_v4().to_string());
+                    let mut binding = outcome.binding.clone();
+                    binding.apply_record_id = Some(record_id.clone());
+                    state
+                        .db
+                        .with_conn(|c| repo::binding::upsert_binding(c, &binding))?;
+                    state.db.with_conn(|c| {
+                        repo::apply::insert_record(
+                            c,
+                            &record_id,
+                            Some(&site.id),
+                            &site.name,
+                            target.as_str(),
+                            &model_id,
+                            Some(&outcome.provider_id),
+                            "success",
+                            Some(&backup_root.display().to_string()),
+                            &outcome.touched,
+                            None,
+                            applied_at,
+                        )
+                    })?;
+                    results.push(ApplyTargetResult {
+                        target,
+                        ok: true,
+                        status: ApplyStatus::Applied,
+                        backup_paths: outcome.backup_paths,
+                        message: outcome.message,
+                        live_summary: Some(outcome.live_summary),
+                        touched_keys: Some(outcome.touched.paths),
+                    });
+                }
+                Err(error) => {
+                    let touched = TouchedKeys::default();
+                    let _ = state.db.with_conn(|c| {
+                        repo::apply::insert_record(
+                            c,
+                            &Uuid::new_v4().to_string(),
+                            Some(&site.id),
+                            &site.name,
+                            target.as_str(),
+                            &model_id,
+                            None,
+                            "failed",
+                            Some(&backup_root.display().to_string()),
+                            &touched,
+                            Some(&error.to_string()),
+                            applied_at,
+                        )
+                    });
+                    results.push(ApplyTargetResult {
+                        target,
+                        ok: false,
+                        status: ApplyStatus::Failed,
+                        backup_paths: Vec::new(),
+                        message: error.to_string(),
+                        live_summary: None,
+                        touched_keys: None,
+                    });
+                }
+            }
+            finalize_backup_dir(
+                &backup_root,
+                target,
+                &site.name,
+                &model_id,
+                None,
+                applied_at,
+                settings.max_backup_copies,
+            );
+            continue;
+        }
+
+        if target == TargetKind::Prime {
+            match crate::adapters::prime::apply(
+                &site,
+                &api_key,
+                &model_id,
+                &prime_opts,
+                binding_before.as_ref(),
+                settings.prime_agent_dir_override.as_deref(),
                 &backup_root,
             ) {
                 Ok(outcome) => {
@@ -505,6 +611,12 @@ pub fn revert_target(
                 settings.pi_agent_dir_override.as_deref(),
             )?;
         }
+        TargetKind::Prime => {
+            crate::adapters::prime::surgical_revert(
+                &binding,
+                settings.prime_agent_dir_override.as_deref(),
+            )?;
+        }
     }
     state
         .db
@@ -555,6 +667,12 @@ pub fn restore_official_target(
         TargetKind::Pi => crate::adapters::pi::restore_official(
             binding.as_ref(),
             settings.pi_agent_dir_override.as_deref(),
+            &backup_root,
+        )
+        .map(|_| ()),
+        TargetKind::Prime => crate::adapters::prime::restore_official(
+            binding.as_ref(),
+            settings.prime_agent_dir_override.as_deref(),
             &backup_root,
         )
         .map(|_| ()),
@@ -616,7 +734,12 @@ pub fn list_backups(
     let targets: Vec<TargetKind> = if let Some(t) = target.as_deref().and_then(TargetKind::parse) {
         vec![t]
     } else {
-        vec![TargetKind::ClaudeCode, TargetKind::Codex, TargetKind::Pi]
+        vec![
+            TargetKind::ClaudeCode,
+            TargetKind::Codex,
+            TargetKind::Pi,
+            TargetKind::Prime,
+        ]
     };
     backup::list_backups_in(&root, &targets, |dir| {
         state

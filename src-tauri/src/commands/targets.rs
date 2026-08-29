@@ -1,7 +1,9 @@
 use crate::cli_detect;
 use crate::domain::{ApplyStatus, CliToolInfo, TargetKind, TargetLiveStatus};
 use crate::error::{AppError, AppResult};
-use crate::paths::{resolve_claude_home, resolve_codex_home, resolve_pi_agent_dir};
+use crate::paths::{
+    resolve_claude_home, resolve_codex_home, resolve_pi_agent_dir, resolve_prime_agent_dir,
+};
 use crate::repo;
 use crate::state::AppState;
 use once_cell::sync::Lazy;
@@ -37,7 +39,12 @@ pub(crate) fn list_target_status_with_tools(
     let bindings = state.db.with_conn(repo::binding::list_bindings)?;
 
     let mut out = Vec::new();
-    for kind in [TargetKind::ClaudeCode, TargetKind::Codex, TargetKind::Pi] {
+    for kind in [
+        TargetKind::ClaudeCode,
+        TargetKind::Codex,
+        TargetKind::Pi,
+        TargetKind::Prime,
+    ] {
         let binding = bindings.iter().find(|b| b.target == kind);
         let tool = tools.iter().find(|t| t.kind == kind);
         let (site, api_key) = if let Some(b) = binding {
@@ -75,6 +82,12 @@ pub(crate) fn list_target_status_with_tools(
                 api_key.as_deref(),
                 settings.pi_agent_dir_override.as_deref(),
             )?,
+            TargetKind::Prime => crate::adapters::prime::detect_status(
+                binding,
+                site.as_ref(),
+                api_key.as_deref(),
+                settings.prime_agent_dir_override.as_deref(),
+            )?,
         };
 
         let mut live_summary = match kind {
@@ -87,8 +100,11 @@ pub(crate) fn list_target_status_with_tools(
             TargetKind::Pi => {
                 crate::adapters::pi::live_summary(settings.pi_agent_dir_override.as_deref())?
             }
+            TargetKind::Prime => {
+                crate::adapters::prime::live_summary(settings.prime_agent_dir_override.as_deref())?
+            }
         };
-        if kind == TargetKind::Pi {
+        if kind == TargetKind::Pi || kind == TargetKind::Prime {
             if let Some(write_all_models) = binding
                 .and_then(|value| value.expected_fields.get("write_all_models"))
                 .cloned()
@@ -112,6 +128,12 @@ pub(crate) fn list_target_status_with_tools(
                 .join("models.json")
                 .display()
                 .to_string(),
+            TargetKind::Prime => {
+                resolve_prime_agent_dir(settings.prime_agent_dir_override.as_deref())?
+                    .join("models.json")
+                    .display()
+                    .to_string()
+            }
         };
 
         out.push(TargetLiveStatus {
@@ -154,6 +176,7 @@ pub(crate) fn detect_cli_tools_cached(force: bool) -> Vec<CliToolInfo> {
         cli_detect::probe_tool(TargetKind::ClaudeCode, "claude"),
         cli_detect::probe_tool(TargetKind::Codex, "codex"),
         cli_detect::probe_tool(TargetKind::Pi, "pi"),
+        cli_detect::probe_prime(),
     ];
     *CLI_PROBE_CACHE.lock() = Some(CliProbeCache {
         tools: tools.clone(),
@@ -195,6 +218,12 @@ pub fn cleanup_orphan_target(
                     settings.pi_agent_dir_override.as_deref(),
                 )?;
             }
+            TargetKind::Prime => {
+                crate::adapters::prime::surgical_revert(
+                    &b,
+                    settings.prime_agent_dir_override.as_deref(),
+                )?;
+            }
         }
         state
             .db
@@ -202,6 +231,9 @@ pub fn cleanup_orphan_target(
         crate::tray::request_tray_menu_sync(&app);
     } else if target == TargetKind::Pi {
         crate::adapters::pi::cleanup_orphans(settings.pi_agent_dir_override.as_deref())?;
+        crate::tray::request_tray_menu_sync(&app);
+    } else if target == TargetKind::Prime {
+        crate::adapters::prime::cleanup_orphans(settings.prime_agent_dir_override.as_deref())?;
         crate::tray::request_tray_menu_sync(&app);
     }
     Ok(())
@@ -214,7 +246,7 @@ mod tests {
     #[test]
     fn cli_probe_cache_reuses_last_result_until_forced() {
         let first = detect_cli_tools_cached(true);
-        assert_eq!(first.len(), 3);
+        assert_eq!(first.len(), 4);
         let cached = detect_cli_tools_cached(false);
         assert_eq!(cached[0].kind, first[0].kind);
         assert_eq!(cached[1].kind, first[1].kind);
@@ -222,5 +254,7 @@ mod tests {
         assert_eq!(cached[1].installed, first[1].installed);
         assert_eq!(cached[2].kind, first[2].kind);
         assert_eq!(cached[2].installed, first[2].installed);
+        assert_eq!(cached[3].kind, first[3].kind);
+        assert_eq!(cached[3].installed, first[3].installed);
     }
 }

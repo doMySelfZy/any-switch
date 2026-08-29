@@ -4,7 +4,7 @@ export type SiteProtocol = "openai_compatible" | "anthropic";
 /** Only affects Claude Code auth env key name. Codex ignores this. */
 export type ClaudeAuthKeyStyle = "anthropic_auth_token" | "anthropic_api_key";
 
-export type TargetKind = "claude_code" | "codex" | "pi";
+export type TargetKind = "claude_code" | "codex" | "pi" | "prime";
 
 export type ProxyMode = "system" | "none" | "custom";
 export type ProxyProtocol = "http" | "https" | "socks5";
@@ -174,6 +174,8 @@ export interface ApplyRequest {
   codexCapabilitySource?: CodexCapabilitySource;
   /** Write the site model list into Pi's managed provider. */
   piWriteAllModels?: boolean;
+  /** Write the site model list into Prime's managed provider. */
+  primeWriteAllModels?: boolean;
 }
 
 export interface ApplyTargetResult {
@@ -202,6 +204,7 @@ export interface AppSettings {
   claudeHomeOverride: string | null;
   codexHomeOverride: string | null;
   piAgentDirOverride: string | null;
+  primeAgentDirOverride: string | null;
   codexEnvInjectMode: "auto" | "shell_rc" | "user_env" | "file_only";
   forceExclusiveClaudeAuthKey: boolean;
   autoCheckUpdate: boolean;

@@ -65,6 +65,8 @@ pub enum TargetKind {
     ClaudeCode,
     Codex,
     Pi,
+    #[serde(alias = "prime_agent", alias = "prime-agent")]
+    Prime,
 }
 
 impl TargetKind {
@@ -73,6 +75,7 @@ impl TargetKind {
             Self::ClaudeCode => "claude_code",
             Self::Codex => "codex",
             Self::Pi => "pi",
+            Self::Prime => "prime",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -80,6 +83,7 @@ impl TargetKind {
             "claude_code" => Some(Self::ClaudeCode),
             "codex" => Some(Self::Codex),
             "pi" => Some(Self::Pi),
+            "prime" | "prime_agent" | "prime-agent" => Some(Self::Prime),
             _ => None,
         }
     }
@@ -382,6 +386,14 @@ pub struct PiApplyOptions {
     pub catalog_models: Vec<(String, String)>, // (model_id, display_name)
 }
 
+/// Extra options for Prime Agent apply.
+#[derive(Debug, Clone, Default)]
+pub struct PrimeApplyOptions {
+    pub write_all_models: bool,
+    /// Site models used when `write_all_models` is true.
+    pub catalog_models: Vec<(String, String)>, // (model_id, display_name)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApplyTargetResult {
@@ -415,6 +427,8 @@ pub struct AppSettings {
     pub codex_home_override: Option<String>,
     #[serde(default)]
     pub pi_agent_dir_override: Option<String>,
+    #[serde(default)]
+    pub prime_agent_dir_override: Option<String>,
     pub codex_env_inject_mode: String,
     pub force_exclusive_claude_auth_key: bool,
     #[serde(default = "default_true")]
@@ -626,6 +640,7 @@ impl Default for AppSettings {
             claude_home_override: None,
             codex_home_override: None,
             pi_agent_dir_override: None,
+            prime_agent_dir_override: None,
             codex_env_inject_mode: "auto".into(),
             force_exclusive_claude_auth_key: false,
             auto_check_update: true,

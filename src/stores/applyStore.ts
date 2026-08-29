@@ -106,6 +106,7 @@ export const useApplyStore = create<ApplyState>((set, get) => ({
         codexWebSearch: req.codexWebSearch ?? false,
         codexCapabilitySource: req.codexCapabilitySource ?? "site",
         piWriteAllModels: req.piWriteAllModels ?? false,
+        primeWriteAllModels: req.primeWriteAllModels ?? false,
       });
       set({ lastResult: result });
       await get().loadStatus({ force: true });

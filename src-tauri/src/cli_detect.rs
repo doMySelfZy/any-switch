@@ -1,4 +1,4 @@
-//! Discover Claude Code / Codex / Pi CLIs when a GUI-launched app has a stripped PATH.
+//! Discover Claude Code / Codex / Pi / Prime CLIs when a GUI-launched app has a stripped PATH.
 //!
 //! Finder / Dock / tray launches typically see `/usr/bin:/bin:/usr/sbin:/sbin`,
 //! which misses Homebrew, nvm, fnm, volta, bun, and `~/.local/bin`. Detection
@@ -34,6 +34,19 @@ impl ProbeEnv {
 
 pub fn probe_tool(kind: TargetKind, bin: &str) -> CliToolInfo {
     probe_tool_with(kind, bin, &ProbeEnv::from_process())
+}
+
+/// Prefer the public `prime-agent` binary; fall back to a `prime` shim if present.
+pub fn probe_prime() -> CliToolInfo {
+    probe_prime_with(&ProbeEnv::from_process())
+}
+
+pub fn probe_prime_with(probe: &ProbeEnv) -> CliToolInfo {
+    let primary = probe_tool_with(TargetKind::Prime, "prime-agent", probe);
+    if primary.installed {
+        return primary;
+    }
+    probe_tool_with(TargetKind::Prime, "prime", probe)
 }
 
 pub fn probe_tool_with(kind: TargetKind, bin: &str, probe: &ProbeEnv) -> CliToolInfo {
@@ -682,5 +695,57 @@ mod tests {
         );
         assert!(info.installed);
         assert_eq!(info.version.as_deref(), Some("codex-cli 0.42.0"));
+    }
+
+    #[test]
+    fn probe_prime_prefers_prime_agent_then_falls_back_to_prime() {
+        let missing = probe_prime_with(&ProbeEnv {
+            path_dirs: vec![],
+            extra_dirs: vec![],
+        });
+        assert!(!missing.installed);
+        assert_eq!(missing.kind, TargetKind::Prime);
+
+        let fallback = tempfile::tempdir().unwrap();
+        write_fake_cli(
+            fallback.path(),
+            "prime",
+            "echo prime 1.0.0",
+            "echo prime 1.0.0",
+        );
+        let info = probe_prime_with(&ProbeEnv {
+            path_dirs: vec![],
+            extra_dirs: vec![fallback.path().to_path_buf()],
+        });
+        assert!(info.installed);
+        assert_eq!(info.kind, TargetKind::Prime);
+        assert!(info
+            .path
+            .as_deref()
+            .is_some_and(|path| path.contains("prime")),);
+
+        let preferred = tempfile::tempdir().unwrap();
+        write_fake_cli(
+            preferred.path(),
+            "prime-agent",
+            "echo prime-agent 2.0.0",
+            "echo prime-agent 2.0.0",
+        );
+        write_fake_cli(
+            preferred.path(),
+            "prime",
+            "echo prime 1.0.0",
+            "echo prime 1.0.0",
+        );
+        let info = probe_prime_with(&ProbeEnv {
+            path_dirs: vec![],
+            extra_dirs: vec![preferred.path().to_path_buf()],
+        });
+        assert!(info.installed);
+        assert_eq!(info.kind, TargetKind::Prime);
+        assert!(info
+            .path
+            .as_deref()
+            .is_some_and(|path| path.contains("prime-agent")),);
     }
 }

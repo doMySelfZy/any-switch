@@ -2,6 +2,7 @@ pub mod atomic;
 pub mod claude_code;
 pub mod codex;
 pub mod pi;
+pub mod prime;
 
 use std::collections::HashMap;
 

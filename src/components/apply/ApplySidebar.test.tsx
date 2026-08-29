@@ -42,4 +42,18 @@ describe("ApplySidebar", () => {
     fireEvent.click(pi);
     expect(useUIStore.getState().applyTab).toBe("pi");
   });
+
+  it("renders the Prime tab with its icon and selects it", () => {
+    render(
+      <ConfigProvider>
+        <AntdApp>
+          <ApplySidebar />
+        </AntdApp>
+      </ConfigProvider>,
+    );
+    const prime = screen.getByText("Prime");
+    expect(prime.closest("li")?.querySelector('[data-icon="prime"]')).toBeTruthy();
+    fireEvent.click(prime);
+    expect(useUIStore.getState().applyTab).toBe("prime");
+  });
 });

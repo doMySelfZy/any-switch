@@ -66,6 +66,12 @@ pub fn sync_applied_urls(state: &AppState, site: &SiteRow) -> AppResult<Vec<Appl
                 settings.pi_agent_dir_override.as_deref(),
                 &backup_root,
             ),
+            TargetKind::Prime => crate::adapters::prime::rewrite_base_url(
+                &binding,
+                site,
+                settings.prime_agent_dir_override.as_deref(),
+                &backup_root,
+            ),
         };
 
         match rewrite {

@@ -26,6 +26,7 @@ pub struct TrayLabels {
     pub claude: &'static str,
     pub codex: &'static str,
     pub pi: &'static str,
+    pub prime: &'static str,
     pub applied: &'static str,
     pub stale: &'static str,
     pub orphan: &'static str,
@@ -47,6 +48,7 @@ pub fn tray_labels(language: &str) -> TrayLabels {
             claude: "Claude Code",
             codex: "Codex",
             pi: "Pi",
+            prime: "Prime",
             applied: "Applied",
             stale: "Stale",
             orphan: "Orphan",
@@ -65,6 +67,7 @@ pub fn tray_labels(language: &str) -> TrayLabels {
             claude: "Claude Code",
             codex: "Codex",
             pi: "Pi",
+            prime: "Prime",
             applied: "已应用",
             stale: "已过期",
             orphan: "配置游离",
@@ -92,6 +95,7 @@ fn kind_label(labels: &TrayLabels, kind: TargetKind) -> &'static str {
         TargetKind::ClaudeCode => labels.claude,
         TargetKind::Codex => labels.codex,
         TargetKind::Pi => labels.pi,
+        TargetKind::Prime => labels.prime,
     }
 }
 
@@ -132,8 +136,17 @@ pub fn format_model_line(model_id: Option<&str>) -> Option<String> {
     Some(truncate_label(model, TITLE_MAX_CHARS))
 }
 
-pub fn format_tooltip(labels: &TrayLabels, claude: &str, codex: &str, pi: &str) -> String {
-    format!("{}\n{}\n{}\n{}", labels.header, claude, codex, pi)
+pub fn format_tooltip(
+    labels: &TrayLabels,
+    claude: &str,
+    codex: &str,
+    pi: &str,
+    prime: &str,
+) -> String {
+    format!(
+        "{}\n{}\n{}\n{}\n{}",
+        labels.header, claude, codex, pi, prime
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,6 +189,8 @@ pub struct TraySnapshot {
     pub codex_model: Option<String>,
     pub pi_line: String,
     pub pi_model: Option<String>,
+    pub prime_line: String,
+    pub prime_model: Option<String>,
     pub tooltip: String,
     pub sites: Vec<QuickSite>,
 }
@@ -199,6 +214,13 @@ impl TraySnapshot {
         );
         let pi =
             format_target_status_line(&labels, TargetKind::Pi, ApplyStatus::NotApplied, None, None);
+        let prime = format_target_status_line(
+            &labels,
+            TargetKind::Prime,
+            ApplyStatus::NotApplied,
+            None,
+            None,
+        );
         Self {
             language: language.to_string(),
             claude_line: claude.clone(),
@@ -207,7 +229,9 @@ impl TraySnapshot {
             codex_model: None,
             pi_line: pi.clone(),
             pi_model: None,
-            tooltip: format_tooltip(&labels, &claude, &codex, &pi),
+            prime_line: prime.clone(),
+            prime_model: None,
+            tooltip: format_tooltip(&labels, &claude, &codex, &pi, &prime),
             sites: vec![],
         }
     }
@@ -284,6 +308,10 @@ fn build_menu(
     if let Some(model) = &snapshot.pi_model {
         append_plain_item(app, &menu, "status_pi_model", model, false)?;
     }
+    append_plain_item(app, &menu, "status_prime", &snapshot.prime_line, false)?;
+    if let Some(model) = &snapshot.prime_model {
+        append_plain_item(app, &menu, "status_prime_model", model, false)?;
+    }
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     append_native_icon_item(
@@ -350,6 +378,7 @@ fn collect_snapshot(app: &AppHandle) -> TraySnapshot {
     let claude = find(TargetKind::ClaudeCode);
     let codex = find(TargetKind::Codex);
     let pi = find(TargetKind::Pi);
+    let prime = find(TargetKind::Prime);
 
     let claude_line = match claude {
         Some(s) => format_target_status_line(
@@ -398,6 +427,24 @@ fn collect_snapshot(app: &AppHandle) -> TraySnapshot {
         }
     };
     let pi_model = pi.and_then(|status| format_model_line(status.applied_model_id.as_deref()));
+    let prime_line = match prime {
+        Some(status) => format_target_status_line(
+            &labels,
+            TargetKind::Prime,
+            status.status,
+            status.applied_site_name.as_deref(),
+            None,
+        ),
+        None => format_target_status_line(
+            &labels,
+            TargetKind::Prime,
+            ApplyStatus::NotApplied,
+            None,
+            None,
+        ),
+    };
+    let prime_model =
+        prime.and_then(|status| format_model_line(status.applied_model_id.as_deref()));
 
     let tooltip_claude = match claude {
         Some(s) => format_target_status_line(
@@ -429,6 +476,16 @@ fn collect_snapshot(app: &AppHandle) -> TraySnapshot {
         ),
         None => pi_line.clone(),
     };
+    let tooltip_prime = match prime {
+        Some(status) => format_target_status_line(
+            &labels,
+            TargetKind::Prime,
+            status.status,
+            status.applied_site_name.as_deref(),
+            status.applied_model_id.as_deref(),
+        ),
+        None => prime_line.clone(),
+    };
 
     let sites = state
         .db
@@ -451,7 +508,15 @@ fn collect_snapshot(app: &AppHandle) -> TraySnapshot {
         codex_model,
         pi_line,
         pi_model,
-        tooltip: format_tooltip(&labels, &tooltip_claude, &tooltip_codex, &tooltip_pi),
+        prime_line,
+        prime_model,
+        tooltip: format_tooltip(
+            &labels,
+            &tooltip_claude,
+            &tooltip_codex,
+            &tooltip_pi,
+            &tooltip_prime,
+        ),
         sites: pick_quick_sites(&rows, &applied, QUICK_SITE_LIMIT),
     }
 }
@@ -525,7 +590,9 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         | "status_codex"
         | "status_codex_model"
         | "status_pi"
-        | "status_pi_model" => {}
+        | "status_pi_model"
+        | "status_prime"
+        | "status_prime_model" => {}
         other if other.starts_with(APPLY_PREFIX) => {
             let site_id = other[APPLY_PREFIX.len()..].to_string();
             if site_id.is_empty() {
@@ -670,12 +737,14 @@ mod tests {
             "Claude Code · 已应用",
             "Codex · 未应用",
             "Pi · 已应用",
+            "Prime · 未应用",
         );
         assert!(tip.starts_with("XiaoBaiSwitch"));
         assert!(tip.contains("Claude Code"));
         assert!(tip.contains("Codex"));
         assert!(tip.contains("Pi"));
-        assert_eq!(tip.lines().count(), 4);
+        assert!(tip.contains("Prime"));
+        assert_eq!(tip.lines().count(), 5);
     }
 
     #[test]

@@ -113,9 +113,9 @@ xattr -cr /Applications/XiaoBaiSwitch.app
 
 ## 安全提示
 
-API Key 在应用内加密存储；编辑站点时会按需解密到默认隐藏的密码输入框。应用后可能以明文写入 Claude Code 配置、Codex 环境或 `~/.pi/agent/auth.json`，请勿把这些配置同步到不可信云盘。
+API Key 在应用内加密存储；编辑站点时会按需解密到默认隐藏的密码输入框。应用后可能以明文写入 Claude Code 配置、Codex 环境、`~/.pi/agent/auth.json` 或 `~/.prime/agent/auth.json`，请勿把这些配置同步到不可信云盘。
 
-Pi 使用官方 `models.json`、`auth.json`、`settings.json` 接口。XiaoBaiSwitch 仅管理 `xiaobai_` Provider，保留其他自定义 Provider、OAuth 登录和未知设置；可选择只写默认模型或写入站点全部模型。
+Pi 与 Prime 使用官方 `models.json`、`auth.json`、`settings.json` 接口。XiaoBaiSwitch 仅管理 `xiaobai_` Provider，保留其他自定义 Provider、OAuth 登录和未知设置；可选择只写默认模型或写入站点全部模型。Prime 默认写入 `~/.prime/agent`，不要写到 `~/.pi/agent`。
 
 ## 社区支持
 - [LinuxDO](https://linux.do)

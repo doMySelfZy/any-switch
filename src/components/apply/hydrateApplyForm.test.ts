@@ -5,6 +5,7 @@ import {
   hydrateClaudeForm,
   hydrateCodexForm,
   hydratePiForm,
+  hydratePrimeForm,
   pickApplySiteId,
   selectableApplySites,
 } from "./hydrateApplyForm";
@@ -340,5 +341,20 @@ describe("hydratePiForm", () => {
     );
     expect(defaults.modelId).toBe("site-model");
     expect(defaults.writeAllModels).toBe(true);
+  });
+});
+
+describe("hydratePrimeForm", () => {
+  it("hydrates the applied model and write-all state from Prime summary", () => {
+    const defaults = hydratePrimeForm(
+      site({ id: "shuai", selectedModelId: "fallback" }),
+      status({
+        kind: "prime",
+        appliedSiteId: "shuai",
+        appliedModelId: "model-a",
+        liveSummary: { defaultModel: "model-a", modelCount: "1", writeAllModels: "true" },
+      }),
+    );
+    expect(defaults).toEqual({ modelId: "model-a", writeAllModels: true });
   });
 });

@@ -22,7 +22,7 @@ Open Settings from the title bar; Esc returns. Most switches save immediately.
 
 ## Paths
 
-Override the Claude, Codex, and Pi Agent config directories. With the Pi field empty, `PI_CODING_AGENT_DIR` is checked before `~/.pi/agent`.
+Override the Claude, Codex, Pi Agent, and Prime Agent config directories. With the Pi field empty, `PI_CODING_AGENT_DIR` is checked before `~/.pi/agent`. With the Prime field empty, `PRIME_AGENT_CODING_AGENT_DIR` is checked before `~/.prime/agent`.
 
 ## Apply behavior
 

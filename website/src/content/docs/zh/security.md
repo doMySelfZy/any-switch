@@ -1,6 +1,6 @@
 ---
 title: 安全说明
-description: 密钥在应用内加密；Apply 之后可能以明文出现在 Claude / Codex / Pi 配置和 shell 环境中。
+description: 密钥在应用内加密；Apply 之后可能以明文出现在 Claude / Codex / Pi / Prime 配置和 shell 环境中。
 order: 13
 ---
 
@@ -8,7 +8,7 @@ API Key 在应用数据库中 **加密存储**（`~/.xiaobai-switch/xiaobai-swit
 
 <div class="not-prose">
 <div role="alert" class="alert alert-warning my-4">
-<p><strong>应用（Apply）之后</strong>，密钥可能以明文出现在 <code>~/.claude</code>、<code>~/.codex</code>、<code>~/.pi/agent/auth.json</code>、<code>codex.env</code> 或 shell rc 中。请勿把这些目录同步到不可信云盘。</p>
+<p><strong>应用（Apply）之后</strong>，密钥可能以明文出现在 <code>~/.claude</code>、<code>~/.codex</code>、<code>~/.pi/agent/auth.json</code>、<code>~/.prime/agent/auth.json</code>、<code>codex.env</code> 或 shell rc 中。请勿把这些目录同步到不可信云盘。</p>
 </div>
 </div>
 

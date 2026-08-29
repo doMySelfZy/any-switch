@@ -20,19 +20,26 @@ export function ApplyFooter({ loading, disabled, target, onApply, onRestoreOffic
   const { modal, message } = App.useApp();
   const [backupOpen, setBackupOpen] = useState(false);
   const [restoring, setRestoring] = useState(false);
-  const isPi = target === "pi";
+  const isManagedProvider = target === "pi" || target === "prime";
 
   const handleRestoreOfficial = () => {
     modal.confirm({
       centered: true,
-      title: isPi ? t("apply.removePiConfirm") : t("apply.restoreOfficialConfirm"),
+      title:
+        target === "prime"
+          ? t("apply.removePrimeConfirm")
+          : target === "pi"
+            ? t("apply.removePiConfirm")
+            : t("apply.restoreOfficialConfirm"),
       content:
         target === "claude_code"
           ? t("apply.restoreOfficialClaudeHint")
           : target === "codex"
             ? t("apply.restoreOfficialCodexHint")
-            : t("apply.removePiHint"),
-      okText: isPi ? t("apply.removePiOk") : t("apply.restoreOfficialOk"),
+            : target === "prime"
+              ? t("apply.removePrimeHint")
+              : t("apply.removePiHint"),
+      okText: isManagedProvider ? t("apply.removePiOk") : t("apply.restoreOfficialOk"),
       cancelText: t("common.cancel"),
       okButtonProps: { danger: true, loading: restoring },
       onOk: async () => {
@@ -41,7 +48,7 @@ export function ApplyFooter({ loading, disabled, target, onApply, onRestoreOffic
           await onRestoreOfficial();
           modal.success({
             centered: true,
-            title: isPi ? t("apply.removePiSuccess") : t("apply.restoreOfficialSuccess"),
+            title: isManagedProvider ? t("apply.removePiSuccess") : t("apply.restoreOfficialSuccess"),
             content: (
               <div>
                 <div>
@@ -49,7 +56,9 @@ export function ApplyFooter({ loading, disabled, target, onApply, onRestoreOffic
                     ? t("apply.restoreOfficialClaudeOk")
                     : target === "codex"
                       ? t("apply.restoreOfficialCodexOk")
-                      : t("apply.removePiDone")}
+                      : target === "prime"
+                        ? t("apply.removePrimeDone")
+                        : t("apply.removePiDone")}
                 </div>
                 <div className="mt-2">{t("apply.restartHint")}</div>
               </div>
@@ -95,7 +104,7 @@ export function ApplyFooter({ loading, disabled, target, onApply, onRestoreOffic
           disabled={loading}
           onClick={handleRestoreOfficial}
         >
-          {isPi ? t("apply.removePi") : t("apply.restoreOfficial")}
+          {isManagedProvider ? t("apply.removePi") : t("apply.restoreOfficial")}
         </Button>
       </div>
       <Modal

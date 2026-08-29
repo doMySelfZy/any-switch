@@ -430,4 +430,21 @@ describe("SettingsPage paths", () => {
       expect(useSettingsStore.getState().settings.piAgentDirOverride).toBe("/tmp/custom-pi");
     });
   });
+
+  it("shows and persists the Prime Agent directory override", async () => {
+    render(
+      <Wrapper>
+        <SettingsPage />
+      </Wrapper>,
+    );
+
+    const input = await screen.findByPlaceholderText(
+      "留空按 PRIME_AGENT_CODING_AGENT_DIR → ~/.prime/agent 解析",
+    );
+    fireEvent.change(input, { target: { value: "/tmp/custom-prime" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+    await waitFor(() => {
+      expect(useSettingsStore.getState().settings.primeAgentDirOverride).toBe("/tmp/custom-prime");
+    });
+  });
 });

@@ -1,4 +1,4 @@
-use crate::adapters::{claude_code, codex, pi};
+use crate::adapters::{claude_code, codex, pi, prime};
 use crate::crypto::key_prefix;
 use crate::domain::{
     clamp_max_backup_copies, AppSettings, BackupFileInfo, BackupInfo, BackupPreview, TargetKind,
@@ -82,6 +82,7 @@ pub fn prune_all(max: u32) -> AppResult<usize> {
     n += prune_target_backups(TargetKind::ClaudeCode, max)?;
     n += prune_target_backups(TargetKind::Codex, max)?;
     n += prune_target_backups(TargetKind::Pi, max)?;
+    n += prune_target_backups(TargetKind::Prime, max)?;
     Ok(n)
 }
 
@@ -185,6 +186,8 @@ pub fn parse_backup_id(id: &str) -> AppResult<(TargetKind, String)> {
         (TargetKind::Codex, rest)
     } else if let Some(rest) = id.strip_prefix("pi-") {
         (TargetKind::Pi, rest)
+    } else if let Some(rest) = id.strip_prefix("prime-") {
+        (TargetKind::Prime, rest)
     } else {
         return Err(AppError::new("validation_failed", "invalid backup id"));
     };
@@ -241,6 +244,15 @@ pub fn mapped_dest(
         (TargetKind::Pi, "settings.json") => Some(pi::settings_path(
             settings.pi_agent_dir_override.as_deref(),
         )?),
+        (TargetKind::Prime, "models.json") => Some(prime::models_path(
+            settings.prime_agent_dir_override.as_deref(),
+        )?),
+        (TargetKind::Prime, "auth.json") => Some(prime::auth_path(
+            settings.prime_agent_dir_override.as_deref(),
+        )?),
+        (TargetKind::Prime, "settings.json") => Some(prime::settings_path(
+            settings.prime_agent_dir_override.as_deref(),
+        )?),
         _ => None,
     })
 }
@@ -254,6 +266,11 @@ fn dest_is_allowed(dest: &Path, settings: &AppSettings) -> bool {
         roots.push(p);
     }
     if let Ok(p) = crate::paths::resolve_pi_agent_dir(settings.pi_agent_dir_override.as_deref()) {
+        roots.push(p);
+    }
+    if let Ok(p) =
+        crate::paths::resolve_prime_agent_dir(settings.prime_agent_dir_override.as_deref())
+    {
         roots.push(p);
     }
     if let Ok(p) = crate::paths::app_dir() {
@@ -300,7 +317,9 @@ pub fn restore_backup_in(
             continue;
         };
         crate::adapters::atomic::restore_file(&dir.join(&name), &dest)?;
-        if name == "codex.env" || (target == TargetKind::Pi && name == "auth.json") {
+        if name == "codex.env"
+            || ((target == TargetKind::Pi || target == TargetKind::Prime) && name == "auth.json")
+        {
             crate::paths::set_secret_permissions(&dest);
         }
         restored.push(dest);
@@ -333,6 +352,9 @@ pub fn preview_backup_in(root: &Path, id: &str) -> AppResult<BackupPreview> {
 fn summary_from_backup_dir(dir: &Path, target: TargetKind) -> HashMap<String, Option<String>> {
     if target == TargetKind::Pi {
         return pi::backup_summary(dir);
+    }
+    if target == TargetKind::Prime {
+        return prime::backup_summary(dir);
     }
     let mut out = HashMap::new();
     let settings_json = dir.join("settings.json");
@@ -426,6 +448,10 @@ mod tests {
         assert_eq!(
             parse_backup_id("pi-1710000000000").unwrap().0,
             TargetKind::Pi
+        );
+        assert_eq!(
+            parse_backup_id("prime-1710000000000").unwrap().0,
+            TargetKind::Prime
         );
     }
 
@@ -540,6 +566,42 @@ mod tests {
         let mut settings = AppSettings::default();
         settings.pi_agent_dir_override = Some(agent.display().to_string());
         let restored = restore_backup_in(&root, "pi-43", &settings, None).unwrap();
+        assert_eq!(restored.len(), 3);
+        assert!(agent.join("models.json").exists());
+        assert!(agent.join("auth.json").exists());
+        assert!(agent.join("settings.json").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(agent.join("auth.json"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
+    fn prime_backup_maps_all_three_files_and_secures_auth() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("backups");
+        stamp_dir(
+            &root,
+            TargetKind::Prime,
+            44,
+            &[
+                ("models.json", "{\"providers\":{}}"),
+                ("auth.json", "{}"),
+                ("settings.json", "{}"),
+            ],
+        );
+        let agent = tmp.path().join("prime-agent");
+        let mut settings = AppSettings::default();
+        settings.prime_agent_dir_override = Some(agent.display().to_string());
+        let restored = restore_backup_in(&root, "prime-44", &settings, None).unwrap();
         assert_eq!(restored.len(), 3);
         assert!(agent.join("models.json").exists());
         assert!(agent.join("auth.json").exists());

@@ -80,6 +80,15 @@ pub fn default_pi_agent_dir() -> AppResult<PathBuf> {
     Ok(home_dir()?.join(".pi").join("agent"))
 }
 
+pub fn default_prime_agent_dir() -> AppResult<PathBuf> {
+    if let Ok(v) = std::env::var("PRIME_AGENT_CODING_AGENT_DIR") {
+        if !v.trim().is_empty() {
+            return Ok(PathBuf::from(v));
+        }
+    }
+    Ok(home_dir()?.join(".prime").join("agent"))
+}
+
 pub fn resolve_claude_home(override_path: Option<&str>) -> AppResult<PathBuf> {
     if let Some(p) = override_path {
         if !p.trim().is_empty() {
@@ -105,6 +114,15 @@ pub fn resolve_pi_agent_dir(override_path: Option<&str>) -> AppResult<PathBuf> {
         }
     }
     default_pi_agent_dir()
+}
+
+pub fn resolve_prime_agent_dir(override_path: Option<&str>) -> AppResult<PathBuf> {
+    if let Some(p) = override_path {
+        if !p.trim().is_empty() {
+            return Ok(PathBuf::from(p));
+        }
+    }
+    default_prime_agent_dir()
 }
 
 pub fn app_paths_dto() -> AppResult<AppPaths> {
@@ -167,5 +185,21 @@ mod tests {
         );
         std::env::remove_var("PI_CODING_AGENT_DIR");
         assert!(default_pi_agent_dir().unwrap().ends_with(".pi/agent"));
+    }
+
+    #[test]
+    fn prime_override_beats_environment() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("PRIME_AGENT_CODING_AGENT_DIR", "/tmp/prime-env");
+        assert_eq!(
+            resolve_prime_agent_dir(Some("/tmp/prime-setting")).unwrap(),
+            PathBuf::from("/tmp/prime-setting")
+        );
+        assert_eq!(
+            resolve_prime_agent_dir(None).unwrap(),
+            PathBuf::from("/tmp/prime-env")
+        );
+        std::env::remove_var("PRIME_AGENT_CODING_AGENT_DIR");
+        assert!(default_prime_agent_dir().unwrap().ends_with(".prime/agent"));
     }
 }

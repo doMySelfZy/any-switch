@@ -101,6 +101,8 @@ export interface PiFormDefaults {
   writeAllModels: boolean;
 }
 
+export type PrimeFormDefaults = PiFormDefaults;
+
 function appliedOnSite(site: Site | null, status: TargetLiveStatus | undefined): boolean {
   return Boolean(site && status?.appliedSiteId && status.appliedSiteId === site.id);
 }
@@ -227,6 +229,13 @@ export function hydratePiForm(
       liveStr(live, "writeAllModels") === "true" ||
       (Number.isFinite(modelCount) && modelCount > 1),
   };
+}
+
+export function hydratePrimeForm(
+  site: Site | null,
+  status: TargetLiveStatus | undefined,
+): PrimeFormDefaults {
+  return hydratePiForm(site, status);
 }
 
 export function buildModelOptions(

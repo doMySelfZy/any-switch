@@ -10,6 +10,7 @@ export const DOC_SLUGS = [
   "apply-claude",
   "apply-codex",
   "apply-pi",
+  "apply-prime",
   "routes",
   "import-link",
   "backups",

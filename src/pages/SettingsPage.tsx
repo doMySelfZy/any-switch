@@ -291,18 +291,26 @@ function PathsSection() {
   const [claude, setClaude] = useState(settings.claudeHomeOverride ?? "");
   const [codex, setCodex] = useState(settings.codexHomeOverride ?? "");
   const [pi, setPi] = useState(settings.piAgentDirOverride ?? "");
+  const [prime, setPrime] = useState(settings.primeAgentDirOverride ?? "");
 
   useEffect(() => {
     setClaude(settings.claudeHomeOverride ?? "");
     setCodex(settings.codexHomeOverride ?? "");
     setPi(settings.piAgentDirOverride ?? "");
-  }, [settings.claudeHomeOverride, settings.codexHomeOverride, settings.piAgentDirOverride]);
+    setPrime(settings.primeAgentDirOverride ?? "");
+  }, [
+    settings.claudeHomeOverride,
+    settings.codexHomeOverride,
+    settings.piAgentDirOverride,
+    settings.primeAgentDirOverride,
+  ]);
 
   const onSave = async () => {
     await saveSettings({
       claudeHomeOverride: claude.trim() || null,
       codexHomeOverride: codex.trim() || null,
       piAgentDirOverride: pi.trim() || null,
+      primeAgentDirOverride: prime.trim() || null,
     });
     message.success(t("settings.pathsSaved"));
   };
@@ -326,6 +334,15 @@ function PathsSection() {
             placeholder={t("settings.piAgentDirPlaceholder")}
           />
           <div className="mt-1 text-xs opacity-50">{t("settings.piAgentDirHint")}</div>
+        </div>
+        <div className="mb-3">
+          <div className="mb-1 text-sm">{t("settings.primeAgentDir")}</div>
+          <Input
+            value={prime}
+            onChange={(event) => setPrime(event.target.value)}
+            placeholder={t("settings.primeAgentDirPlaceholder")}
+          />
+          <div className="mt-1 text-xs opacity-50">{t("settings.primeAgentDirHint")}</div>
         </div>
         <div className="mb-3">
           <div className="mb-1 text-sm">{t("settings.codexHome")}</div>
@@ -500,6 +517,7 @@ function AboutSection() {
             <li>~/.claude/settings.json</li>
             <li>~/.codex/config.toml</li>
             <li>~/.pi/agent/auth.json</li>
+            <li>~/.prime/agent/auth.json</li>
           </ul>
           <Button className="mt-3" onClick={() => void invoke("open_path", { path: paths.appDir })}>
             {t("settings.openAppDir")}

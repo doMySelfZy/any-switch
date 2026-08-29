@@ -20,9 +20,11 @@ interface ModalApi {
 
 export function applyResultBodyKey(
   target: TargetKind,
-): "apply.resultClaudeOk" | "apply.resultCodexOk" | "apply.resultPiOk" {
+): "apply.resultClaudeOk" | "apply.resultCodexOk" | "apply.resultPiOk" | "apply.resultPrimeOk" {
   if (target === "claude_code") return "apply.resultClaudeOk";
-  return target === "codex" ? "apply.resultCodexOk" : "apply.resultPiOk";
+  if (target === "codex") return "apply.resultCodexOk";
+  if (target === "prime") return "apply.resultPrimeOk";
+  return "apply.resultPiOk";
 }
 
 export function showApplyOutcome(

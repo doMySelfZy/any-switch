@@ -140,6 +140,27 @@ describe("ApplyFooter", () => {
     await waitFor(() => expect(remove).toHaveBeenCalledTimes(1));
   });
 
+  it("uses a scoped remove action for Prime", async () => {
+    const remove = vi.fn().mockResolvedValue(undefined);
+    render(
+      <Wrapper>
+        <ApplyFooter
+          target="prime"
+          loading={false}
+          disabled={false}
+          onApply={() => {}}
+          onRestoreOfficial={remove}
+        />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "移除 XiaoBai 配置" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("~/.prime/agent/auth.json");
+    fireEvent.click(within(dialog).getByRole("button", { name: "移除配置" }));
+    await waitFor(() => expect(remove).toHaveBeenCalledTimes(1));
+  });
+
   it("does not list backups until the modal is opened", () => {
     render(
       <Wrapper>

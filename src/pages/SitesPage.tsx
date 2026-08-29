@@ -17,7 +17,7 @@ import type { Site } from "@/types/domain";
 import { isAppError } from "@/lib/invoke";
 import { quotaCacheKey } from "@/lib/quotaProbe";
 import { useDeferredReady } from "@/hooks/useDeferredReady";
-import { targetsAppliedForSite } from "@/components/apply/TargetStatusCard";
+import { targetKindLabelKey, targetsAppliedForSite } from "@/components/apply/TargetStatusCard";
 
 function protocolLabelKey(protocol: Site["protocol"]): string {
   return protocol === "anthropic" ? "sites.protocolAnthropic" : "sites.protocolOpenai";
@@ -226,13 +226,7 @@ export function SitesPage() {
     }
 
     const targetLabels = targets
-      .map((kind) =>
-        kind === "claude_code"
-          ? t("apply.targetClaude")
-          : kind === "codex"
-            ? t("apply.targetCodex")
-            : t("apply.targetPi"),
-      )
+      .map((kind) => t(targetKindLabelKey(kind)))
       .join(t("common.listSep"));
 
     const dlg = modal.confirm({

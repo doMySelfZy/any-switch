@@ -121,6 +121,12 @@ pub fn delete_site(
                         settings.pi_agent_dir_override.as_deref(),
                     )?;
                 }
+                crate::domain::TargetKind::Prime => {
+                    crate::adapters::prime::surgical_revert(
+                        &b,
+                        settings.prime_agent_dir_override.as_deref(),
+                    )?;
+                }
             }
             state
                 .db

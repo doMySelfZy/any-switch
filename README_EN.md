@@ -113,9 +113,9 @@ Official desktop builds can check for updates and install them in-app; check man
 
 ## Security
 
-API keys are encrypted inside the app; after apply they may be written in plaintext to Claude Code config, Codex environment files, or `~/.pi/agent/auth.json`, so do not sync those configs to untrusted cloud storage.
+API keys are encrypted inside the app; after apply they may be written in plaintext to Claude Code config, Codex environment files, `~/.pi/agent/auth.json`, or `~/.prime/agent/auth.json`, so do not sync those configs to untrusted cloud storage.
 
-Pi uses its official `models.json`, `auth.json`, and `settings.json` interfaces. XiaoBaiSwitch manages only `xiaobai_` providers and preserves other custom providers, OAuth logins, and unknown settings. You can write only the default model or the whole site catalog.
+Pi and Prime use their official `models.json`, `auth.json`, and `settings.json` interfaces. XiaoBaiSwitch manages only `xiaobai_` providers and preserves other custom providers, OAuth logins, and unknown settings. You can write only the default model or the whole site catalog. Prime writes `~/.prime/agent` by default, not `~/.pi/agent`.
 
 ## License
 

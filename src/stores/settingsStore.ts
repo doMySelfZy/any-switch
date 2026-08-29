@@ -11,6 +11,7 @@ const DEFAULT: AppSettings = {
   claudeHomeOverride: null,
   codexHomeOverride: null,
   piAgentDirOverride: null,
+  primeAgentDirOverride: null,
   codexEnvInjectMode: "auto",
   forceExclusiveClaudeAuthKey: false,
   autoCheckUpdate: true,

@@ -22,7 +22,7 @@ order: 12
 
 ## 路径
 
-可覆盖 Claude、Codex 与 Pi Agent 配置目录。Pi 留空时先读取 `PI_CODING_AGENT_DIR`，再使用 `~/.pi/agent`。
+可覆盖 Claude、Codex、Pi Agent 与 Prime Agent 配置目录。Pi 留空时先读取 `PI_CODING_AGENT_DIR`，再使用 `~/.pi/agent`。Prime 留空时先读取 `PRIME_AGENT_CODING_AGENT_DIR`，再使用 `~/.prime/agent`。
 
 ## 应用行为
 

@@ -70,12 +70,7 @@ export function TargetStatusCard({
     );
   }
 
-  const kindLabel =
-    status.kind === "claude_code"
-      ? t("apply.targetClaude")
-      : status.kind === "codex"
-        ? t("apply.targetCodex")
-        : t("apply.targetPi");
+  const kindLabel = t(targetKindLabelKey(status.kind));
   const installed = status.installed;
   const version = status.version ?? tool?.version ?? null;
   const versionLabel = cliVersionLabel(version);
@@ -255,6 +250,15 @@ export function TargetStatusCard({
       )}
     </div>
   );
+}
+
+export function targetKindLabelKey(
+  kind: TargetKind,
+): "apply.targetClaude" | "apply.targetCodex" | "apply.targetPi" | "apply.targetPrime" {
+  if (kind === "claude_code") return "apply.targetClaude";
+  if (kind === "codex") return "apply.targetCodex";
+  if (kind === "pi") return "apply.targetPi";
+  return "apply.targetPrime";
 }
 
 export function statusFor(

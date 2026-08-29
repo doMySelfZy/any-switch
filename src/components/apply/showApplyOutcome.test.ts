@@ -14,6 +14,7 @@ describe("showApplyOutcome", () => {
     expect(applyResultBodyKey("claude_code")).toBe("apply.resultClaudeOk");
     expect(applyResultBodyKey("codex")).toBe("apply.resultCodexOk");
     expect(applyResultBodyKey("pi")).toBe("apply.resultPiOk");
+    expect(applyResultBodyKey("prime")).toBe("apply.resultPrimeOk");
 
     const modal = modalApi();
     showApplyOutcome(modal, i18n.t.bind(i18n), {
