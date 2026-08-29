@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { App, Button, Popover, Space, Spin, Tag, theme, Tooltip, Typography } from "antd";
-import { CloudUpload, DatabaseBackup, HardDriveDownload, Settings } from "lucide-react";
+import { CloudDownload, CloudUpload, DatabaseBackup, HardDriveDownload, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { invoke, isAppError } from "@/lib/invoke";
 import { useUIStore } from "@/stores";
-import type { BackupOperationResult, BackupOverview } from "@/types/domain";
+import type { BackupOperationResult, BackupOverview, RemoteBackupInfo } from "@/types/domain";
 
 function formatTimestamp(value: number | null): string {
   if (value == null) return "-";
@@ -12,19 +12,47 @@ function formatTimestamp(value: number | null): string {
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString();
 }
 
+/** Prefer first item when the list is already newest→oldest; otherwise the latest lastModified. */
+function pickLatestRemoteBackup(items: RemoteBackupInfo[]): RemoteBackupInfo | null {
+  if (items.length === 0) return null;
+  let latest = items[0];
+  let latestTime = Date.parse(latest.lastModified);
+  for (const item of items.slice(1)) {
+    const time = Date.parse(item.lastModified);
+    if (Number.isNaN(time)) continue;
+    if (Number.isNaN(latestTime) || time > latestTime) {
+      latest = item;
+      latestTime = time;
+    }
+  }
+  return latest;
+}
+
 export function BackupQuickPopover() {
   const { t } = useTranslation();
   const { token } = theme.useToken();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [destination, setDestination] = useState<"local" | "webdav" | null>(null);
   const [overview, setOverview] = useState<BackupOverview | null>(null);
+  const [remoteBackups, setRemoteBackups] = useState<RemoteBackupInfo[]>([]);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
     try {
-      setOverview(await invoke<BackupOverview>("get_backup_overview"));
+      const next = await invoke<BackupOverview>("get_backup_overview");
+      setOverview(next);
+      if (!next.webdavConfigured) {
+        setRemoteBackups([]);
+        return;
+      }
+      try {
+        setRemoteBackups(await invoke<RemoteBackupInfo[]>("list_webdav_backups"));
+      } catch (error) {
+        setRemoteBackups([]);
+        message.error(isAppError(error) ? error.message : t("settings.webdav.loadFailed"));
+      }
     } catch (error) {
       message.error(isAppError(error) ? error.message : t("settings.webdav.loadFailed"));
     } finally {
@@ -63,6 +91,28 @@ export function BackupQuickPopover() {
     useUIStore.getState().setSettingsTab("backup");
     useUIStore.getState().setPage("settings");
     setOpen(false);
+  };
+
+  const latestRemote = pickLatestRemoteBackup(remoteBackups);
+
+  const restoreLatestRemote = () => {
+    if (!latestRemote) return;
+    modal.confirm({
+      centered: true,
+      title: t("settings.webdav.restoreConfirmTitle"),
+      content: t("settings.webdav.restoreConfirmBody", { name: latestRemote.fileName }),
+      okText: t("settings.webdav.restoreAction"),
+      cancelText: t("common.cancel"),
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await invoke("restore_webdav_backup", { fileName: latestRemote.fileName });
+        } catch (error) {
+          message.error(isAppError(error) ? error.message : t("settings.webdav.restoreFailed"));
+          throw error;
+        }
+      },
+    });
   };
 
   const status = overview?.webdavSync.status ?? "never";
@@ -124,6 +174,14 @@ export function BackupQuickPopover() {
           onClick={() => void createBackup("webdav")}
         >
           {t("settings.webdav.backupNow")}
+        </Button>
+        <Button
+          block
+          icon={<CloudDownload size={14} />}
+          disabled={destination !== null || !overview?.webdavConfigured || latestRemote == null}
+          onClick={restoreLatestRemote}
+        >
+          {t("settings.webdav.restoreNow")}
         </Button>
         {!overview?.webdavConfigured && (
           <Button block type="link" icon={<Settings size={14} />} onClick={openBackupSettings}>

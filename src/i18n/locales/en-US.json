@@ -477,7 +477,8 @@
         "success": "Success",
         "warning": "Partial success",
         "failed": "Failed"
-      }
+      },
+      "restoreNow": "Restore from WebDAV now"
     }
   },
   "onboarding": {

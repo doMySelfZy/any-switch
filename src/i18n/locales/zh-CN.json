@@ -477,7 +477,8 @@
         "success": "成功",
         "warning": "部分成功",
         "failed": "失败"
-      }
+      },
+      "restoreNow": "立即从 WebDAV 恢复"
     }
   },
   "onboarding": {
