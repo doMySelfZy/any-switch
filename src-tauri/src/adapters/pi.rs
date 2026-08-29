@@ -152,7 +152,16 @@ fn model_values(options: &PiApplyOptions, selected: &str) -> Vec<CstInputValue> 
             continue;
         }
         let display_name = display_name.trim();
-        let mut fields = vec![("id".into(), CstInputValue::String(id.clone()))];
+        let mut fields = vec![
+            ("id".into(), CstInputValue::String(id.clone())),
+            (
+                "input".into(),
+                CstInputValue::Array(vec![
+                    CstInputValue::String("text".into()),
+                    CstInputValue::String("image".into()),
+                ]),
+            ),
+        ];
         if !display_name.is_empty() && display_name != id {
             fields.push((
                 "name".into(),
@@ -962,6 +971,13 @@ mod tests {
         .unwrap()
     }
 
+    fn assert_each_model_input_is_text_and_image(list: &[Value]) {
+        assert!(!list.is_empty());
+        for model in list {
+            assert_eq!(model["input"], json!(["text", "image"]));
+        }
+    }
+
     #[test]
     fn maps_openai_and_anthropic_protocols() {
         let dir = tempdir().unwrap();
@@ -981,7 +997,10 @@ mod tests {
         let list = models["providers"][&outcome.provider_id]["models"]
             .as_array()
             .unwrap();
-        assert_eq!(list, &[json!({ "id": "model-a" })]);
+        assert_eq!(
+            list,
+            &[json!({ "id": "model-a", "input": ["text", "image"] })]
+        );
         let other = tempdir().unwrap();
         let outcome = apply_fixture(
             other.path(),
@@ -1105,6 +1124,55 @@ mod tests {
         assert!(list.iter().any(|model| model["id"] == "model-a"));
         assert_eq!(list[0]["name"], "Model B");
         assert!(list[1].get("name").is_none());
+        assert_each_model_input_is_text_and_image(list);
+    }
+
+    #[test]
+    fn managed_models_always_declare_text_and_image_input() {
+        let selected_dir = tempdir().unwrap();
+        let selected = apply_fixture(
+            selected_dir.path(),
+            &site(SiteProtocol::OpenaiCompatible),
+            "key",
+            &PiApplyOptions::default(),
+            None,
+        );
+        let selected_models = models_value(&selected_dir.path().join("models.json")).unwrap();
+        let selected_list = selected_models["providers"][&selected.provider_id]["models"]
+            .as_array()
+            .unwrap();
+        assert_eq!(selected_list.len(), 1);
+        assert_eq!(selected_list[0]["id"], "model-a");
+        assert_each_model_input_is_text_and_image(selected_list);
+
+        let catalog_dir = tempdir().unwrap();
+        let options = PiApplyOptions {
+            write_all_models: true,
+            catalog_models: vec![
+                ("vision-model".into(), "Vision".into()),
+                ("text-model".into(), "Text".into()),
+            ],
+        };
+        let catalog = apply_fixture(
+            catalog_dir.path(),
+            &site(SiteProtocol::OpenaiCompatible),
+            "key",
+            &options,
+            None,
+        );
+        let catalog_models = models_value(&catalog_dir.path().join("models.json")).unwrap();
+        let catalog_list = catalog_models["providers"][&catalog.provider_id]["models"]
+            .as_array()
+            .unwrap();
+        assert_eq!(catalog_list.len(), 3);
+        assert_eq!(
+            catalog_list
+                .iter()
+                .map(|model| model["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["vision-model", "text-model", "model-a"]
+        );
+        assert_each_model_input_is_text_and_image(catalog_list);
     }
 
     #[test]
