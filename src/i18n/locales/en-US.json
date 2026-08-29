@@ -153,7 +153,9 @@
     "deepLinkSecurityHint": "Only import trusted links to avoid leaving keys in browser history",
     "advanced": "Advanced configuration",
     "codexPrivateCapabilities": "Codex-specific capabilities",
-    "deepLinkCapabilitiesOff": "All off"
+    "deepLinkCapabilitiesOff": "All off",
+    "dragHandle": "Drag to reorder",
+    "reorderFailed": "Could not reorder sites"
   },
   "apply": {
     "title": "Apply Center",

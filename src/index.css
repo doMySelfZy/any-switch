@@ -230,6 +230,14 @@ svg.lucide {
   cursor: pointer;
 }
 
+.site-list-item .site-drag-handle {
+  cursor: grab;
+}
+
+.site-list-item .site-drag-handle:active {
+  cursor: grabbing;
+}
+
 .site-list-item:not([data-active="true"]) {
   background: var(--site-item-bg);
 }

@@ -761,6 +761,56 @@ describe("SitesPage", () => {
     });
     probe.mockRestore();
   });
+
+  it("persists sidebar order through reorderSites after creating two sites", async () => {
+    await act(async () => {
+      await useSiteStore.getState().createSite({
+        name: "Alpha",
+        baseUrl: "https://alpha.example.com",
+        apiKey: "sk-test",
+      });
+      await useSiteStore.getState().createSite({
+        name: "Beta",
+        baseUrl: "https://beta.example.com",
+        apiKey: "sk-test",
+      });
+    });
+
+    render(
+      <Wrapper>
+        <SitesPage />
+      </Wrapper>,
+    );
+
+    const handles = await screen.findAllByRole("button", { name: "拖拽排序" });
+    expect(handles).toHaveLength(2);
+    expect(handles[0]).toHaveAttribute("aria-roledescription", "sortable");
+    expect(handles[0]).toHaveAttribute("title", "拖拽排序");
+    expect(document.querySelectorAll("[data-testid='site-drag-handle']")).toHaveLength(2);
+
+    const listNames = () =>
+      [...document.querySelectorAll("[data-testid='site-list-item']")].map(
+        (el) => el.querySelector(".truncate.text-sm.font-medium")?.textContent,
+      );
+    expect(listNames()).toEqual(["Alpha", "Beta"]);
+    expect(useSiteStore.getState().sites.map((s) => s.name)).toEqual(["Alpha", "Beta"]);
+
+    const reversed = [...useSiteStore.getState().sites].map((s) => s.id).reverse();
+    await act(async () => {
+      await useSiteStore.getState().reorderSites(reversed);
+    });
+
+    expect(useSiteStore.getState().sites.map((s) => s.name)).toEqual(["Beta", "Alpha"]);
+    await waitFor(() => {
+      expect(listNames()).toEqual(["Beta", "Alpha"]);
+    });
+
+    await act(async () => {
+      await useSiteStore.getState().loadSites({ force: true });
+    });
+    expect(useSiteStore.getState().sites.map((s) => s.name)).toEqual(["Beta", "Alpha"]);
+    expect(listNames()).toEqual(["Beta", "Alpha"]);
+  });
 });
 
 function appliedStatus(

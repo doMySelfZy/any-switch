@@ -1,8 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { App, Button, Checkbox, Empty, Skeleton, Switch, Tooltip, theme } from "antd";
 import { Plus, Trash2, Pencil, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useApplyStore, useSiteStore, useUIStore } from "@/stores";
+import { reorderList } from "@/lib/reorder";
 import { SiteFormModal, type SiteFormInitialValues } from "@/components/sites/SiteFormModal";
 import { ManualModelModal } from "@/components/sites/ManualModelModal";
 import { GoApplyButton } from "@/components/sites/GoApplyButton";
@@ -43,6 +59,7 @@ export function SitesPage() {
   const quotaLoadingBySite = useSiteStore((s) => s.quotaLoadingBySite);
   const setSelectedModel = useSiteStore((s) => s.setSelectedModel);
   const deleteSite = useSiteStore((s) => s.deleteSite);
+  const reorderSites = useSiteStore((s) => s.reorderSites);
   const updateSite = useSiteStore((s) => s.updateSite);
   const loadStatus = useApplyStore((s) => s.loadStatus);
   const revert = useApplyStore((s) => s.revert);
@@ -185,6 +202,25 @@ export function SitesPage() {
       }
     },
     [setSelectedSiteId, handleFetchModels],
+  );
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleSiteDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const ids = useSiteStore.getState().sites.map((s) => s.id);
+      const next = reorderList(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)));
+      if (next === ids) return;
+      void reorderSites(next).catch((e) => {
+        message.error(isAppError(e) ? e.message : t("sites.reorderFailed"));
+      });
+    },
+    [reorderSites, message, t],
   );
 
   const disableSite = async (site: Site, clear: boolean) => {
@@ -355,19 +391,28 @@ export function SitesPage() {
           </Button>
         </div>
         <div className="scroll-y flex flex-1 flex-col gap-2 px-2 pb-2">
-          {sites.map((site) => (
-            <SiteListItem
-              key={site.id}
-              site={site}
-              active={selected?.id === site.id}
-              onSelect={() => setSelectedSiteId(site.id)}
-              onEdit={() => {
-                setEditing(site);
-                setFormOpen(true);
-              }}
-              onDelete={() => handleDelete(site)}
-            />
-          ))}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis]}
+            onDragEnd={handleSiteDragEnd}
+          >
+            <SortableContext items={sites.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+              {sites.map((site) => (
+                <SiteListItem
+                  key={site.id}
+                  site={site}
+                  active={selected?.id === site.id}
+                  onSelect={() => setSelectedSiteId(site.id)}
+                  onEdit={() => {
+                    setEditing(site);
+                    setFormOpen(true);
+                  }}
+                  onDelete={() => handleDelete(site)}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
       </div>
 

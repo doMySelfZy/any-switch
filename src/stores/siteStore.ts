@@ -47,6 +47,7 @@ interface SiteState {
     opts?: { apply?: boolean },
   ) => Promise<SwitchRouteResult>;
   deleteSite: (id: string, cleanupTargets?: boolean) => Promise<void>;
+  reorderSites: (ids: string[]) => Promise<void>;
   fetchModels: (siteId: string) => Promise<FetchModelsResult>;
   listModels: (siteId: string, opts?: { force?: boolean }) => Promise<SiteModel[]>;
   probeQuota: (siteId: string, opts?: { force?: boolean }) => Promise<SiteQuota>;
@@ -185,6 +186,29 @@ export const useSiteStore = create<SiteState>((set, get) => ({
       modelsLoadingBySite,
       ...clearSiteQuotaState(get(), id),
     });
+  },
+  reorderSites: async (ids) => {
+    const previous = get().sites;
+    const byId = new Map(previous.map((s) => [s.id, s]));
+    const next: Site[] = [];
+    const seen = new Set<string>();
+    ids.forEach((id, index) => {
+      const site = byId.get(id);
+      if (!site) return;
+      seen.add(id);
+      next.push({ ...site, sortOrder: index });
+    });
+    for (const site of previous) {
+      if (!seen.has(site.id)) next.push(site);
+    }
+    set({ sites: next });
+    try {
+      await invoke("reorder_sites", { ids });
+      await get().loadSites({ soft: true });
+    } catch (e) {
+      set({ sites: previous });
+      throw e;
+    }
   },
   fetchModels: async (siteId) => {
     set({ fetchingModels: true, error: null });

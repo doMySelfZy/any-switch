@@ -477,4 +477,26 @@ describe("siteStore fetchModels", () => {
       "https://api.example.com/new-key",
     );
   });
+
+  it("reorderSites persists the new order through reorder_sites", async () => {
+    const alpha = await useSiteStore.getState().createSite({
+      name: "Alpha",
+      baseUrl: "https://alpha.example.com",
+      apiKey: "sk-test",
+    });
+    const beta = await useSiteStore.getState().createSite({
+      name: "Beta",
+      baseUrl: "https://beta.example.com",
+      apiKey: "sk-test",
+    });
+    expect(useSiteStore.getState().sites.map((s) => s.id)).toEqual([alpha.id, beta.id]);
+
+    await useSiteStore.getState().reorderSites([beta.id, alpha.id]);
+    expect(useSiteStore.getState().sites.map((s) => s.id)).toEqual([beta.id, alpha.id]);
+    expect(useSiteStore.getState().sites.map((s) => s.sortOrder)).toEqual([0, 1]);
+
+    await useSiteStore.getState().loadSites({ force: true });
+    expect(useSiteStore.getState().sites.map((s) => s.id)).toEqual([beta.id, alpha.id]);
+    expect(useSiteStore.getState().sites.map((s) => s.name)).toEqual(["Beta", "Alpha"]);
+  });
 });
