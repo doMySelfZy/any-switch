@@ -14,7 +14,10 @@ import type {
   HttpBytesResult,
   LocalBackupInfo,
   ModelProbeResult,
+  MarketplaceSkill,
   RemoteBackupInfo,
+  Skill,
+  SkillTarget,
   Site,
   SiteQuota,
   SiteModel,
@@ -146,6 +149,108 @@ const exclusions = new Map<string, Set<string>>();
 let quotaProbeCallCount = 0;
 let quotaProbeHandler: ((site: Site) => SiteQuota | Promise<SiteQuota>) | null = null;
 
+type BrowserMarketplaceSkill = Omit<MarketplaceSkill, "installedTargets">;
+
+const SKILL_ROOTS: Record<SkillTarget, string> = {
+  agents: "/Users/demo/.agents/skills",
+  claude_code: "/Users/demo/.claude/skills",
+  codex: "/Users/demo/.codex/skills",
+  pi: "/Users/demo/.pi/agent/skills",
+  prime: "/Users/demo/.prime/agent/skills",
+};
+
+const INITIAL_SKILLS: Skill[] = [
+  {
+    name: "find-skills",
+    description: "Shared agent skills installed under ~/.agents/skills",
+    author: "XiaoBaiSwitch",
+    version: "1.0.0",
+    target: "agents",
+    sourcePath: "/Users/demo/.agents/skills/find-skills/SKILL.md",
+    directoryPath: "/Users/demo/.agents/skills/find-skills",
+    skillsPath: SKILL_ROOTS.agents,
+    enabled: true,
+  },
+  {
+    name: "shared-tools",
+    description: "Shared workflows installed for Claude Code",
+    author: "XiaoBaiSwitch",
+    version: "1.0.0",
+    target: "claude_code",
+    sourcePath: "/Users/demo/.claude/skills/shared-tools/SKILL.md",
+    directoryPath: "/Users/demo/.claude/skills/shared-tools",
+    skillsPath: SKILL_ROOTS.claude_code,
+    enabled: true,
+  },
+  {
+    name: "shared-tools",
+    description: "The same skill installed independently for Codex",
+    author: "XiaoBaiSwitch",
+    version: "1.0.0",
+    target: "codex",
+    sourcePath: "/Users/demo/.codex/skills/shared-tools/SKILL.md",
+    directoryPath: "/Users/demo/.codex/skills/shared-tools",
+    skillsPath: SKILL_ROOTS.codex,
+    enabled: true,
+  },
+  {
+    name: "pi-workflow",
+    description: "Example Pi workflow skill",
+    author: "XiaoBaiSwitch",
+    version: "1.1.0",
+    target: "pi",
+    sourcePath: "/Users/demo/.pi/agent/skills/pi-workflow/SKILL.md",
+    directoryPath: "/Users/demo/.pi/agent/skills/pi-workflow",
+    skillsPath: SKILL_ROOTS.pi,
+    enabled: true,
+  },
+  {
+    name: "prime-workflow",
+    description: "Example Prime workflow skill",
+    author: "XiaoBaiSwitch",
+    version: "1.2.0",
+    target: "prime",
+    sourcePath: "/Users/demo/.prime/agent/skills/prime-workflow/SKILL.md",
+    directoryPath: "/Users/demo/.prime/agent/skills/prime-workflow",
+    skillsPath: SKILL_ROOTS.prime,
+    enabled: true,
+  },
+];
+
+const MARKETPLACE_SKILLS: BrowserMarketplaceSkill[] = [
+  {
+    name: "shared-tools",
+    description: "Reusable coding-agent workflows",
+    repo: "demo/shared-tools",
+    stars: 128,
+    installs: 2048,
+  },
+  {
+    name: "design-system",
+    description: "Build and review design systems",
+    repo: "demo/design-system",
+    stars: 96,
+    installs: 1024,
+  },
+];
+
+let skills: Skill[] = INITIAL_SKILLS.map((skill) => ({ ...skill }));
+let marketplaceTargets = new Map<string, SkillTarget[]>([
+  ["demo/shared-tools", ["claude_code", "codex"]],
+]);
+let installedSkillSources = initialInstalledSkillSources();
+
+function skillSourceKey(target: SkillTarget, sourcePath: string): string {
+  return `${target}:${sourcePath}`;
+}
+
+function initialInstalledSkillSources(): Map<string, string> {
+  return new Map([
+    [`claude_code:${SKILL_ROOTS.claude_code}/shared-tools/SKILL.md`, "demo/shared-tools"],
+    [`codex:${SKILL_ROOTS.codex}/shared-tools/SKILL.md`, "demo/shared-tools"],
+  ]);
+}
+
 export function resetBrowserMock() {
   settings = { ...DEFAULT_SETTINGS };
   sites = [];
@@ -171,6 +276,11 @@ export function resetBrowserMock() {
   exclusions.clear();
   quotaProbeCallCount = 0;
   quotaProbeHandler = null;
+  skills = INITIAL_SKILLS.map((skill) => ({ ...skill }));
+  marketplaceTargets = new Map([
+    ["demo/shared-tools", ["claude_code", "codex"]],
+  ]);
+  installedSkillSources = initialInstalledSkillSources();
 }
 
 export function getBrowserQuotaProbeCallCount() {
@@ -212,6 +322,22 @@ function uid() {
   return crypto.randomUUID();
 }
 
+function normalizeSkillSource(source: string): string {
+  const clean = source.trim().replace(/\/$/, "").replace(/\.git$/, "");
+  const githubMarker = "github.com/";
+  const githubIndex = clean.toLowerCase().indexOf(githubMarker);
+  return (githubIndex >= 0 ? clean.slice(githubIndex + githubMarker.length) : clean)
+    .toLowerCase();
+}
+
+function skillNameFromSource(source: string): string {
+  const normalized = normalizeSkillSource(source);
+  const parts = normalized.split("/").filter(Boolean);
+  const name = parts[parts.length - 1];
+  if (!name) throw { code: "validation_failed", message: "Skill source is required" };
+  return name;
+}
+
 export async function handleBrowserCommand<T>(
   cmd: string,
   args?: Record<string, unknown>,
@@ -229,6 +355,136 @@ export async function handleBrowserCommand<T>(
     case "force_quit":
     case "refresh_tray_menu":
       return undefined as T;
+    case "list_skills":
+      return skills.map((skill) => ({ ...skill })) as T;
+    case "get_skill": {
+      const target = args?.target as SkillTarget;
+      const sourcePath = String(args?.sourcePath ?? "");
+      const skill = skills.find(
+        (item) => item.target === target && item.sourcePath === sourcePath,
+      );
+      if (!skill) throw { code: "not_found", message: "Skill not found" };
+      return {
+        info: { ...skill },
+        content: `# ${skill.name}\n\n${skill.description}`,
+        files: ["SKILL.md"],
+      } as T;
+    }
+    case "set_skill_enabled": {
+      const target = args?.target as SkillTarget;
+      const sourcePath = String(args?.sourcePath ?? "");
+      const index = skills.findIndex(
+        (skill) => skill.target === target && skill.sourcePath === sourcePath,
+      );
+      if (index < 0) throw { code: "not_found", message: "Skill not found" };
+      const enabled = Boolean(args?.enabled);
+      const nextSourcePath = `${skills[index].directoryPath}/${
+        enabled ? "SKILL.md" : "SKILL.md.disabled"
+      }`;
+      skills = skills.map((skill, skillIndex) =>
+        skillIndex === index
+          ? {
+              ...skill,
+              enabled,
+              sourcePath: nextSourcePath,
+            }
+          : skill,
+      );
+      const sourceRef = installedSkillSources.get(skillSourceKey(target, sourcePath));
+      if (sourceRef) {
+        installedSkillSources.delete(skillSourceKey(target, sourcePath));
+        installedSkillSources.set(skillSourceKey(target, nextSourcePath), sourceRef);
+      }
+      return undefined as T;
+    }
+    case "install_skill": {
+      const source = String(args?.source ?? "").trim();
+      const target = args?.target as SkillTarget;
+      const skillsPath = SKILL_ROOTS[target];
+      if (!skillsPath) throw { code: "validation_failed", message: "Invalid skill target" };
+      const name = skillNameFromSource(source);
+      const directoryPath = `${skillsPath}/${name}`;
+      const installed: Skill = {
+        name,
+        description: `Installed from ${source}`,
+        author: null,
+        version: null,
+        target,
+        sourcePath: `${directoryPath}/SKILL.md`,
+        directoryPath,
+        skillsPath,
+        enabled: true,
+      };
+      const previous = skills.find(
+        (skill) => skill.target === target && skill.directoryPath === directoryPath,
+      );
+      const previousSourceRef = previous
+        ? installedSkillSources.get(skillSourceKey(target, previous.sourcePath))
+        : undefined;
+      if (previous && previousSourceRef) {
+        installedSkillSources.delete(skillSourceKey(target, previous.sourcePath));
+        marketplaceTargets.set(
+          previousSourceRef,
+          (marketplaceTargets.get(previousSourceRef) ?? []).filter(
+            (value) => value !== target,
+          ),
+        );
+      }
+      skills = [
+        ...skills.filter(
+          (skill) => !(skill.target === target && skill.directoryPath === directoryPath),
+        ),
+        installed,
+      ];
+      const sourceRef = normalizeSkillSource(source);
+      installedSkillSources.set(skillSourceKey(target, installed.sourcePath), sourceRef);
+      const installedTargets = marketplaceTargets.get(sourceRef) ?? [];
+      marketplaceTargets.set(sourceRef, [...new Set([...installedTargets, target])]);
+      return name as T;
+    }
+    case "uninstall_skill": {
+      const target = args?.target as SkillTarget;
+      const sourcePath = String(args?.sourcePath ?? "");
+      const skill = skills.find(
+        (item) => item.target === target && item.sourcePath === sourcePath,
+      );
+      if (!skill) throw { code: "not_found", message: "Skill not found" };
+      skills = skills.filter(
+        (item) => !(item.target === target && item.sourcePath === sourcePath),
+      );
+      const sourceKey = skillSourceKey(target, sourcePath);
+      const sourceRef = installedSkillSources.get(sourceKey);
+      installedSkillSources.delete(sourceKey);
+      const sourceStillInstalled = sourceRef && skills.some(
+        (item) =>
+          item.target === target &&
+          installedSkillSources.get(skillSourceKey(item.target, item.sourcePath)) === sourceRef,
+      );
+      if (sourceRef && !sourceStillInstalled) {
+        marketplaceTargets.set(
+          sourceRef,
+          (marketplaceTargets.get(sourceRef) ?? []).filter((value) => value !== target),
+        );
+      }
+      return undefined as T;
+    }
+    case "search_skill_marketplace": {
+      const query = String(args?.query ?? "").trim().toLowerCase();
+      const source = String(args?.source ?? "skills.sh");
+      if (source !== "skills.sh" && source !== "github") {
+        throw { code: "validation_failed", message: "Unsupported skill marketplace source" };
+      }
+      return MARKETPLACE_SKILLS.filter((skill) =>
+        [skill.name, skill.description, skill.repo].some((value) =>
+          value.toLowerCase().includes(query),
+        ),
+      ).map((skill) => ({
+        ...skill,
+        stars: source === "github" ? skill.stars : 0,
+        installs: source === "skills.sh" ? skill.installs : 0,
+        installedTargets: [...(marketplaceTargets.get(skill.repo) ?? [])],
+      })) as T;
+    }
     case "list_sites":
       return sites as T;
     case "get_site": {

@@ -6,6 +6,7 @@
   "nav": {
     "sites": "站点",
     "apply": "应用中心",
+    "skills": "技能",
     "settings": "设置"
   },
   "sites": {
@@ -479,6 +480,38 @@
         "failed": "失败"
       },
       "restoreNow": "立即从 WebDAV 恢复"
+    }
+  },
+  "skills": {
+    "title": "技能管理",
+    "mySkills": "我的技能",
+    "marketplace": "在线市场",
+    "install": "安装",
+    "installed": "已全部安装",
+    "installFromUrl": "从 URL 安装",
+    "installUrlPlaceholder": "输入 owner/repo 或 GitHub URL",
+    "searchMarketplace": "搜索在线市场…",
+    "refresh": "刷新技能",
+    "toggle": "启用或停用 {{target}} 的技能 {{name}}",
+    "openDir": "打开目录",
+    "uninstall": "卸载",
+    "uninstallConfirm": "确定要卸载技能「{{name}}」吗？",
+    "uninstallSuccess": "技能「{{name}}」已卸载",
+    "installSuccess": "技能「{{name}}」安装成功",
+    "enabledSuccess": "技能「{{name}}」已启用",
+    "disabledSuccess": "技能「{{name}}」已停用",
+    "detail": "技能详情",
+    "filesLabel": "包含文件",
+    "empty": "暂无技能，可从 URL 或在线市场安装",
+    "noResults": "未找到相关技能",
+    "noDescription": "暂无说明",
+    "target": {
+      "all": "全部",
+      "agents": "Agents",
+      "claude_code": "Claude Code",
+      "codex": "Codex",
+      "pi": "Pi",
+      "prime": "Prime"
     }
   },
   "onboarding": {

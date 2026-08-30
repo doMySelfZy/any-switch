@@ -7,6 +7,7 @@ import { TitleBar } from "@/components/layout/TitleBar";
 import { SideNav } from "@/components/layout/SideNav";
 import { SitesPage } from "@/pages/SitesPage";
 import { ApplyPage } from "@/pages/ApplyPage";
+import { SkillsPage } from "@/pages/SkillsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { useSettingsStore, useUIStore, type AppPage } from "@/stores";
 import { useResolvedDarkMode } from "@/hooks/useResolvedDarkMode";
@@ -45,7 +46,7 @@ function KeepAlivePages({ activePage }: { activePage: AppPage }) {
   }, [activePage]);
 
   return (
-    <div className="relative h-full min-h-0 w-full">
+    <div className="relative h-full min-h-0 w-full overflow-hidden">
       {mounted.has("sites") && (
         <div
           className="h-full min-h-0"
@@ -65,6 +66,20 @@ function KeepAlivePages({ activePage }: { activePage: AppPage }) {
         >
           <div className="flex h-full min-h-0 w-full flex-col">
             <ApplyPage />
+          </div>
+        </div>
+      )}
+      {mounted.has("skills") && (
+        <div
+          className="h-full min-h-0 overflow-hidden"
+          style={{
+            display: activePage === "skills" ? "flex" : "none",
+            flexDirection: "column",
+          }}
+          aria-hidden={activePage !== "skills"}
+        >
+          <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
+            <SkillsPage />
           </div>
         </div>
       )}
@@ -150,10 +165,10 @@ function AppInner({ isDark }: { isDark: boolean }) {
   return (
     <div ref={rootRef} className="flex h-full flex-col">
       <TitleBar />
-      <Layout className="min-h-0 flex-1" style={{ background: token.colorBgContainer }}>
-        <div className="flex min-h-0 flex-1">
+      <Layout className="min-h-0 flex-1 overflow-hidden" style={{ background: token.colorBgContainer, minHeight: 0 }}>
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           <SideNav />
-          <main className="min-w-0 flex-1">
+          <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
             <KeepAlivePages activePage={activePage} />
           </main>
         </div>

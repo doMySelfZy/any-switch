@@ -6,6 +6,7 @@
   "nav": {
     "sites": "Sites",
     "apply": "Apply",
+    "skills": "Skills",
     "settings": "Settings"
   },
   "sites": {
@@ -479,6 +480,38 @@
         "failed": "Failed"
       },
       "restoreNow": "Restore from WebDAV now"
+    }
+  },
+  "skills": {
+    "title": "Skills Management",
+    "mySkills": "My Skills",
+    "marketplace": "Marketplace",
+    "install": "Install",
+    "installed": "Installed everywhere",
+    "installFromUrl": "Install from URL",
+    "installUrlPlaceholder": "Enter owner/repo or GitHub URL",
+    "searchMarketplace": "Search marketplace…",
+    "refresh": "Refresh skills",
+    "toggle": "Enable or disable skill {{name}} for {{target}}",
+    "openDir": "Open directory",
+    "uninstall": "Uninstall",
+    "uninstallConfirm": "Uninstall skill “{{name}}”?",
+    "uninstallSuccess": "Skill “{{name}}” uninstalled",
+    "installSuccess": "Skill “{{name}}” installed",
+    "enabledSuccess": "Skill “{{name}}” enabled",
+    "disabledSuccess": "Skill “{{name}}” disabled",
+    "detail": "Skill details",
+    "filesLabel": "Files",
+    "empty": "No skills yet; install one from a URL or the marketplace",
+    "noResults": "No matching skills",
+    "noDescription": "No description",
+    "target": {
+      "all": "All",
+      "agents": "Agents",
+      "claude_code": "Claude Code",
+      "codex": "Codex",
+      "pi": "Pi",
+      "prime": "Prime"
     }
   },
   "onboarding": {

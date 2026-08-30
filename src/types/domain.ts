@@ -6,6 +6,38 @@ export type ClaudeAuthKeyStyle = "anthropic_auth_token" | "anthropic_api_key";
 
 export type TargetKind = "claude_code" | "codex" | "pi" | "prime";
 
+export type SkillTarget = "agents" | TargetKind;
+
+export interface Skill {
+  name: string;
+  description: string;
+  author: string | null;
+  version: string | null;
+  target: SkillTarget;
+  /** Actual SKILL.md or SKILL.md.disabled path. */
+  sourcePath: string;
+  /** Resolved root directory for this target's skills. */
+  skillsPath: string;
+  /** Directory containing this skill. */
+  directoryPath: string;
+  enabled: boolean;
+}
+
+export interface SkillDetail {
+  info: Skill;
+  content: string;
+  files: string[];
+}
+
+export interface MarketplaceSkill {
+  name: string;
+  description: string;
+  repo: string;
+  stars: number;
+  installs: number;
+  installedTargets: SkillTarget[];
+}
+
 export type ProxyMode = "system" | "none" | "custom";
 export type ProxyProtocol = "http" | "https" | "socks5";
 
