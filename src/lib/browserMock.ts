@@ -402,7 +402,8 @@ export async function handleBrowserCommand<T>(
       const target = args?.target as SkillTarget;
       const skillsPath = SKILL_ROOTS[target];
       if (!skillsPath) throw { code: "validation_failed", message: "Invalid skill target" };
-      const name = skillNameFromSource(source);
+      const requestedName = String(args?.skillName ?? "").trim();
+      const name = requestedName || skillNameFromSource(source);
       const directoryPath = `${skillsPath}/${name}`;
       const installed: Skill = {
         name,
@@ -440,6 +441,11 @@ export async function handleBrowserCommand<T>(
       installedSkillSources.set(skillSourceKey(target, installed.sourcePath), sourceRef);
       const installedTargets = marketplaceTargets.get(sourceRef) ?? [];
       marketplaceTargets.set(sourceRef, [...new Set([...installedTargets, target])]);
+      if (requestedName) {
+        const skillKey = `${sourceRef}::${requestedName.toLowerCase()}`;
+        const namedTargets = marketplaceTargets.get(skillKey) ?? [];
+        marketplaceTargets.set(skillKey, [...new Set([...namedTargets, target])]);
+      }
       return name as T;
     }
     case "uninstall_skill": {
@@ -448,7 +454,7 @@ export async function handleBrowserCommand<T>(
       const skill = skills.find(
         (item) => item.target === target && item.sourcePath === sourcePath,
       );
-      if (!skill) throw { code: "not_found", message: "Skill not found" };
+      if (!skill) return undefined as T;
       skills = skills.filter(
         (item) => !(item.target === target && item.sourcePath === sourcePath),
       );
@@ -478,12 +484,20 @@ export async function handleBrowserCommand<T>(
         [skill.name, skill.description, skill.repo].some((value) =>
           value.toLowerCase().includes(query),
         ),
-      ).map((skill) => ({
-        ...skill,
-        stars: source === "github" ? skill.stars : 0,
-        installs: source === "skills.sh" ? skill.installs : 0,
-        installedTargets: [...(marketplaceTargets.get(skill.repo) ?? [])],
-      })) as T;
+      ).map((skill) => {
+        const repo = normalizeSkillSource(skill.repo);
+        const named = marketplaceTargets.get(`${repo}::${skill.name.toLowerCase()}`);
+        const repoTargets = marketplaceTargets.get(repo) ?? [];
+        const installedTargets = source === "github"
+          ? [...repoTargets]
+          : [...(named ?? repoTargets)];
+        return {
+          ...skill,
+          stars: source === "github" ? skill.stars : 0,
+          installs: source === "skills.sh" ? skill.installs : 0,
+          installedTargets,
+        };
+      }) as T;
     }
     case "list_sites":
       return sites as T;

@@ -217,4 +217,53 @@ describe("SkillsPage", () => {
     );
     expect(uninstalled[0]?.installedTargets).toEqual([]);
   });
+
+  it("updates marketplace installed tags without replacing the result list", async () => {
+    render(
+      <Wrapper>
+        <SkillsPage />
+      </Wrapper>,
+    );
+
+    await screen.findByText("Shared workflows installed for Claude Code");
+    fireEvent.click(screen.getByRole("tab", { name: /在线市场|Marketplace/ }));
+    const card = await screen.findByText("Reusable coding-agent workflows");
+    const other = screen.getByText("Build and review design systems");
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^安装$|^Install$/ })[0]);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Pi" }));
+
+    await waitFor(() => {
+      expect(useSkillStore.getState().marketplaceSkills[0]?.installedTargets).toContain("pi");
+    });
+    expect(card).toBeInTheDocument();
+    expect(other).toBeInTheDocument();
+    expect(useSkillStore.getState().marketplaceLoading).toBe(false);
+  });
+
+  it("keeps my skills mounted when switching to the marketplace", async () => {
+    render(
+      <Wrapper>
+        <SkillsPage />
+      </Wrapper>,
+    );
+
+    const mine = await screen.findByText("Shared workflows installed for Claude Code");
+    fireEvent.click(screen.getByRole("tab", { name: /在线市场|Marketplace/ }));
+    expect(await screen.findByText("Reusable coding-agent workflows")).toBeInTheDocument();
+    expect(mine).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /我的技能|My Skills/ }));
+    expect(mine).toBeInTheDocument();
+    expect(screen.getByTestId("skill-list")).toHaveStyle({ overflowY: "auto" });
+  });
+
+  it("treats uninstalling an already-missing skill as success", async () => {
+    await expect(
+      handleBrowserCommand("uninstall_skill", {
+        target: "pi",
+        sourcePath: "/Users/demo/.pi/agent/skills/gone/SKILL.md",
+      }),
+    ).resolves.toBeUndefined();
+  });
 });

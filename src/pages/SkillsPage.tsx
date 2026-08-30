@@ -132,15 +132,12 @@ export function SkillsPage() {
     });
   }
 
-  async function install(source: string, target: SkillTarget, key: string) {
+  async function install(source: string, target: SkillTarget, key: string, skillName?: string) {
     setInstalling(key);
     try {
-      const name = await store.installSkill(source, target);
+      const name = await store.installSkill(source, target, skillName);
       setInstallUrl((current) => current.trim() === source ? "" : current);
       message.success(t("skills.installSuccess", { name }));
-      if (marketLoaded.current) {
-        await store.searchMarketplace(marketQuery, marketSource);
-      }
     } catch (error) {
       message.error(errorMessage(error));
     } finally {
@@ -164,7 +161,8 @@ export function SkillsPage() {
   }
 
   function installMarketplace(skill: MarketplaceSkill, target: SkillTarget) {
-    void install(skill.repo, target, `${skill.repo}:${target}`);
+    const skillName = marketSource === "skills.sh" ? skill.name : undefined;
+    void install(skill.repo, target, `${skill.repo}:${target}`, skillName);
   }
 
   const targetMenuItems = SKILL_TARGETS.map((target) => ({
@@ -291,7 +289,7 @@ export function SkillsPage() {
         className="min-h-0 flex-1 px-1"
         style={{ flex: "1 1 0%", minHeight: 0, overflowY: "auto" }}
       >
-        {store.marketplaceLoading ? (
+        {store.marketplaceLoading && store.marketplaceSkills.length === 0 ? (
           <div className="p-12 text-center"><Spin /></div>
         ) : store.marketplaceSkills.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("skills.noResults")} />
@@ -299,7 +297,7 @@ export function SkillsPage() {
           <div className="flex flex-col gap-2">
             {store.marketplaceSkills.map((skill) => (
               <MarketplaceCard
-                key={skill.repo}
+                key={`${skill.repo}:${skill.name}`}
                 skill={skill}
                 source={marketSource}
                 installing={installing?.startsWith(`${skill.repo}:`) ?? false}
@@ -332,8 +330,23 @@ export function SkillsPage() {
             { key: "market", label: <span className="inline-flex items-center gap-1.5"><Store size={14} />{t("skills.marketplace")}</span> },
           ]}
         />
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3" style={{ flex: "1 1 0%", minHeight: 0 }}>
-          {pageTab === "mine" ? mySkills : marketplace}
+        <div className="relative min-h-0 flex-1 overflow-hidden px-3 pb-3" style={{ flex: "1 1 0%", minHeight: 0 }}>
+          <div className="relative h-full min-h-0">
+            <div
+              className="absolute inset-0 flex min-h-0 flex-col overflow-hidden"
+              style={{ display: pageTab === "mine" ? "flex" : "none" }}
+              aria-hidden={pageTab !== "mine"}
+            >
+              {mySkills}
+            </div>
+            <div
+              className="absolute inset-0 flex min-h-0 flex-col overflow-hidden"
+              style={{ display: pageTab === "market" ? "flex" : "none" }}
+              aria-hidden={pageTab !== "market"}
+            >
+              {marketplace}
+            </div>
+          </div>
         </div>
       </div>
 

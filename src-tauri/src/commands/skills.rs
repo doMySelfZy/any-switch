@@ -13,7 +13,7 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value as YamlValue;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Component, Path, PathBuf};
@@ -119,7 +119,41 @@ struct ParsedSkill {
 #[derive(Debug, Serialize, Deserialize)]
 struct InstallManifest {
     source_ref: String,
+    #[serde(default)]
+    skill_name: Option<String>,
     installed_at: String,
+}
+
+struct InstalledIndex {
+    by_repo: HashMap<String, Vec<SkillTarget>>,
+    by_skill: HashMap<(String, String), Vec<SkillTarget>>,
+}
+
+impl InstalledIndex {
+    fn targets_for_repo(&self, repo: &str) -> Vec<SkillTarget> {
+        unique_targets(self.by_repo.get(repo).cloned().unwrap_or_default())
+    }
+
+    fn targets_for_skill(&self, repo: &str, name: &str) -> Vec<SkillTarget> {
+        let key = (repo.to_string(), name.to_ascii_lowercase());
+        if let Some(targets) = self.by_skill.get(&key) {
+            return unique_targets(targets.clone());
+        }
+        let repo_has_named = self
+            .by_skill
+            .keys()
+            .any(|(installed_repo, _)| installed_repo == repo);
+        if repo_has_named {
+            return Vec::new();
+        }
+        self.targets_for_repo(repo)
+    }
+}
+
+fn unique_targets(mut targets: Vec<SkillTarget>) -> Vec<SkillTarget> {
+    targets.sort_by_key(|target| target.sort_key());
+    targets.dedup();
+    targets
 }
 
 fn validation_error(message: impl Into<String>) -> AppError {
@@ -136,7 +170,9 @@ fn target_skills_path(settings: &AppSettings, target: SkillTarget) -> AppResult<
         SkillTarget::ClaudeCode => resolve_claude_home(settings.claude_home_override.as_deref())?,
         SkillTarget::Codex => resolve_codex_home(settings.codex_home_override.as_deref())?,
         SkillTarget::Pi => resolve_pi_agent_dir(settings.pi_agent_dir_override.as_deref())?,
-        SkillTarget::Prime => resolve_prime_agent_dir(settings.prime_agent_dir_override.as_deref())?,
+        SkillTarget::Prime => {
+            resolve_prime_agent_dir(settings.prime_agent_dir_override.as_deref())?
+        }
     };
     Ok(root.join("skills"))
 }
@@ -209,6 +245,7 @@ pub async fn install_skill(
     state: State<'_, AppState>,
     source: String,
     target: SkillTarget,
+    skill_name: Option<String>,
 ) -> AppResult<String> {
     let (owner, repo_name) = parse_github_source(&source)?;
     let settings = load_settings(&state)?;
@@ -216,8 +253,7 @@ pub async fn install_skill(
     let archive = download_github_archive(&settings, &owner, &repo_name).await?;
     let source_ref = format!("{owner}/{repo_name}");
     let _guard = SKILL_FS_LOCK.lock();
-    install_archive(&archive, &skills_root, &repo_name, &source_ref)?;
-    Ok(repo_name)
+    install_archive(&archive, &skills_root, skill_name.as_deref(), &source_ref)
 }
 
 #[tauri::command]
@@ -229,20 +265,42 @@ pub fn uninstall_skill(
     let settings = load_settings(&state)?;
     let root = target_skills_path(&settings, target)?;
     let _guard = SKILL_FS_LOCK.lock();
-    let source = validate_skill_path(&root, Path::new(&source_path))?;
+    uninstall_skill_at(&root, Path::new(&source_path))
+}
+
+fn uninstall_skill_at(root: &Path, source: &Path) -> AppResult<()> {
+    if fs::symlink_metadata(source).is_err() {
+        return Ok(());
+    }
+    let source = match validate_skill_path(root, source) {
+        Ok(path) => path,
+        Err(_) if fs::symlink_metadata(source).is_err() => return Ok(()),
+        Err(error) => return Err(error),
+    };
     let skill_directory = source
         .parent()
         .ok_or_else(|| validation_error("skill file has no parent directory"))?;
-    let canonical_root = fs::canonicalize(&root)?;
-    let canonical_dir = fs::canonicalize(skill_directory)?;
+    let canonical_root = match fs::canonicalize(root) {
+        Ok(path) => path,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    let canonical_dir = match fs::canonicalize(skill_directory) {
+        Ok(path) => path,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
     if canonical_dir == canonical_root {
         return Err(validation_error(
             "refusing to remove a skills root directory",
         ));
     }
     let uninstall_dir = resolve_uninstall_directory(&canonical_root, &canonical_dir)?;
-    fs::remove_dir_all(uninstall_dir)?;
-    Ok(())
+    match fs::remove_dir_all(uninstall_dir) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 #[tauri::command]
@@ -620,9 +678,9 @@ async fn download_github_archive(
 fn install_archive(
     archive: &[u8],
     skills_root: &Path,
-    repo_name: &str,
+    skill_name: Option<&str>,
     source_ref: &str,
-) -> AppResult<()> {
+) -> AppResult<String> {
     fs::create_dir_all(skills_root)?;
     if !skills_root.is_dir() {
         return Err(invalid_config("target skills path is not a directory"));
@@ -634,15 +692,16 @@ fn install_archive(
     fs::create_dir(&extract_root)?;
     let top_level = extract_archive(archive, &extract_root)?;
     let payload = extract_root.join(top_level);
-    let skill_files = find_valid_skill_files(&payload)?;
-    if skill_files.is_empty() {
-        return Err(validation_error(
-            "downloaded repository does not contain a valid SKILL.md",
-        ));
+    let selected = select_skill_directories(discover_skill_directories(&payload)?, skill_name)?;
+    let mut installed_names = Vec::new();
+    for (skill_dir, parsed) in selected {
+        let dest_name = safe_skill_dir_name(&parsed.name)?;
+        write_install_manifest(&skill_dir, source_ref, Some(&parsed.name))?;
+        let target = safe_child_directory(skills_root, &dest_name)?;
+        replace_directory(&skill_dir, &target, stage.path(), source_ref)?;
+        installed_names.push(parsed.name);
     }
-    write_install_manifest(&payload, source_ref)?;
-    let target = safe_child_directory(skills_root, repo_name)?;
-    replace_directory(&payload, &target, stage.path(), source_ref)
+    Ok(installed_names.join(", "))
 }
 
 fn extract_archive(archive: &[u8], extract_root: &Path) -> AppResult<PathBuf> {
@@ -755,6 +814,121 @@ fn preserve_executable_permissions(_path: &Path, _mode: Option<u32>) -> AppResul
     Ok(())
 }
 
+fn discover_skill_directories(payload: &Path) -> AppResult<Vec<(PathBuf, ParsedSkill)>> {
+    let skills_dir = payload.join("skills");
+    let from_skills = skill_dirs_in(&skills_dir)?;
+    if !from_skills.is_empty() {
+        return Ok(from_skills);
+    }
+    if skills_dir.is_dir() {
+        let mut nested = Vec::new();
+        let mut entries = fs::read_dir(&skills_dir)?.collect::<Result<Vec<_>, _>>()?;
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            if entry.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            let file_type = entry.file_type()?;
+            if file_type.is_dir() && !file_type.is_symlink() {
+                nested.extend(skill_dirs_in(&entry.path())?);
+            }
+        }
+        if !nested.is_empty() {
+            return Ok(nested);
+        }
+    }
+
+    let agent_dirs = [
+        payload.join(".agents").join("skills"),
+        payload.join(".claude").join("skills"),
+        payload.join(".codex").join("skills"),
+        payload.join(".pi").join("agent").join("skills"),
+        payload.join(".prime").join("agent").join("skills"),
+    ];
+    let mut from_agents = Vec::new();
+    for dir in agent_dirs {
+        from_agents.extend(skill_dirs_in(&dir)?);
+    }
+    if !from_agents.is_empty() {
+        return Ok(from_agents);
+    }
+
+    if let Some(parsed) = parse_skill_dir(payload)? {
+        return Ok(vec![(payload.to_path_buf(), parsed)]);
+    }
+
+    find_valid_skill_files(payload)?
+        .into_iter()
+        .map(|file| {
+            let directory = file
+                .parent()
+                .ok_or_else(|| validation_error("skill file has no parent directory"))?
+                .to_path_buf();
+            let parsed = parse_skill(&read_skill_text(&file)?)?;
+            Ok((directory, parsed))
+        })
+        .collect()
+}
+
+fn skill_dirs_in(directory: &Path) -> AppResult<Vec<(PathBuf, ParsedSkill)>> {
+    let mut skills = Vec::new();
+    if !directory.is_dir() {
+        return Ok(skills);
+    }
+    let mut entries = fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        if entry.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() && !file_type.is_symlink() {
+            if let Some(parsed) = parse_skill_dir(&entry.path())? {
+                skills.push((entry.path(), parsed));
+            }
+        }
+    }
+    Ok(skills)
+}
+
+fn parse_skill_dir(directory: &Path) -> AppResult<Option<ParsedSkill>> {
+    let skill = directory.join(ENABLED_FILE);
+    if !skill.is_file() {
+        return Ok(None);
+    }
+    Ok(Some(parse_skill(&read_skill_text(&skill)?)?))
+}
+
+fn select_skill_directories(
+    discovered: Vec<(PathBuf, ParsedSkill)>,
+    skill_name: Option<&str>,
+) -> AppResult<Vec<(PathBuf, ParsedSkill)>> {
+    if discovered.is_empty() {
+        return Err(validation_error(
+            "downloaded repository does not contain a valid SKILL.md",
+        ));
+    }
+    let Some(wanted) = skill_name.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(discovered);
+    };
+    let matched = discovered
+        .into_iter()
+        .filter(|(directory, parsed)| {
+            parsed.name.eq_ignore_ascii_case(wanted)
+                || directory
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.eq_ignore_ascii_case(wanted))
+        })
+        .collect::<Vec<_>>();
+    if matched.is_empty() {
+        return Err(validation_error(format!(
+            "repository does not contain skill {wanted}"
+        )));
+    }
+    Ok(matched)
+}
+
 fn find_valid_skill_files(root: &Path) -> AppResult<Vec<PathBuf>> {
     let mut files = Vec::new();
     find_valid_skill_files_in(root, 0, &mut files)?;
@@ -788,13 +962,35 @@ fn find_valid_skill_files_in(
     Ok(())
 }
 
-fn write_install_manifest(payload: &Path, source_ref: &str) -> AppResult<()> {
+fn write_install_manifest(
+    payload: &Path,
+    source_ref: &str,
+    skill_name: Option<&str>,
+) -> AppResult<()> {
     let manifest = InstallManifest {
         source_ref: source_ref.to_string(),
+        skill_name: skill_name
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
         installed_at: Utc::now().to_rfc3339(),
     };
     let bytes = serde_json::to_vec_pretty(&manifest)?;
     atomic_write(&payload.join(INSTALL_MANIFEST), &bytes, false)
+}
+
+fn safe_skill_dir_name(name: &str) -> AppResult<String> {
+    let name = name.trim();
+    if name.is_empty() || name == "." || name == ".." || name.starts_with('.') {
+        return Err(validation_error("invalid skill name"));
+    }
+    if !name
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || "-_.".contains(character))
+    {
+        return Err(validation_error("invalid skill name"));
+    }
+    Ok(name.to_string())
 }
 
 fn safe_child_directory(root: &Path, name: &str) -> AppResult<PathBuf> {
@@ -902,27 +1098,25 @@ fn resolve_uninstall_directory(root: &Path, skill_directory: &Path) -> AppResult
     })
 }
 
-fn installed_source_targets(
-    roots: &[(SkillTarget, PathBuf)],
-) -> AppResult<HashMap<String, Vec<SkillTarget>>> {
-    let mut installed: HashMap<String, Vec<SkillTarget>> = HashMap::new();
+fn installed_source_targets(roots: &[(SkillTarget, PathBuf)]) -> AppResult<InstalledIndex> {
+    let mut index = InstalledIndex {
+        by_repo: HashMap::new(),
+        by_skill: HashMap::new(),
+    };
     for (target, root) in roots {
         if !root.is_dir() {
             continue;
         }
-        let mut refs = HashSet::new();
-        collect_installed_source_refs(root, 0, &mut refs)?;
-        for source_ref in refs {
-            installed.entry(source_ref).or_default().push(*target);
-        }
+        collect_installed_source_refs(root, 0, *target, &mut index)?;
     }
-    Ok(installed)
+    Ok(index)
 }
 
 fn collect_installed_source_refs(
     directory: &Path,
     depth: usize,
-    refs: &mut HashSet<String>,
+    target: SkillTarget,
+    index: &mut InstalledIndex,
 ) -> AppResult<()> {
     if depth > MAX_SCAN_DEPTH {
         return Err(validation_error("skill directory nesting is too deep"));
@@ -930,7 +1124,25 @@ fn collect_installed_source_refs(
     let manifest_path = directory.join(INSTALL_MANIFEST);
     if manifest_path.is_file() {
         let manifest: InstallManifest = serde_json::from_slice(&fs::read(manifest_path)?)?;
-        refs.insert(manifest.source_ref.trim().to_ascii_lowercase());
+        let source_ref = normalize_source_ref(&manifest.source_ref);
+        index
+            .by_repo
+            .entry(source_ref.clone())
+            .or_default()
+            .push(target);
+        if let Some(name) = manifest
+            .skill_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            index
+                .by_skill
+                .entry((source_ref, name.to_ascii_lowercase()))
+                .or_default()
+                .push(target);
+        }
+        return Ok(());
     }
     for entry in fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()? {
         let file_type = entry.file_type()?;
@@ -938,7 +1150,7 @@ fn collect_installed_source_refs(
             && !file_type.is_symlink()
             && !entry.file_name().to_string_lossy().starts_with('.')
         {
-            collect_installed_source_refs(&entry.path(), depth + 1, refs)?;
+            collect_installed_source_refs(&entry.path(), depth + 1, target, index)?;
         }
     }
     Ok(())
@@ -984,7 +1196,7 @@ async fn request_json(builder: reqwest::RequestBuilder) -> AppResult<serde_json:
 async fn search_skills_sh(
     client: &reqwest::Client,
     query: &str,
-    installed: &HashMap<String, Vec<SkillTarget>>,
+    installed: &InstalledIndex,
 ) -> AppResult<Vec<MarketplaceSkill>> {
     let query = skills_sh_search_query(query)?;
     let body = request_json(
@@ -1006,7 +1218,7 @@ async fn search_skills_sh(
 
 fn marketplace_from_skills_sh(
     item: &serde_json::Value,
-    installed: &HashMap<String, Vec<SkillTarget>>,
+    installed: &InstalledIndex,
 ) -> Option<MarketplaceSkill> {
     let name = item.get("name")?.as_str()?.trim();
     let repo = item.get("source")?.as_str()?.trim();
@@ -1030,7 +1242,7 @@ fn marketplace_from_skills_sh(
             .get("installs")
             .and_then(|value| value.as_i64())
             .unwrap_or(0),
-        installed_targets: installed.get(&normalized).cloned().unwrap_or_default(),
+        installed_targets: installed.targets_for_skill(&normalized, name),
     })
 }
 
@@ -1045,7 +1257,7 @@ fn github_search_query(query: &str) -> String {
 async fn search_github(
     client: &reqwest::Client,
     query: &str,
-    installed: &HashMap<String, Vec<SkillTarget>>,
+    installed: &InstalledIndex,
 ) -> AppResult<Vec<MarketplaceSkill>> {
     let search_query = github_search_query(query);
     let body = request_json(
@@ -1071,7 +1283,7 @@ async fn search_github(
 
 fn marketplace_from_github(
     item: &serde_json::Value,
-    installed: &HashMap<String, Vec<SkillTarget>>,
+    installed: &InstalledIndex,
 ) -> Option<MarketplaceSkill> {
     let name = item.get("name")?.as_str()?.trim();
     let repo = item.get("full_name")?.as_str()?.trim();
@@ -1091,10 +1303,7 @@ fn marketplace_from_github(
             .and_then(|value| value.as_i64())
             .unwrap_or(0),
         installs: 0,
-        installed_targets: installed
-            .get(&normalize_source_ref(repo))
-            .cloned()
-            .unwrap_or_default(),
+        installed_targets: installed.targets_for_repo(&normalize_source_ref(repo)),
     })
 }
 
@@ -1117,6 +1326,13 @@ mod tests {
         let path = skill_dir.join(ENABLED_FILE);
         fs::write(&path, VALID_SKILL).unwrap();
         path
+    }
+
+    fn empty_installed_index() -> InstalledIndex {
+        InstalledIndex {
+            by_repo: HashMap::new(),
+            by_skill: HashMap::new(),
+        }
     }
 
     #[test]
@@ -1198,7 +1414,7 @@ mod tests {
         let root = tempdir().unwrap();
         let managed = root.path().join("repo");
         fs::create_dir(&managed).unwrap();
-        write_install_manifest(&managed, "owner/repo").unwrap();
+        write_install_manifest(&managed, "owner/repo", None).unwrap();
         let first = write_skill(&managed, "first");
         let second = write_skill(&managed, "second");
         let first_dir = first.parent().unwrap();
@@ -1239,7 +1455,7 @@ mod tests {
             "installs": 3168186,
             "source": "vercel-labs/skills"
         });
-        let skill = marketplace_from_skills_sh(&item, &HashMap::new()).unwrap();
+        let skill = marketplace_from_skills_sh(&item, &empty_installed_index()).unwrap();
         assert_eq!(skill.name, "find-skills");
         assert_eq!(skill.repo, "vercel-labs/skills");
         assert_eq!(skill.installs, 3168186);
@@ -1260,7 +1476,10 @@ mod tests {
         let path = home_dir().unwrap().join(".agents").join("skills");
         assert!(path.ends_with(Path::new(".agents/skills")));
         assert_eq!(SkillTarget::ALL[0], SkillTarget::Agents);
-        assert_eq!(serde_json::to_string(&SkillTarget::Agents).unwrap(), "\"agents\"");
+        assert_eq!(
+            serde_json::to_string(&SkillTarget::Agents).unwrap(),
+            "\"agents\""
+        );
         assert!(SkillTarget::Agents.sort_key() < SkillTarget::ClaudeCode.sort_key());
     }
 
@@ -1271,5 +1490,125 @@ mod tests {
         assert!(!urls[0].1);
         assert!(urls.last().unwrap().0.contains("api.github.com"));
         assert!(urls.last().unwrap().1);
+    }
+
+    fn skill_markdown(name: &str) -> String {
+        format!("---\nname: {name}\ndescription: {name} skill\n---\n\n# {name}\n")
+    }
+
+    fn zip_named_files(files: &[(&str, &str)]) -> Vec<u8> {
+        use std::io::Write;
+        let buffer = Cursor::new(Vec::new());
+        let mut zip = zip::ZipWriter::new(buffer);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for (name, content) in files {
+            zip.start_file(*name, options).unwrap();
+            zip.write_all(content.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn uninstall_is_idempotent_when_the_skill_path_is_already_gone() {
+        let root = tempdir().unwrap();
+        let missing = root.path().join("find-skills").join("SKILL.md");
+
+        uninstall_skill_at(root.path(), &missing).unwrap();
+        assert!(!missing.exists());
+    }
+
+    #[test]
+    fn installs_skill_directories_instead_of_the_whole_repository() {
+        let temp = tempdir().unwrap();
+        let skills_root = temp.path().join("skills");
+        fs::create_dir(&skills_root).unwrap();
+        let native = skill_markdown("vercel-react-native");
+        let best = skill_markdown("vercel-react-best-practices");
+        let archive = zip_named_files(&[
+            ("repo-main/README.md", "# collection"),
+            ("repo-main/package.json", "{}"),
+            ("repo-main/packages/core/index.js", "module.exports = {}"),
+            (
+                "repo-main/skills/vercel-react-native/SKILL.md",
+                native.as_str(),
+            ),
+            (
+                "repo-main/skills/vercel-react-native/scripts/setup.sh",
+                "#!/bin/sh\n",
+            ),
+            (
+                "repo-main/skills/vercel-react-best-practices/SKILL.md",
+                best.as_str(),
+            ),
+        ]);
+
+        let installed =
+            install_archive(&archive, &skills_root, None, "vercel-labs/agent-skills").unwrap();
+
+        assert!(skills_root.join("vercel-react-native/SKILL.md").is_file());
+        assert!(skills_root
+            .join("vercel-react-native/scripts/setup.sh")
+            .is_file());
+        assert!(skills_root
+            .join("vercel-react-best-practices/SKILL.md")
+            .is_file());
+        assert!(installed.contains("vercel-react-native"));
+        assert!(installed.contains("vercel-react-best-practices"));
+        assert!(!skills_root.join("package.json").exists());
+        assert!(!skills_root.join("README.md").exists());
+        assert!(!skills_root.join("packages").exists());
+        assert!(!skills_root.join("agent-skills").exists());
+        assert!(!skills_root.join("repo-main").exists());
+    }
+
+    #[test]
+    fn installs_only_the_named_skill_from_a_collection() {
+        let temp = tempdir().unwrap();
+        let skills_root = temp.path().join("skills");
+        fs::create_dir(&skills_root).unwrap();
+        let native = skill_markdown("vercel-react-native");
+        let best = skill_markdown("vercel-react-best-practices");
+        let archive = zip_named_files(&[
+            ("repo-main/README.md", "# collection"),
+            (
+                "repo-main/skills/vercel-react-native/SKILL.md",
+                native.as_str(),
+            ),
+            (
+                "repo-main/skills/vercel-react-best-practices/SKILL.md",
+                best.as_str(),
+            ),
+        ]);
+
+        install_archive(
+            &archive,
+            &skills_root,
+            Some("vercel-react-native"),
+            "vercel-labs/agent-skills",
+        )
+        .unwrap();
+
+        assert!(skills_root.join("vercel-react-native/SKILL.md").is_file());
+        assert!(!skills_root.join("vercel-react-best-practices").exists());
+        assert!(!skills_root.join("README.md").exists());
+    }
+
+    #[test]
+    fn single_skill_repo_installs_under_the_skill_name() {
+        let temp = tempdir().unwrap();
+        let skills_root = temp.path().join("skills");
+        fs::create_dir(&skills_root).unwrap();
+        let content = skill_markdown("find-skills");
+        let archive = zip_named_files(&[
+            ("find-skills-main/SKILL.md", content.as_str()),
+            ("find-skills-main/README.md", "# find-skills"),
+        ]);
+
+        install_archive(&archive, &skills_root, None, "vercel-labs/skills").unwrap();
+
+        assert!(skills_root.join("find-skills/SKILL.md").is_file());
+        assert!(skills_root.join("find-skills/README.md").is_file());
+        assert!(!skills_root.join("skills").exists());
     }
 }
