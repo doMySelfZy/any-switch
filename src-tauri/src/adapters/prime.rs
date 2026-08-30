@@ -21,6 +21,9 @@ use uuid::Uuid;
 const BASELINE_MISSING: &str = "__xiaobai_missing__";
 const BASELINE_PROVIDER: &str = "prime_baseline_default_provider";
 const BASELINE_MODEL: &str = "prime_baseline_default_model";
+// Prime validates this field before consulting the matching auth.json entry.
+// Keep it non-secret so models.json does not become a second credential store.
+const MODELS_API_KEY_FROM_AUTH_JSON: &str = "from-auth-json";
 
 #[derive(Debug)]
 pub struct PrimeApplyOutcome {
@@ -182,6 +185,10 @@ fn provider_value(
     CstInputValue::Object(vec![
         ("name".into(), CstInputValue::String(name.into())),
         ("baseUrl".into(), CstInputValue::String(base_url.into())),
+        (
+            "apiKey".into(),
+            CstInputValue::String(MODELS_API_KEY_FROM_AUTH_JSON.into()),
+        ),
         ("api".into(), CstInputValue::String(api.into())),
         ("models".into(), CstInputValue::Array(models)),
     ])
@@ -1004,6 +1011,12 @@ mod tests {
             "https://api.example.com/v1"
         );
         let models = models_value(&dir.path().join("models.json")).unwrap();
+        assert_eq!(
+            models["providers"][&outcome.provider_id]["apiKey"],
+            MODELS_API_KEY_FROM_AUTH_JSON
+        );
+        let auth = read_json_object(&dir.path().join("auth.json"), "auth.json").unwrap();
+        assert_eq!(auth[&outcome.provider_id]["key"], "key");
         let list = models["providers"][&outcome.provider_id]["models"]
             .as_array()
             .unwrap();
