@@ -500,10 +500,7 @@ mod tests {
 
     #[test]
     fn debug_restore_exits_instead_of_reexecing_the_dev_binary() {
-        assert_eq!(
-            restore_relaunch_kind(true),
-            RestoreRelaunch::ExitForDevCli
-        );
+        assert_eq!(restore_relaunch_kind(true), RestoreRelaunch::ExitForDevCli);
         assert_eq!(
             restore_relaunch_kind(false),
             RestoreRelaunch::RestartInPlace

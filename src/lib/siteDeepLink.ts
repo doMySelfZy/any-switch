@@ -14,6 +14,7 @@ export interface SiteDeepLinkPayload {
   notes: string | null;
   capabilities: SiteCapabilities;
   hasCapabilityParams: boolean;
+  keyName: string | null;
 }
 
 export const SITE_DEEP_LINK_SCHEME = "xiaobaiswitch:";
@@ -78,6 +79,7 @@ export function parseSiteDeepLink(rawUrl: string): SiteDeepLinkPayload | null {
   if (!protocol) return null;
 
   const apiKey = url.searchParams.get("apikey")?.trim() || null;
+  const keyName = url.searchParams.get("keyname")?.trim() || null;
   const notesRaw = url.searchParams.get("notes")?.trim() || "";
   if (notesRaw.length > MAX_SITE_DEEP_LINK_NOTES) return null;
 
@@ -91,6 +93,7 @@ export function parseSiteDeepLink(rawUrl: string): SiteDeepLinkPayload | null {
     notes: notesRaw || null,
     capabilities: parsedCaps.capabilities,
     hasCapabilityParams: parsedCaps.present,
+    keyName,
   };
 }
 
@@ -99,6 +102,7 @@ export function buildSiteDeepLink(payload: SiteDeepLinkPayload): string {
   params.set("name", payload.name);
   for (const u of payload.baseUrls) params.append("baseurls", u);
   if (payload.apiKey) params.set("apikey", payload.apiKey);
+  if (payload.keyName) params.set("keyname", payload.keyName);
   params.set("protocol", payload.protocol);
   if (payload.notes) params.set("notes", payload.notes);
   if (payload.hasCapabilityParams) {

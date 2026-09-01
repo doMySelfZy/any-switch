@@ -65,6 +65,7 @@ pub async fn fetch_models(
                 .map(|m| SiteModelDto {
                     id: Uuid::new_v4().to_string(),
                     site_id: site.id.clone(),
+                    api_key_id: String::new(),
                     model_id: m.id.clone(),
                     display_name: m.id,
                     owned_by: m.owned_by,
@@ -107,6 +108,7 @@ pub async fn fetch_models(
                             .map(|m| SiteModelDto {
                                 id: Uuid::new_v4().to_string(),
                                 site_id: site.id.clone(),
+                                api_key_id: String::new(),
                                 model_id: m.id.clone(),
                                 display_name: m.display_name.unwrap_or(m.id),
                                 owned_by: Some("anthropic".into()),
@@ -123,6 +125,7 @@ pub async fn fetch_models(
                             .map(|m| SiteModelDto {
                                 id: Uuid::new_v4().to_string(),
                                 site_id: site.id.clone(),
+                                api_key_id: String::new(),
                                 model_id: m.id.clone(),
                                 display_name: m.id,
                                 owned_by: m.owned_by,
@@ -149,5 +152,6 @@ pub async fn fetch_models(
         latency_ms,
         endpoint,
         fetched_at: Utc::now().timestamp_millis(),
+        api_key_id: String::new(),
     })
 }

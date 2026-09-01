@@ -54,10 +54,10 @@ export const CodexApplyPanel = memo(function CodexApplyPanel() {
 
   useEffect(() => {
     if (!siteId) return;
-    void listModels(siteId).catch(() => null);
-  }, [siteId, listModels]);
+    void listModels(siteId, { force: true }).catch(() => null);
+  }, [siteId, site?.activeApiKeyId, listModels]);
 
-  const lastHydrate = useRef<{ siteId: string; stamp: number | null } | null>(null);
+  const lastHydrate = useRef<{ siteId: string; apiKeyId: string | null; stamp: number | null } | null>(null);
   useEffect(() => {
     if (!site) {
       lastHydrate.current = null;
@@ -67,8 +67,9 @@ export const CodexApplyPanel = memo(function CodexApplyPanel() {
       return;
     }
     const stamp = status?.lastAppliedAt ?? null;
+    const apiKeyId = site.activeApiKeyId ?? null;
     const prev = lastHydrate.current;
-    if (prev && prev.siteId === site.id && prev.stamp === stamp) return;
+    if (prev && prev.siteId === site.id && prev.apiKeyId === apiKeyId && prev.stamp === stamp) return;
     const defaults = hydrateCodexForm(site, status);
     setModelId(defaults.modelId);
     setWriteAllModels(defaults.writeAllModels);
@@ -80,7 +81,7 @@ export const CodexApplyPanel = memo(function CodexApplyPanel() {
       imagegen: defaults.imageGeneration,
       search: defaults.webSearch,
     });
-    lastHydrate.current = { siteId: site.id, stamp };
+    lastHydrate.current = { siteId: site.id, apiKeyId, stamp };
   }, [site, status]);
 
   const modelOptions = useMemo(
@@ -103,6 +104,7 @@ export const CodexApplyPanel = memo(function CodexApplyPanel() {
       }
       const result = await apply({
         siteId: site.id,
+        apiKeyId: site.activeApiKeyId ?? undefined,
         targets: ["codex"],
         modelId,
         codexWriteAllModels: writeAllModels,

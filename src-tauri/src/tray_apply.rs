@@ -345,6 +345,7 @@ fn apply_site_from_tray_inner(app: &AppHandle, site_id: &str) -> AppResult<Vec<A
                     None,
                     None,
                     None,
+                    None,
                 )?;
                 results.extend(applied.results);
             }
@@ -373,6 +374,7 @@ fn apply_site_from_tray_inner(app: &AppHandle, site_id: &str) -> AppResult<Vec<A
                     Some(h.image_generation),
                     Some(h.web_search),
                     Some(h.capability_source.as_str().into()),
+                    None,
                     None,
                     None,
                 )?;
@@ -406,6 +408,7 @@ fn apply_site_from_tray_inner(app: &AppHandle, site_id: &str) -> AppResult<Vec<A
                     None,
                     Some(hydration.write_all_models),
                     None,
+                    None,
                 )?;
                 results.extend(applied.results);
             }
@@ -437,6 +440,7 @@ fn apply_site_from_tray_inner(app: &AppHandle, site_id: &str) -> AppResult<Vec<A
                     None,
                     None,
                     Some(hydration.write_all_models),
+                    None,
                 )?;
                 results.extend(applied.results);
             }
@@ -477,6 +481,7 @@ mod tests {
             created_at: 1,
             updated_at: 1,
             capabilities: Default::default(),
+            keys: Default::default(),
         }
     }
 

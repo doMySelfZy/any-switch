@@ -12,6 +12,7 @@ mod domain;
 mod env_inject;
 mod error;
 mod http_client;
+mod key_switch;
 mod lock;
 mod macos_scheme;
 mod model_probe;
@@ -123,6 +124,10 @@ pub fn run() {
             commands::list_sites,
             commands::get_site,
             commands::get_site_api_key,
+            commands::add_site_api_key,
+            commands::update_site_api_key,
+            commands::delete_site_api_key,
+            commands::switch_site_api_key,
             commands::create_site,
             commands::import_site_from_deep_link,
             commands::update_site,

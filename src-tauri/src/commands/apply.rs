@@ -44,6 +44,7 @@ pub fn apply_site(
     codex_capability_source: Option<String>,
     pi_write_all_models: Option<bool>,
     prime_write_all_models: Option<bool>,
+    api_key_id: Option<String>,
 ) -> AppResult<ApplyResult> {
     if targets.is_empty() {
         return Err(AppError::new("validation_failed", "no targets selected"));
@@ -52,12 +53,18 @@ pub fn apply_site(
         return Err(AppError::new("validation_failed", "model id required"));
     }
 
+    let _site_lock = crate::lock::try_lock_site(&site_id)?;
     let settings = state.db.with_conn(repo::settings::get_settings)?;
     let (site, api_key) = state.db.with_conn(|c| {
         let site = repo::site::get_site(c, &site_id)?;
-        let key = state.crypto.decrypt(&site.api_key_encrypted)?;
-        Ok((site, key))
+        let key = match api_key_id.as_deref() {
+            Some(id) => repo::site_api_key::require_active(c, &site_id, id)?,
+            None => repo::site_api_key::get_active(c, &site_id)?,
+        };
+        let secret = repo::site_api_key::decrypt(&state.crypto, &key)?;
+        Ok((site, secret))
     })?;
+    let key_snapshot = site.api_key_snapshot();
 
     let auth = claude_auth_key_style
         .as_deref()
@@ -182,6 +189,7 @@ pub fn apply_site(
                         .clone()
                         .unwrap_or_else(|| Uuid::new_v4().to_string());
                     let mut binding = outcome.binding.clone();
+                    crate::key_switch::stamp_binding(&mut binding, &key_snapshot);
                     binding.apply_record_id = Some(record_id.clone());
                     state
                         .db
@@ -270,6 +278,7 @@ pub fn apply_site(
                         .clone()
                         .unwrap_or_else(|| Uuid::new_v4().to_string());
                     let mut binding = outcome.binding.clone();
+                    crate::key_switch::stamp_binding(&mut binding, &key_snapshot);
                     binding.apply_record_id = Some(record_id.clone());
                     state
                         .db
@@ -360,6 +369,7 @@ pub fn apply_site(
                         .clone()
                         .unwrap_or_else(|| Uuid::new_v4().to_string());
                     let mut binding = o.binding.clone();
+                    crate::key_switch::stamp_binding(&mut binding, &key_snapshot);
                     binding.apply_record_id = Some(record_id.clone());
                     state
                         .db

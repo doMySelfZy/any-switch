@@ -19,9 +19,13 @@ import type {
   Skill,
   SkillTarget,
   Site,
+  SiteApiKeySummary,
   SiteQuota,
   SiteModel,
   SwitchRouteResult,
+  SwitchSiteApiKeyResult,
+  AddSiteApiKeyInput,
+  UpdateSiteApiKeyInput,
   TargetKind,
   TargetLiveStatus,
   UpdateSiteInput,
@@ -145,6 +149,7 @@ let webdavLastAttemptAt: number | null = null;
 let webdavLastSuccessAt: number | null = null;
 const models = new Map<string, SiteModel[]>();
 const keys = new Map<string, string>();
+const keySecrets = new Map<string, string>();
 const exclusions = new Map<string, Set<string>>();
 let quotaProbeCallCount = 0;
 let quotaProbeHandler: ((site: Site) => SiteQuota | Promise<SiteQuota>) | null = null;
@@ -273,6 +278,7 @@ export function resetBrowserMock() {
   webdavLastSuccessAt = null;
   models.clear();
   keys.clear();
+  keySecrets.clear();
   exclusions.clear();
   quotaProbeCallCount = 0;
   quotaProbeHandler = null;
@@ -320,6 +326,67 @@ function now() {
 
 function uid() {
   return crypto.randomUUID();
+}
+
+function makeApiKey(
+  _siteId: string,
+  secret: string,
+  label: string,
+  isActive: boolean,
+): SiteApiKeySummary {
+  const id = uid();
+  keySecrets.set(id, secret);
+  return {
+    id,
+    label,
+    keyPrefix: keyPrefix(secret),
+    isActive,
+    quotaRevision: uid(),
+    selectedModelId: null,
+    lastModelFetchAt: null,
+    lastModelFetchLatencyMs: null,
+    lastModelFetchError: null,
+  };
+}
+
+function projectSite(site: Site): Site {
+  const apiKeys = site.apiKeys ?? [];
+  const active = apiKeys.find((key) => key.isActive) ?? apiKeys[0] ?? null;
+  if (!active) {
+    return { ...site, apiKeys, activeApiKeyId: null, hasKey: false };
+  }
+  keys.set(site.id, keySecrets.get(active.id) ?? "");
+  return {
+    ...site,
+    apiKeys,
+    activeApiKeyId: active.id,
+    keyPrefix: active.keyPrefix,
+    quotaRevision: active.quotaRevision,
+    selectedModelId: active.selectedModelId,
+    lastModelFetchAt: active.lastModelFetchAt,
+    lastModelFetchLatencyMs: active.lastModelFetchLatencyMs,
+    lastModelFetchError: active.lastModelFetchError,
+    hasKey: true,
+  };
+}
+
+function updateSiteKeys(siteId: string, apiKeys: SiteApiKeySummary[]): Site {
+  const current = sites.find((s) => s.id === siteId);
+  if (!current) throw { code: "not_found", message: "Site not found" };
+  const next = projectSite({ ...current, apiKeys, updatedAt: now() });
+  sites = sites.map((s) => (s.id === siteId ? next : s));
+  return next;
+}
+
+function requireKey(site: Site, apiKeyId?: string | null): SiteApiKeySummary {
+  const keysForSite = site.apiKeys ?? [];
+  const id = apiKeyId || site.activeApiKeyId;
+  const key = keysForSite.find((item) => item.id === id) ?? keysForSite.find((item) => item.isActive);
+  if (!key) throw { code: "not_found", message: "api key not found" };
+  if (apiKeyId && !key.isActive) {
+    throw { code: "validation_failed", message: "api key is not the site's current key" };
+  }
+  return key;
 }
 
 function normalizeSkillSource(source: string): string {
@@ -508,27 +575,27 @@ export async function handleBrowserCommand<T>(
     }
     case "get_site_api_key": {
       const id = args?.id as string;
-      if (!sites.some((site) => site.id === id)) {
-        throw { code: "not_found", message: "Site not found" };
-      }
-      return (keys.get(id) ?? "") as T;
+      const site = sites.find((item) => item.id === id);
+      if (!site) throw { code: "not_found", message: "Site not found" };
+      const key = requireKey(site, args?.apiKeyId as string | undefined);
+      return (keySecrets.get(key.id) ?? "") as T;
     }
     case "create_site": {
       const input = args?.input as CreateSiteInput;
       const id = uid();
       const t = now();
-      keys.set(id, input.apiKey);
       const urls =
         input.baseUrls && input.baseUrls.length > 0
           ? input.baseUrls
           : [input.baseUrl ?? ""];
-      const site: Site = {
+      const apiKey = makeApiKey(id, input.apiKey, "K 1", true);
+      const site = projectSite({
         id,
         name: input.name,
         baseUrl: urls[0] ?? "",
         baseUrls: urls,
-        keyPrefix: keyPrefix(input.apiKey),
-        quotaRevision: uid(),
+        keyPrefix: apiKey.keyPrefix,
+        quotaRevision: apiKey.quotaRevision,
         hasKey: true,
         protocol: input.protocol ?? "openai_compatible",
         claudeAuthKeyStyle: input.claudeAuthKeyStyle ?? "anthropic_auth_token",
@@ -542,7 +609,9 @@ export async function handleBrowserCommand<T>(
         createdAt: t,
         updatedAt: t,
         capabilities: input.capabilities ?? {},
-      };
+        activeApiKeyId: apiKey.id,
+        apiKeys: [apiKey],
+      });
       sites = [...sites, site];
       return site as T;
     }
@@ -570,24 +639,31 @@ export async function handleBrowserCommand<T>(
         (s) => s.protocol === protocol && sameSet(s.baseUrls ?? [s.baseUrl], urls),
       );
       if (existing) {
-        const sameKey = keys.get(existing.id) === apiKey;
-        const updated: Site = {
+        const currentKeys = existing.apiKeys ?? [];
+        const matched = currentKeys.find((item) => keySecrets.get(item.id) === apiKey);
+        let apiKeys = currentKeys;
+        let addedApiKey = false;
+        if (!matched) {
+          const label = input.keyName?.trim() || `K ${currentKeys.length + 1}`;
+          apiKeys = [...currentKeys, makeApiKey(existing.id, apiKey, label, false)];
+          addedApiKey = true;
+        }
+        const updated = projectSite({
           ...existing,
           name,
           notes: input.notes !== undefined ? input.notes : existing.notes,
-          keyPrefix: sameKey ? existing.keyPrefix : keyPrefix(apiKey),
-          quotaRevision: sameKey ? existing.quotaRevision : uid(),
           capabilities:
             input.capabilities !== undefined ? input.capabilities : existing.capabilities,
+          apiKeys,
           updatedAt: now(),
-        };
-        if (!sameKey) keys.set(existing.id, apiKey);
+        });
         sites = sites.map((s) => (s.id === existing.id ? updated : s));
         const result: DeepLinkSiteImportResult = {
           site: updated,
           created: false,
-          updatedKey: !sameKey,
-          reused: sameKey,
+          addedApiKey,
+          reusedApiKey: Boolean(matched),
+          activatedApiKey: false,
         };
         return result as T;
       }
@@ -605,8 +681,9 @@ export async function handleBrowserCommand<T>(
       const result: DeepLinkSiteImportResult = {
         site: created,
         created: true,
-        updatedKey: false,
-        reused: false,
+        addedApiKey: true,
+        reusedApiKey: false,
+        activatedApiKey: true,
       };
       return result as T;
     }
@@ -616,7 +693,12 @@ export async function handleBrowserCommand<T>(
       sites = sites.map((s) => {
         if (s.id !== id) return s;
         if (input.apiKey) {
-          keys.set(id, input.apiKey);
+          const active = (s.apiKeys ?? []).find((item) => item.isActive);
+          if (active) {
+            keySecrets.set(active.id, input.apiKey);
+            active.keyPrefix = keyPrefix(input.apiKey);
+            active.quotaRevision = uid();
+          }
         }
         let baseUrls = s.baseUrls?.length ? s.baseUrls : [s.baseUrl];
         let baseUrl = s.baseUrl;
@@ -637,7 +719,9 @@ export async function handleBrowserCommand<T>(
           baseUrl,
           baseUrls,
           keyPrefix: input.apiKey ? keyPrefix(input.apiKey) : s.keyPrefix,
-          quotaRevision: input.apiKey ? uid() : s.quotaRevision,
+          quotaRevision: input.apiKey
+            ? ((s.apiKeys ?? []).find((item) => item.isActive)?.quotaRevision ?? uid())
+            : s.quotaRevision,
           protocol: input.protocol ?? s.protocol,
           claudeAuthKeyStyle: input.claudeAuthKeyStyle ?? s.claudeAuthKeyStyle,
           notes: input.notes !== undefined ? input.notes : s.notes,
@@ -649,16 +733,22 @@ export async function handleBrowserCommand<T>(
           updatedAt: now(),
         };
       });
-      const site = sites.find((s) => s.id === id);
-      if (!site) throw { code: "not_found", message: "Site not found" };
+      const found = sites.find((s) => s.id === id);
+      if (!found) throw { code: "not_found", message: "Site not found" };
+      const site = projectSite(found);
+      sites = sites.map((s) => (s.id === id ? site : s));
       return site as T;
     }
     case "delete_site": {
       const id = args?.id as string;
+      const site = sites.find((s) => s.id === id);
+      for (const key of site?.apiKeys ?? []) {
+        models.delete(key.id);
+        keySecrets.delete(key.id);
+        exclusions.delete(key.id);
+      }
       sites = sites.filter((s) => s.id !== id);
-      models.delete(id);
       keys.delete(id);
-      exclusions.delete(id);
       return undefined as T;
     }
     case "reorder_sites": {
@@ -675,10 +765,12 @@ export async function handleBrowserCommand<T>(
       const siteId = args?.siteId as string;
       const site = sites.find((s) => s.id === siteId);
       if (!site) throw { code: "not_found", message: "Site not found" };
+      const key = requireKey(site, args?.apiKeyId as string | undefined);
       const sample: SiteModel[] = [
         {
           id: uid(),
           siteId,
+          apiKeyId: key.id,
           modelId: "gpt-4.1",
           displayName: "gpt-4.1",
           ownedBy: "mock",
@@ -688,6 +780,7 @@ export async function handleBrowserCommand<T>(
         {
           id: uid(),
           siteId,
+          apiKeyId: key.id,
           modelId: "claude-sonnet-4",
           displayName: "claude-sonnet-4",
           ownedBy: "mock",
@@ -695,48 +788,60 @@ export async function handleBrowserCommand<T>(
           isManual: false,
         },
       ];
-      const existing = models.get(siteId) ?? [];
-      const hidden = exclusions.get(siteId) ?? new Set<string>();
+      const existing = models.get(key.id) ?? [];
+      const hidden = exclusions.get(key.id) ?? new Set<string>();
       const visibleSample = sample.filter((m) => !hidden.has(m.modelId));
       const fetchedIds = new Set(visibleSample.map((m) => m.modelId));
       const manuals = existing.filter((m) => m.isManual && !fetchedIds.has(m.modelId) && !hidden.has(m.modelId));
       const merged = [...visibleSample, ...manuals];
-      models.set(siteId, merged);
-      sites = sites.map((s) =>
-        s.id === siteId
+      models.set(key.id, merged);
+      const fetchedAt = now();
+      const apiKeys = (site.apiKeys ?? []).map((item) =>
+        item.id === key.id
           ? {
-              ...s,
-              lastModelFetchAt: now(),
+              ...item,
+              lastModelFetchAt: fetchedAt,
               lastModelFetchLatencyMs: 42,
               lastModelFetchError: null,
-              updatedAt: now(),
+              selectedModelId:
+                item.selectedModelId && merged.some((m) => m.modelId === item.selectedModelId)
+                  ? item.selectedModelId
+                  : (merged[0]?.modelId ?? null),
             }
-          : s,
+          : item,
       );
+      const next = updateSiteKeys(siteId, apiKeys);
       const result: FetchModelsResult = {
         models: merged,
         latencyMs: 42,
-        endpoint: `${site.baseUrl}/v1/models`,
-        fetchedAt: now(),
+        endpoint: `${next.baseUrl}/v1/models`,
+        fetchedAt,
+        apiKeyId: key.id,
       };
       return result as T;
     }
-    case "list_site_models":
-      return (models.get(args?.siteId as string) ?? []) as T;
+    case "list_site_models": {
+      const siteId = args?.siteId as string;
+      const site = sites.find((s) => s.id === siteId);
+      if (!site) return [] as T;
+      const key = requireKey(site, args?.apiKeyId as string | undefined);
+      return (models.get(key.id) ?? []) as T;
+    }
     case "set_selected_model": {
       const siteId = args?.siteId as string;
       const modelId = args?.modelId as string;
-      exclusions.get(siteId)?.delete(modelId);
-      sites = sites.map((s) =>
-        s.id === siteId ? { ...s, selectedModelId: modelId, updatedAt: now() } : s,
-      );
-      const list = models.get(siteId) ?? [];
+      const site = sites.find((s) => s.id === siteId);
+      if (!site) throw { code: "not_found", message: "Site not found" };
+      const key = requireKey(site);
+      exclusions.get(key.id)?.delete(modelId);
+      const list = models.get(key.id) ?? [];
       if (!list.some((m) => m.modelId === modelId)) {
-        models.set(siteId, [
+        models.set(key.id, [
           ...list,
           {
             id: uid(),
             siteId,
+            apiKeyId: key.id,
             modelId,
             displayName: modelId,
             ownedBy: null,
@@ -745,35 +850,43 @@ export async function handleBrowserCommand<T>(
           },
         ]);
       }
+      const apiKeys = (site.apiKeys ?? []).map((item) =>
+        item.id === key.id ? { ...item, selectedModelId: modelId } : item,
+      );
+      updateSiteKeys(siteId, apiKeys);
       return undefined as T;
     }
     case "clear_site_models": {
       const siteId = args?.siteId as string;
       const site = sites.find((s) => s.id === siteId);
       if (!site) throw { code: "not_found", message: "Site not found" };
-      models.set(siteId, []);
-      site.selectedModelId = null;
-      site.updatedAt = now();
-      return site as T;
+      const key = requireKey(site);
+      models.set(key.id, []);
+      const apiKeys = (site.apiKeys ?? []).map((item) =>
+        item.id === key.id ? { ...item, selectedModelId: null } : item,
+      );
+      return updateSiteKeys(siteId, apiKeys) as T;
     }
     case "delete_site_model": {
       const siteId = args?.siteId as string;
       const modelId = args?.modelId as string;
-      const list = (models.get(siteId) ?? []).filter((m) => m.modelId !== modelId);
-      if (list.length === (models.get(siteId) ?? []).length) {
-        throw { code: "not_found", message: "model not found" };
-      }
-      const hidden = exclusions.get(siteId) ?? new Set<string>();
-      hidden.add(modelId);
-      exclusions.set(siteId, hidden);
-      models.set(siteId, list);
       const site = sites.find((s) => s.id === siteId);
       if (!site) throw { code: "not_found", message: "Site not found" };
-      if (site.selectedModelId === modelId) {
-        site.selectedModelId = list[0]?.modelId ?? null;
-        site.updatedAt = now();
+      const key = requireKey(site);
+      const list = (models.get(key.id) ?? []).filter((m) => m.modelId !== modelId);
+      if (list.length === (models.get(key.id) ?? []).length) {
+        throw { code: "not_found", message: "model not found" };
       }
-      return site as T;
+      const hidden = exclusions.get(key.id) ?? new Set<string>();
+      hidden.add(modelId);
+      exclusions.set(key.id, hidden);
+      models.set(key.id, list);
+      const nextSelected =
+        key.selectedModelId === modelId ? (list[0]?.modelId ?? null) : key.selectedModelId;
+      const apiKeys = (site.apiKeys ?? []).map((item) =>
+        item.id === key.id ? { ...item, selectedModelId: nextSelected } : item,
+      );
+      return updateSiteKeys(siteId, apiKeys) as T;
     }
     case "list_target_status": {
       return targetStatuses as T;
@@ -1160,6 +1273,95 @@ export async function handleBrowserCommand<T>(
         status: 200,
         error: null,
         endpoint,
+      };
+      return result as T;
+    }
+    case "add_site_api_key": {
+      const siteId = args?.siteId as string;
+      const input = (args?.input ?? {}) as AddSiteApiKeyInput;
+      const site = sites.find((s) => s.id === siteId);
+      if (!site) throw { code: "not_found", message: "Site not found" };
+      const current = site.apiKeys ?? [];
+      if (current.some((item) => keySecrets.get(item.id) === input.apiKey)) {
+        throw { code: "validation_failed", message: "this API key already exists on the site" };
+      }
+      const label = input.label?.trim() || `K ${current.length + 1}`;
+      if (current.some((item) => item.label.toLowerCase() === label.toLowerCase())) {
+        throw { code: "validation_failed", message: "key name already exists on this site" };
+      }
+      return updateSiteKeys(siteId, [...current, makeApiKey(siteId, input.apiKey, label, false)]) as T;
+    }
+    case "update_site_api_key": {
+      const siteId = args?.siteId as string;
+      const apiKeyId = args?.apiKeyId as string;
+      const input = (args?.input ?? {}) as UpdateSiteApiKeyInput;
+      const site = sites.find((s) => s.id === siteId);
+      if (!site) throw { code: "not_found", message: "Site not found" };
+      const current = site.apiKeys ?? [];
+      if (!current.some((item) => item.id === apiKeyId)) {
+        throw { code: "not_found", message: "api key not found" };
+      }
+      const apiKeys = current.map((item) => {
+        if (item.id !== apiKeyId) return item;
+        if (input.apiKey) keySecrets.set(item.id, input.apiKey);
+        return {
+          ...item,
+          label: input.label?.trim() || item.label,
+          keyPrefix: input.apiKey ? keyPrefix(input.apiKey) : item.keyPrefix,
+          quotaRevision: input.apiKey ? uid() : item.quotaRevision,
+        };
+      });
+      return updateSiteKeys(siteId, apiKeys) as T;
+    }
+    case "delete_site_api_key": {
+      const siteId = args?.siteId as string;
+      const apiKeyId = args?.apiKeyId as string;
+      const site = sites.find((s) => s.id === siteId);
+      if (!site) throw { code: "not_found", message: "Site not found" };
+      const current = site.apiKeys ?? [];
+      const target = current.find((item) => item.id === apiKeyId);
+      if (!target) throw { code: "not_found", message: "api key not found" };
+      if (current.length <= 1) {
+        throw { code: "validation_failed", message: "the last API key cannot be deleted" };
+      }
+      if (target.isActive) {
+        throw { code: "validation_failed", message: "switch to another API key before deleting the current one" };
+      }
+      models.delete(apiKeyId);
+      keySecrets.delete(apiKeyId);
+      exclusions.delete(apiKeyId);
+      return updateSiteKeys(
+        siteId,
+        current.filter((item) => item.id !== apiKeyId),
+      ) as T;
+    }
+    case "switch_site_api_key": {
+      const siteId = args?.siteId as string;
+      const apiKeyId = args?.apiKeyId as string;
+      const site = sites.find((s) => s.id === siteId);
+      if (!site) throw { code: "not_found", message: "Site not found" };
+      const current = site.apiKeys ?? [];
+      if (!current.some((item) => item.id === apiKeyId)) {
+        throw { code: "not_found", message: "api key not found" };
+      }
+      const apiKeys = current.map((item) => ({ ...item, isActive: item.id === apiKeyId }));
+      const switched = updateSiteKeys(siteId, apiKeys);
+      const fetched = await handleBrowserCommand<FetchModelsResult>("fetch_site_models", {
+        siteId,
+        apiKeyId,
+      });
+      const result: SwitchSiteApiKeyResult = {
+        site: sites.find((s) => s.id === siteId) ?? switched,
+        models: fetched.models,
+        fetch: {
+          ok: true,
+          apiKeyId,
+          latencyMs: fetched.latencyMs,
+          endpoint: fetched.endpoint,
+          fetchedAt: fetched.fetchedAt,
+          error: null,
+        },
+        results: [],
       };
       return result as T;
     }

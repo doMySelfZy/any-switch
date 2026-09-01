@@ -13,6 +13,7 @@ pub fn switch_site_route(
     base_url: &str,
     apply: bool,
 ) -> AppResult<SwitchRouteResult> {
+    let _site_lock = crate::lock::try_lock_site(site_id)?;
     let before = state.db.with_conn(|c| repo::site::get_site(c, site_id))?;
     let site = state
         .db

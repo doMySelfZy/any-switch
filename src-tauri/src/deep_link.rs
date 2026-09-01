@@ -106,7 +106,14 @@ pub fn import_site_from_deep_link_conn(
     }
 
     if let Some(existing) = find_matching_site(conn, &protocol, &urls)? {
-        let same_key = crypto.decrypt(&existing.api_key_encrypted)? == api_key;
+        let keys = crate::repo::site_api_key::list_for_site(conn, &existing.id)?;
+        let mut matched_key = None;
+        for key in &keys {
+            if crate::repo::site_api_key::decrypt(crypto, key)? == api_key {
+                matched_key = Some(key.id.clone());
+                break;
+            }
+        }
         let name_changed = existing.name != name;
         let notes_changed = notes
             .as_ref()
@@ -118,37 +125,45 @@ pub fn import_site_from_deep_link_conn(
         let caps_changed = next_caps
             .as_ref()
             .is_some_and(|caps| !capabilities_equal(caps, &existing.capabilities));
-        if same_key && !name_changed && !notes_changed && !caps_changed {
+        if name_changed || notes_changed || caps_changed {
+            site::update_site(
+                conn,
+                crypto,
+                &existing.id,
+                UpdateSiteInput {
+                    name: Some(name.to_string()),
+                    notes,
+                    capabilities: next_caps,
+                    ..UpdateSiteInput::default()
+                },
+            )?;
+        }
+
+        if matched_key.is_some() {
+            let row = site::get_site(conn, &existing.id)?;
             return Ok(DeepLinkSiteImportResult {
-                site: existing.to_dto(),
+                site: row.to_dto(),
                 created: false,
-                updated_key: false,
-                reused: true,
+                added_api_key: false,
+                reused_api_key: true,
+                activated_api_key: false,
             });
         }
 
-        let row = site::update_site(
-            conn,
-            crypto,
-            &existing.id,
-            UpdateSiteInput {
-                name: Some(name.to_string()),
-                notes,
-                api_key: if same_key {
-                    None
-                } else {
-                    Some(api_key.to_string())
-                },
-                capabilities: next_caps,
-                ..UpdateSiteInput::default()
-            },
-        )?;
-
+        let label = input
+            .key_name
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.to_string())
+            .unwrap_or(crate::repo::site_api_key::next_label(conn, &existing.id)?);
+        crate::repo::site_api_key::add(conn, crypto, &existing.id, Some(&label), api_key)?;
+        let row = site::get_site(conn, &existing.id)?;
         return Ok(DeepLinkSiteImportResult {
             site: row.to_dto(),
             created: false,
-            updated_key: !same_key,
-            reused: same_key,
+            added_api_key: true,
+            reused_api_key: false,
+            activated_api_key: false,
         });
     }
 
@@ -163,17 +178,37 @@ pub fn import_site_from_deep_link_conn(
             protocol: Some(protocol.as_str().to_string()),
             claude_auth_key_style: None,
             notes,
-            capabilities: input.capabilities.as_ref().map(|incoming| {
-                merge_codex_capabilities(&Default::default(), incoming)
-            }),
+            capabilities: input
+                .capabilities
+                .as_ref()
+                .map(|incoming| merge_codex_capabilities(&Default::default(), incoming)),
         },
     )?;
+    if let Some(key_name) = input
+        .key_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        if let Some(active_id) = row.keys.active_api_key_id.clone() {
+            crate::repo::site_api_key::update(
+                conn,
+                crypto,
+                &row.id,
+                &active_id,
+                Some(key_name),
+                None,
+            )?;
+        }
+    }
+    let row = site::get_site(conn, &row.id)?;
 
     Ok(DeepLinkSiteImportResult {
         site: row.to_dto(),
         created: true,
-        updated_key: false,
-        reused: false,
+        added_api_key: true,
+        reused_api_key: false,
+        activated_api_key: true,
     })
 }
 
@@ -211,6 +246,7 @@ mod tests {
             protocol: protocol.map(|s| s.into()),
             notes: notes.map(|s| s.into()),
             capabilities: None,
+            key_name: None,
         }
     }
 
@@ -231,8 +267,9 @@ mod tests {
         .unwrap();
 
         assert!(result.created);
-        assert!(!result.updated_key);
-        assert!(!result.reused);
+        assert!(result.added_api_key);
+        assert!(!result.reused_api_key);
+        assert!(result.activated_api_key);
         assert_eq!(result.site.name, "Relay");
         assert_eq!(result.site.base_url, "https://a.example.com/v1");
         assert_eq!(
@@ -286,15 +323,16 @@ mod tests {
 
         assert_eq!(second.site.id, first.site.id);
         assert!(!second.created);
-        assert!(second.reused);
-        assert!(!second.updated_key);
+        assert!(second.reused_api_key);
+        assert!(!second.added_api_key);
+        assert!(!second.activated_api_key);
         // Reuse must not reorder the active route.
         assert_eq!(second.site.base_url, first.site.base_url);
         assert_eq!(site::list_sites(&conn).unwrap().len(), 1);
     }
 
     #[test]
-    fn deep_link_import_updates_key_when_urls_match() {
+    fn deep_link_import_adds_inactive_key_when_urls_match() {
         let (conn, crypto) = setup();
         let first = import_site_from_deep_link_conn(
             &conn,
@@ -317,10 +355,12 @@ mod tests {
 
         assert_eq!(second.site.id, first.site.id);
         assert!(!second.created);
-        assert!(second.updated_key);
-        assert!(!second.reused);
+        assert!(second.added_api_key);
+        assert!(!second.reused_api_key);
+        assert!(!second.activated_api_key);
         assert_eq!(second.site.name, "Relay Two");
         assert_eq!(second.site.notes.as_deref(), Some("updated"));
+        assert_eq!(second.site.api_keys.len(), 2);
         assert_eq!(
             crypto
                 .decrypt(
@@ -329,7 +369,7 @@ mod tests {
                         .api_key_encrypted
                 )
                 .unwrap(),
-            "sk-new-key"
+            "sk-old"
         );
     }
 
@@ -396,13 +436,25 @@ mod tests {
         assert_eq!(created.site.capabilities.get("codex-vision"), Some(&true));
         assert_eq!(created.site.capabilities.get("codex-search"), Some(&false));
 
-        let mut same = input("Relay", &["https://a.example.com"], "sk-example", None, None);
+        let mut same = input(
+            "Relay",
+            &["https://a.example.com"],
+            "sk-example",
+            None,
+            None,
+        );
         same.capabilities = None;
         let reused = import_site_from_deep_link_conn(&conn, &crypto, same).unwrap();
-        assert!(reused.reused);
+        assert!(reused.reused_api_key);
         assert_eq!(reused.site.capabilities.get("codex-compact"), Some(&true));
 
-        let mut updated = input("Relay", &["https://a.example.com"], "sk-example", None, None);
+        let mut updated = input(
+            "Relay",
+            &["https://a.example.com"],
+            "sk-example",
+            None,
+            None,
+        );
         let mut next = std::collections::HashMap::new();
         next.insert("codex-search".into(), true);
         updated.capabilities = Some(next);

@@ -17,7 +17,7 @@
     "core:window:allow-start-dragging",
     "opener:default",
     "dialog:default",
-    "clipboard-manager:default",
+    "clipboard-manager:allow-write-text",
     "process:default",
     "autostart:default",
     "deep-link:default",

@@ -14,6 +14,7 @@ describe("parseSiteDeepLink", () => {
       notes: "hi",
       capabilities: {},
       hasCapabilityParams: false,
+      keyName: null,
     });
   });
 
@@ -29,6 +30,7 @@ describe("parseSiteDeepLink", () => {
       notes: null,
       capabilities: {},
       hasCapabilityParams: false,
+      keyName: null,
     });
   });
 
@@ -103,6 +105,7 @@ describe("parseSiteDeepLink", () => {
       notes: "n",
       capabilities: {},
       hasCapabilityParams: false,
+      keyName: null,
     });
     expect(parseSiteDeepLink(built)).toEqual({
       name: "Relay",
@@ -112,6 +115,7 @@ describe("parseSiteDeepLink", () => {
       notes: "n",
       capabilities: {},
       hasCapabilityParams: false,
+      keyName: null,
     });
   });
 
@@ -142,6 +146,7 @@ describe("parseSiteDeepLink", () => {
         "codex-search": false,
       },
       hasCapabilityParams: true,
+      keyName: null,
     });
     expect(built).toContain("codex-compact=1");
     expect(built).toContain("codex-vision=1");

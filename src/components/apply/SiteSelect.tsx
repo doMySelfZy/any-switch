@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Select } from "antd";
 import { useTranslation } from "react-i18next";
 import type { Site } from "@/types/domain";
+import { activeApiKey } from "@/lib/siteApiKey";
 import { SiteAvatar } from "@/components/sites/SiteAvatar";
 
 interface SiteOption {
@@ -20,10 +21,16 @@ interface Props {
 }
 
 function SiteOptionLabel({ site, size = 18 }: { site: Site; size?: number }) {
+  const active = activeApiKey(site);
   return (
     <span className="inline-flex min-w-0 items-center gap-2">
       <SiteAvatar siteId={site.id} name={site.name} baseUrl={site.baseUrl} size={size} />
       <span className="min-w-0 truncate">{site.name}</span>
+      {active ? (
+        <span className="min-w-0 truncate text-xs opacity-50">
+          {active.label} · {active.keyPrefix}
+        </span>
+      ) : null}
     </span>
   );
 }

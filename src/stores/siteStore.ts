@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { invoke } from "@/lib/invoke";
 import type {
+  AddSiteApiKeyInput,
   CreateSiteInput,
   DeepLinkSiteImportInput,
   DeepLinkSiteImportResult,
@@ -9,8 +10,11 @@ import type {
   SiteModel,
   SiteQuota,
   SwitchRouteResult,
+  SwitchSiteApiKeyResult,
+  UpdateSiteApiKeyInput,
   UpdateSiteInput,
 } from "@/types/domain";
+import { activeApiKeyId } from "@/lib/siteApiKey";
 import { originFromBaseUrl, invalidateSiteIconCache } from "@/lib/siteIcon";
 import { isQuotaCacheFresh, quotaCacheKey } from "@/lib/quotaProbe";
 import { useApplyStore } from "./applyStore";
@@ -35,12 +39,21 @@ interface SiteState {
   /** True after at least one successful sites load. */
   hydrated: boolean;
   fetchingModels: boolean;
+  fetchingModelsByKey: Record<string, boolean>;
   error: string | null;
   loadSites: (opts?: { force?: boolean; soft?: boolean }) => Promise<void>;
-  getSiteApiKey: (id: string) => Promise<string>;
+  getSiteApiKey: (id: string, apiKeyId?: string) => Promise<string>;
   createSite: (input: CreateSiteInput) => Promise<Site>;
   importSiteFromDeepLink: (input: DeepLinkSiteImportInput) => Promise<DeepLinkSiteImportResult>;
   updateSite: (id: string, input: UpdateSiteInput) => Promise<Site>;
+  addApiKey: (siteId: string, input: AddSiteApiKeyInput) => Promise<Site>;
+  updateApiKey: (siteId: string, apiKeyId: string, input: UpdateSiteApiKeyInput) => Promise<Site>;
+  deleteApiKey: (siteId: string, apiKeyId: string) => Promise<Site>;
+  switchApiKey: (
+    siteId: string,
+    apiKeyId: string,
+    opts?: { syncTargets?: boolean },
+  ) => Promise<SwitchSiteApiKeyResult>;
   switchRoute: (
     siteId: string,
     baseUrl: string,
@@ -87,6 +100,7 @@ export const useSiteStore = create<SiteState>((set, get) => ({
   loading: false,
   hydrated: false,
   fetchingModels: false,
+  fetchingModelsByKey: {},
   error: null,
   loadSites: async (opts) => {
     const hasCache = get().hydrated;
@@ -115,7 +129,7 @@ export const useSiteStore = create<SiteState>((set, get) => ({
       set({ loading: false });
     }
   },
-  getSiteApiKey: (id) => invoke<string>("get_site_api_key", { id }),
+  getSiteApiKey: (id, apiKeyId) => invoke<string>("get_site_api_key", { id, apiKeyId }),
   createSite: async (input) => {
     const site = await invoke<Site>("create_site", { input });
     set({ sites: [...get().sites, site], hydrated: true });
@@ -152,6 +166,73 @@ export const useSiteStore = create<SiteState>((set, get) => ({
       ...(quotaConfigChanged ? clearSiteQuotaState(get(), id) : {}),
     });
     return site;
+  },
+  addApiKey: async (siteId, input) => {
+    const site = await invoke<Site>("add_site_api_key", { siteId, input });
+    set({ sites: get().sites.map((s) => (s.id === siteId ? site : s)) });
+    return site;
+  },
+  updateApiKey: async (siteId, apiKeyId, input) => {
+    const previous = get().sites.find((s) => s.id === siteId);
+    const site = await invoke<Site>("update_site_api_key", { siteId, apiKeyId, input });
+    set({
+      sites: get().sites.map((s) => (s.id === siteId ? site : s)),
+      ...(previous && quotaCacheKey(previous) !== quotaCacheKey(site)
+        ? clearSiteQuotaState(get(), siteId)
+        : {}),
+    });
+    return site;
+  },
+  deleteApiKey: async (siteId, apiKeyId) => {
+    const site = await invoke<Site>("delete_site_api_key", { siteId, apiKeyId });
+    set({ sites: get().sites.map((s) => (s.id === siteId ? site : s)) });
+    return site;
+  },
+  switchApiKey: async (siteId, apiKeyId, opts) => {
+    const prev = get().sites.find((s) => s.id === siteId);
+    const fetchKey = `${siteId}:${apiKeyId}`;
+    const optimistic = prev
+      ? {
+          ...prev,
+          activeApiKeyId: apiKeyId,
+          apiKeys: (prev.apiKeys ?? []).map((key) => ({ ...key, isActive: key.id === apiKeyId })),
+        }
+      : null;
+    set({
+      fetchingModels: true,
+      fetchingModelsByKey: { ...get().fetchingModelsByKey, [fetchKey]: true },
+      modelsBySite: { ...get().modelsBySite, [siteId]: [] },
+      ...(optimistic
+        ? { sites: get().sites.map((s) => (s.id === siteId ? optimistic : s)) }
+        : {}),
+    });
+    try {
+      const result = await invoke<SwitchSiteApiKeyResult>("switch_site_api_key", {
+        siteId,
+        apiKeyId,
+        syncTargets: opts?.syncTargets === true,
+      });
+      const current = result.site;
+      const stillCurrent = activeApiKeyId(current) === apiKeyId;
+      set({
+        sites: get().sites.map((s) => (s.id === siteId ? current : s)),
+        ...(stillCurrent
+          ? { modelsBySite: { ...get().modelsBySite, [siteId]: result.models } }
+          : {}),
+        ...(prev && quotaCacheKey(prev) !== quotaCacheKey(current)
+          ? clearSiteQuotaState(get(), siteId)
+          : {}),
+      });
+      void useApplyStore.getState().loadStatus({ background: true }).catch(() => null);
+      return result;
+    } finally {
+      const loading = { ...get().fetchingModelsByKey };
+      delete loading[fetchKey];
+      set({
+        fetchingModelsByKey: loading,
+        fetchingModels: Object.values(loading).some(Boolean),
+      });
+    }
   },
   switchRoute: async (siteId, baseUrl, opts) => {
     const prev = get().sites.find((s) => s.id === siteId);
@@ -211,53 +292,81 @@ export const useSiteStore = create<SiteState>((set, get) => ({
     }
   },
   fetchModels: async (siteId) => {
-    set({ fetchingModels: true, error: null });
+    const site = get().sites.find((s) => s.id === siteId);
+    const apiKeyId = activeApiKeyId(site ?? null);
+    const fetchKey = `${siteId}:${apiKeyId ?? "active"}`;
+    set({
+      fetchingModels: true,
+      fetchingModelsByKey: { ...get().fetchingModelsByKey, [fetchKey]: true },
+      error: null,
+    });
     try {
-      const result = await invoke<FetchModelsResult>("fetch_site_models", { siteId });
+      const result = await invoke<FetchModelsResult>("fetch_site_models", { siteId, apiKeyId });
       let models = Array.isArray(result.models) ? result.models : [];
       if (models.length === 0) {
-        const listed = await invoke<SiteModel[]>("list_site_models", { siteId });
+        const listed = await invoke<SiteModel[]>("list_site_models", { siteId, apiKeyId });
         if (Array.isArray(listed) && listed.length > 0) models = listed;
       }
-      set({
-        modelsBySite: { ...get().modelsBySite, [siteId]: models },
-        sites: get().sites.map((s) =>
-          s.id === siteId
-            ? {
-                ...s,
-                lastModelFetchAt: result.fetchedAt,
-                lastModelFetchLatencyMs: result.latencyMs,
-                lastModelFetchError: null,
-              }
-            : s,
-        ),
-      });
+      const current = get().sites.find((s) => s.id === siteId);
+      const resultKey = result.apiKeyId || apiKeyId;
+      const stillCurrent = !resultKey || activeApiKeyId(current ?? null) === resultKey;
+      if (stillCurrent) {
+        set({
+          modelsBySite: { ...get().modelsBySite, [siteId]: models },
+          sites: get().sites.map((s) =>
+            s.id === siteId
+              ? {
+                  ...s,
+                  lastModelFetchAt: result.fetchedAt,
+                  lastModelFetchLatencyMs: result.latencyMs,
+                  lastModelFetchError: null,
+                }
+              : s,
+          ),
+        });
+      }
       return { ...result, models };
     } catch (e) {
       const msg =
         typeof e === "object" && e && "message" in e
           ? String((e as { message: string }).message)
           : String(e);
-      set({
-        error: msg,
-        sites: get().sites.map((s) =>
-          s.id === siteId ? { ...s, lastModelFetchError: msg } : s,
-        ),
-      });
+      const current = get().sites.find((s) => s.id === siteId);
+      if (!apiKeyId || activeApiKeyId(current ?? null) === apiKeyId) {
+        set({
+          error: msg,
+          sites: get().sites.map((s) =>
+            s.id === siteId ? { ...s, lastModelFetchError: msg } : s,
+          ),
+        });
+      }
       throw e;
     } finally {
-      set({ fetchingModels: false });
+      const loading = { ...get().fetchingModelsByKey };
+      delete loading[fetchKey];
+      set({
+        fetchingModelsByKey: loading,
+        fetchingModels: Object.values(loading).some(Boolean),
+      });
     }
   },
   listModels: async (siteId, opts) => {
-    if (!opts?.force && Object.prototype.hasOwnProperty.call(get().modelsBySite, siteId)) {
-      return get().modelsBySite[siteId] ?? [];
+    const site = get().sites.find((s) => s.id === siteId);
+    const apiKeyId = activeApiKeyId(site ?? null);
+    const cached = get().modelsBySite[siteId];
+    const cachedKey = cached?.[0]?.apiKeyId;
+    if (
+      !opts?.force &&
+      Object.prototype.hasOwnProperty.call(get().modelsBySite, siteId) &&
+      (!apiKeyId || !cachedKey || cachedKey === apiKeyId)
+    ) {
+      return cached ?? [];
     }
     set({
       modelsLoadingBySite: { ...get().modelsLoadingBySite, [siteId]: true },
     });
     try {
-      const models = await invoke<SiteModel[]>("list_site_models", { siteId });
+      const models = await invoke<SiteModel[]>("list_site_models", { siteId, apiKeyId });
       const list = Array.isArray(models) ? models : [];
       const current = get().modelsBySite[siteId];
       // Don't let a stale list overwrite a newer non-empty fetch.

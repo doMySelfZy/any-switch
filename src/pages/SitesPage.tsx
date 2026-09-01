@@ -28,6 +28,7 @@ import { SiteListItem } from "@/components/sites/SiteListItem";
 import { SiteDetailSkeleton } from "@/components/sites/SiteDetailSkeleton";
 import { EmptyOnboarding } from "@/components/sites/EmptyOnboarding";
 import { SiteRouteSwitcher } from "@/components/sites/SiteRouteSwitcher";
+import { SiteApiKeySwitcher } from "@/components/sites/SiteApiKeySwitcher";
 import { SiteQuotaRow } from "@/components/sites/SiteQuotaRow";
 import type { Site } from "@/types/domain";
 import { isAppError } from "@/lib/invoke";
@@ -495,7 +496,9 @@ export function SitesPage() {
                 </div>
                 <div className="flex gap-2">
                   <span className="w-28 shrink-0 opacity-50">{t("sites.keyPrefix")}</span>
-                  <span>{selected.keyPrefix || "—"}</span>
+                  <div className="min-w-0 flex-1">
+                    <SiteApiKeySwitcher site={selected} />
+                  </div>
                 </div>
                 <SiteQuotaRow
                   quota={

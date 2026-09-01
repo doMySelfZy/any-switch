@@ -101,6 +101,20 @@ pub enum ApplyStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SiteApiKeySummary {
+    pub id: String,
+    pub label: String,
+    pub key_prefix: String,
+    pub is_active: bool,
+    pub quota_revision: String,
+    pub selected_model_id: Option<String>,
+    pub last_model_fetch_at: Option<i64>,
+    pub last_model_fetch_latency_ms: Option<i64>,
+    pub last_model_fetch_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SiteDto {
     pub id: String,
     pub name: String,
@@ -123,6 +137,10 @@ pub struct SiteDto {
     pub updated_at: i64,
     #[serde(default)]
     pub capabilities: SiteCapabilities,
+    #[serde(default)]
+    pub active_api_key_id: Option<String>,
+    #[serde(default)]
+    pub api_keys: Vec<SiteApiKeySummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +148,8 @@ pub struct SiteDto {
 pub struct SiteModelDto {
     pub id: String,
     pub site_id: String,
+    #[serde(default)]
+    pub api_key_id: String,
     pub model_id: String,
     pub display_name: String,
     pub owned_by: Option<String>,
@@ -163,6 +183,8 @@ pub struct DeepLinkSiteImportInput {
     pub notes: Option<String>,
     #[serde(default)]
     pub capabilities: Option<SiteCapabilities>,
+    #[serde(default)]
+    pub key_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,8 +192,23 @@ pub struct DeepLinkSiteImportInput {
 pub struct DeepLinkSiteImportResult {
     pub site: SiteDto,
     pub created: bool,
-    pub updated_key: bool,
-    pub reused: bool,
+    pub added_api_key: bool,
+    pub reused_api_key: bool,
+    pub activated_api_key: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddSiteApiKeyInput {
+    pub label: Option<String>,
+    pub api_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSiteApiKeyInput {
+    pub label: Option<String>,
+    pub api_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -198,6 +235,19 @@ pub struct FetchModelsResult {
     pub latency_ms: u64,
     pub endpoint: String,
     pub fetched_at: i64,
+    #[serde(default)]
+    pub api_key_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelFetchOutcome {
+    pub ok: bool,
+    pub api_key_id: String,
+    pub latency_ms: u64,
+    pub endpoint: Option<String>,
+    pub fetched_at: Option<i64>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -666,6 +716,15 @@ pub struct SwitchRouteResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SwitchSiteApiKeyResult {
+    pub site: SiteDto,
+    pub models: Vec<SiteModelDto>,
+    pub fetch: ModelFetchOutcome,
+    pub results: Vec<ApplyTargetResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UrlProbeResult {
     pub url: String,
     pub ok: bool,
@@ -696,6 +755,12 @@ pub struct ApplyRecordDto {
     pub backup_dir: Option<String>,
     pub error: Option<String>,
     pub applied_at: i64,
+    #[serde(default)]
+    pub site_api_key_id: Option<String>,
+    #[serde(default)]
+    pub site_api_key_label_snapshot: Option<String>,
+    #[serde(default)]
+    pub site_api_key_prefix_snapshot: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -746,6 +811,13 @@ pub struct TouchedKeys {
     pub shell_rc_paths: Option<Vec<String>>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct BindingApiKeySnapshot {
+    pub id: Option<String>,
+    pub label: Option<String>,
+    pub prefix: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct TargetBinding {
     pub target: TargetKind,
@@ -760,6 +832,13 @@ pub struct TargetBinding {
     pub orphan: bool,
     pub applied_at: i64,
     pub apply_record_id: Option<String>,
+    pub api_key: BindingApiKeySnapshot,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SiteKeyState {
+    pub active_api_key_id: Option<String>,
+    pub api_keys: Vec<SiteApiKeySummary>,
 }
 
 #[derive(Debug, Clone)]
@@ -782,6 +861,39 @@ pub struct SiteRow {
     pub created_at: i64,
     pub updated_at: i64,
     pub capabilities: SiteCapabilities,
+    pub keys: SiteKeyState,
+}
+
+#[derive(Debug, Clone)]
+pub struct SiteApiKeyRow {
+    pub id: String,
+    pub site_id: String,
+    pub label: String,
+    pub api_key_encrypted: String,
+    pub key_prefix: String,
+    pub is_active: bool,
+    pub selected_model_id: Option<String>,
+    pub last_model_fetch_at: Option<i64>,
+    pub last_model_fetch_latency_ms: Option<i64>,
+    pub last_model_fetch_error: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl SiteApiKeyRow {
+    pub fn to_summary(&self) -> SiteApiKeySummary {
+        SiteApiKeySummary {
+            id: self.id.clone(),
+            label: self.label.clone(),
+            key_prefix: self.key_prefix.clone(),
+            is_active: self.is_active,
+            quota_revision: key_fingerprint(&self.api_key_encrypted),
+            selected_model_id: self.selected_model_id.clone(),
+            last_model_fetch_at: self.last_model_fetch_at,
+            last_model_fetch_latency_ms: self.last_model_fetch_latency_ms,
+            last_model_fetch_error: self.last_model_fetch_error.clone(),
+        }
+    }
 }
 
 impl SiteRow {
@@ -810,6 +922,26 @@ impl SiteRow {
             created_at: self.created_at,
             updated_at: self.updated_at,
             capabilities: self.capabilities.clone(),
+            active_api_key_id: self.keys.active_api_key_id.clone(),
+            api_keys: self.keys.api_keys.clone(),
+        }
+    }
+
+    pub fn active_api_key_id(&self) -> Option<&str> {
+        self.keys.active_api_key_id.as_deref()
+    }
+
+    pub fn api_key_snapshot(&self) -> BindingApiKeySnapshot {
+        let active = self
+            .keys
+            .api_keys
+            .iter()
+            .find(|k| k.is_active)
+            .or_else(|| self.keys.api_keys.first());
+        BindingApiKeySnapshot {
+            id: self.keys.active_api_key_id.clone(),
+            label: active.map(|k| k.label.clone()),
+            prefix: Some(self.key_prefix.clone()).filter(|s| !s.is_empty()),
         }
     }
 }

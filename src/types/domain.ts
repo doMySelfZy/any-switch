@@ -72,6 +72,18 @@ export interface AppError {
   details?: string | null;
 }
 
+export interface SiteApiKeySummary {
+  id: string;
+  label: string;
+  keyPrefix: string;
+  isActive: boolean;
+  quotaRevision: string;
+  selectedModelId: string | null;
+  lastModelFetchAt: number | null;
+  lastModelFetchLatencyMs: number | null;
+  lastModelFetchError: string | null;
+}
+
 export interface Site {
   id: string;
   name: string;
@@ -93,11 +105,14 @@ export interface Site {
   createdAt: number;
   updatedAt: number;
   capabilities?: SiteCapabilities;
+  activeApiKeyId?: string | null;
+  apiKeys?: SiteApiKeySummary[];
 }
 
 export interface SiteModel {
   id: string;
   siteId: string;
+  apiKeyId?: string;
   modelId: string;
   displayName: string;
   ownedBy: string | null;
@@ -112,13 +127,15 @@ export interface DeepLinkSiteImportInput {
   protocol?: SiteProtocol;
   notes?: string | null;
   capabilities?: SiteCapabilities;
+  keyName?: string | null;
 }
 
 export interface DeepLinkSiteImportResult {
   site: Site;
   created: boolean;
-  updatedKey: boolean;
-  reused: boolean;
+  addedApiKey: boolean;
+  reusedApiKey: boolean;
+  activatedApiKey: boolean;
 }
 
 export interface CreateSiteInput {
@@ -151,6 +168,33 @@ export interface FetchModelsResult {
   latencyMs: number;
   endpoint: string;
   fetchedAt: number;
+  apiKeyId?: string;
+}
+
+export interface ModelFetchOutcome {
+  ok: boolean;
+  apiKeyId: string;
+  latencyMs: number;
+  endpoint: string | null;
+  fetchedAt: number | null;
+  error: string | null;
+}
+
+export interface AddSiteApiKeyInput {
+  label?: string | null;
+  apiKey: string;
+}
+
+export interface UpdateSiteApiKeyInput {
+  label?: string | null;
+  apiKey?: string | null;
+}
+
+export interface SwitchSiteApiKeyResult {
+  site: Site;
+  models: SiteModel[];
+  fetch: ModelFetchOutcome;
+  results: ApplyTargetResult[];
 }
 
 export type LiveSummary = Record<string, string | null>;
@@ -179,6 +223,7 @@ export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhig
 
 export interface ApplyRequest {
   siteId: string;
+  apiKeyId?: string;
   targets: TargetKind[];
   modelId: string;
   claudeAuthKeyStyle?: ClaudeAuthKeyStyle;

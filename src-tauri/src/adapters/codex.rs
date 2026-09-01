@@ -453,6 +453,7 @@ pub fn apply(
         orphan: false,
         applied_at: Utc::now().timestamp_millis(),
         apply_record_id: Some(Uuid::new_v4().to_string()),
+        api_key: Default::default(),
     };
 
     let mut message =
@@ -937,6 +938,7 @@ wire_api = "responses"
             orphan: false,
             applied_at: 1,
             apply_record_id: None,
+            api_key: Default::default(),
         };
         let site = SiteRow {
             id: "s1".into(),
@@ -957,6 +959,7 @@ wire_api = "responses"
             created_at: 1,
             updated_at: 1,
             capabilities: Default::default(),
+            keys: Default::default(),
         };
         let bak = dir.path().join("bak");
         fs::create_dir_all(&bak).unwrap();
@@ -1013,6 +1016,7 @@ image_generation = false
             orphan: false,
             applied_at: 1,
             apply_record_id: None,
+            api_key: Default::default(),
         };
         let site = SiteRow {
             id: "s1".into(),
@@ -1033,6 +1037,7 @@ image_generation = false
             created_at: 1,
             updated_at: 1,
             capabilities: Default::default(),
+            keys: Default::default(),
         };
         let bak = dir.path().join("bak");
         fs::create_dir_all(&bak).unwrap();
@@ -1253,6 +1258,7 @@ mod restore_official_tests {
             orphan: false,
             applied_at: 1,
             apply_record_id: None,
+            api_key: Default::default(),
         }
     }
 

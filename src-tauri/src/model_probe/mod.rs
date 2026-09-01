@@ -16,7 +16,11 @@ pub fn probe_endpoint(protocol: &SiteProtocol, preview: &UrlWritePreview) -> Str
             format!("{}/chat/completions", preview.codex_base_url)
         }
         SiteProtocol::Anthropic => {
-            if preview.claude_base_url.to_ascii_lowercase().ends_with("/v1") {
+            if preview
+                .claude_base_url
+                .to_ascii_lowercase()
+                .ends_with("/v1")
+            {
                 format!("{}/messages", preview.claude_base_url)
             } else {
                 format!("{}/v1/messages", preview.claude_base_url)
@@ -58,8 +62,7 @@ pub fn interpret_response(protocol: &SiteProtocol, status: u16, body: &str) -> R
     if !(200..300).contains(&status) {
         return Err(extract_error(status, body));
     }
-    let value: Value =
-        serde_json::from_str(body).map_err(|_| "invalid response".to_string())?;
+    let value: Value = serde_json::from_str(body).map_err(|_| "invalid response".to_string())?;
     if response_ok(protocol, &value) {
         Ok(())
     } else {
@@ -91,7 +94,9 @@ pub async fn probe_model(
 
     loop {
         let request = apply_headers(
-            client.post(&endpoint).header("Content-Type", "application/json"),
+            client
+                .post(&endpoint)
+                .header("Content-Type", "application/json"),
             &site.protocol,
             api_key,
         )
@@ -107,7 +112,10 @@ pub async fn probe_model(
                     &bytes
                 };
                 let text = String::from_utf8_lossy(slice).into_owned();
-                (Some(status), interpret_response(&site.protocol, status, &text))
+                (
+                    Some(status),
+                    interpret_response(&site.protocol, status, &text),
+                )
             }
             Err(e) => (None, Err(map_reqwest_error(&e))),
         };
@@ -334,13 +342,16 @@ mod tests {
             "bad key"
         );
         assert_eq!(
-            interpret_response(&SiteProtocol::OpenaiCompatible, 500, r#"{"message":"boom"}"#)
-                .unwrap_err(),
+            interpret_response(
+                &SiteProtocol::OpenaiCompatible,
+                500,
+                r#"{"message":"boom"}"#
+            )
+            .unwrap_err(),
             "boom"
         );
         assert_eq!(
-            interpret_response(&SiteProtocol::OpenaiCompatible, 502, "upstream down")
-                .unwrap_err(),
+            interpret_response(&SiteProtocol::OpenaiCompatible, 502, "upstream down").unwrap_err(),
             "HTTP 502"
         );
     }

@@ -1,6 +1,6 @@
 use crate::domain::{
-    CreateSiteInput, DeepLinkSiteImportInput, DeepLinkSiteImportResult, SiteDto, SwitchRouteResult,
-    UpdateSiteInput,
+    AddSiteApiKeyInput, CreateSiteInput, DeepLinkSiteImportInput, DeepLinkSiteImportResult,
+    SiteDto, SwitchRouteResult, SwitchSiteApiKeyResult, UpdateSiteApiKeyInput, UpdateSiteInput,
 };
 use crate::error::AppResult;
 use crate::repo;
@@ -22,10 +22,14 @@ pub fn get_site(state: State<'_, AppState>, id: String) -> AppResult<SiteDto> {
 }
 
 #[tauri::command]
-pub fn get_site_api_key(state: State<'_, AppState>, id: String) -> AppResult<String> {
+pub fn get_site_api_key(
+    state: State<'_, AppState>,
+    id: String,
+    api_key_id: Option<String>,
+) -> AppResult<String> {
     state
         .db
-        .with_conn(|c| repo::site::get_site_api_key(c, &state.crypto, &id))
+        .with_conn(|c| repo::site::get_site_api_key(c, &state.crypto, &id, api_key_id.as_deref()))
 }
 
 #[tauri::command]
@@ -68,6 +72,87 @@ pub fn update_site(
     }
     crate::tray::request_tray_menu_sync(&app);
     Ok(row.to_dto())
+}
+
+#[tauri::command]
+pub fn add_site_api_key(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    site_id: String,
+    input: AddSiteApiKeyInput,
+) -> AppResult<SiteDto> {
+    let _lock = crate::lock::try_lock_site(&site_id)?;
+    let row = state.db.with_conn(|c| {
+        repo::site_api_key::add(
+            c,
+            &state.crypto,
+            &site_id,
+            input.label.as_deref(),
+            &input.api_key,
+        )?;
+        repo::site::get_site(c, &site_id)
+    })?;
+    crate::tray::request_tray_menu_sync(&app);
+    Ok(row.to_dto())
+}
+
+#[tauri::command]
+pub fn update_site_api_key(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    site_id: String,
+    api_key_id: String,
+    input: UpdateSiteApiKeyInput,
+) -> AppResult<SiteDto> {
+    let _lock = crate::lock::try_lock_site(&site_id)?;
+    let row = state.db.with_conn(|c| {
+        repo::site_api_key::update(
+            c,
+            &state.crypto,
+            &site_id,
+            &api_key_id,
+            input.label.as_deref(),
+            input.api_key.as_deref(),
+        )?;
+        repo::site::get_site(c, &site_id)
+    })?;
+    crate::tray::request_tray_menu_sync(&app);
+    Ok(row.to_dto())
+}
+
+#[tauri::command]
+pub fn delete_site_api_key(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    site_id: String,
+    api_key_id: String,
+) -> AppResult<SiteDto> {
+    let _lock = crate::lock::try_lock_site(&site_id)?;
+    let row = state.db.with_conn(|c| {
+        repo::site_api_key::delete(c, &site_id, &api_key_id)?;
+        repo::site::get_site(c, &site_id)
+    })?;
+    crate::tray::request_tray_menu_sync(&app);
+    Ok(row.to_dto())
+}
+
+#[tauri::command]
+pub async fn switch_site_api_key(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    site_id: String,
+    api_key_id: String,
+    sync_targets: Option<bool>,
+) -> AppResult<SwitchSiteApiKeyResult> {
+    let result = crate::key_switch::switch_site_api_key(
+        &state,
+        &site_id,
+        &api_key_id,
+        sync_targets.unwrap_or(false),
+    )
+    .await?;
+    crate::tray::request_tray_menu_sync(&app);
+    Ok(result)
 }
 
 #[tauri::command]

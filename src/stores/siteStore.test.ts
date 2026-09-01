@@ -49,6 +49,7 @@ describe("siteStore fetchModels", () => {
       loading: false,
       hydrated: false,
       fetchingModels: false,
+      fetchingModelsByKey: {},
       error: null,
     });
   });
@@ -150,7 +151,7 @@ describe("siteStore fetchModels", () => {
       protocol: "openai_compatible",
     });
     expect(reused.created).toBe(false);
-    expect(reused.reused).toBe(true);
+    expect(reused.reusedApiKey).toBe(true);
     expect(reused.site.id).toBe(created.site.id);
     expect(reused.site.baseUrl).toBe("https://b.example.com");
     expect(useSiteStore.getState().sites).toHaveLength(1);
@@ -161,7 +162,8 @@ describe("siteStore fetchModels", () => {
       apiKey: "sk-other",
       protocol: "openai_compatible",
     });
-    expect(updated.updatedKey).toBe(true);
+    expect(updated.addedApiKey).toBe(true);
+    expect(updated.activatedApiKey).toBe(false);
     expect(updated.site.id).toBe(created.site.id);
     expect(updated.site.name).toBe("Relay 2");
   });
@@ -272,7 +274,7 @@ describe("siteStore fetchModels", () => {
     });
     const cached = await useSiteStore.getState().probeQuota(created.site.id);
 
-    expect(reused.reused).toBe(true);
+    expect(reused.reusedApiKey).toBe(true);
     expect(reused.site.quotaRevision).toBe(created.site.quotaRevision);
     expect(cached).toEqual(successful);
     expect(useSiteStore.getState().quotaBySite[created.site.id]).toEqual(successful);
@@ -498,5 +500,25 @@ describe("siteStore fetchModels", () => {
     await useSiteStore.getState().loadSites({ force: true });
     expect(useSiteStore.getState().sites.map((s) => s.id)).toEqual([beta.id, alpha.id]);
     expect(useSiteStore.getState().sites.map((s) => s.name)).toEqual(["Beta", "Alpha"]);
+  });
+
+  it("switchApiKey activates another key and refreshes models", async () => {
+    const site = await useSiteStore.getState().createSite({
+      name: "Relay",
+      baseUrl: "https://api.example.com",
+      apiKey: "sk-one",
+    });
+    const firstId = site.activeApiKeyId;
+    const withSecond = await useSiteStore.getState().addApiKey(site.id, { apiKey: "sk-two" });
+    const secondId = withSecond.apiKeys?.find((key) => !key.isActive)?.id;
+    expect(secondId).toBeTruthy();
+    const result = await useSiteStore.getState().switchApiKey(site.id, secondId!, {
+      syncTargets: false,
+    });
+    expect(result.site.activeApiKeyId).toBe(secondId);
+    expect(result.fetch.ok).toBe(true);
+    expect(result.models.some((m) => m.modelId === "gpt-4.1")).toBe(true);
+    expect(useSiteStore.getState().sites[0]?.activeApiKeyId).toBe(secondId);
+    expect(useSiteStore.getState().sites[0]?.activeApiKeyId).not.toBe(firstId);
   });
 });

@@ -24,6 +24,11 @@ fn process_mutex(target: &str) -> Arc<Mutex<()>> {
         .clone()
 }
 
+/// Try to acquire per-site lock shared by key switch, route rewrite, and apply.
+pub fn try_lock_site(site_id: &str) -> AppResult<HeldLock> {
+    try_lock_target(&format!("site:{site_id}"))
+}
+
 /// Try to acquire per-target process + cross-process lock.
 pub fn try_lock_target(target: &str) -> AppResult<HeldLock> {
     let arc = process_mutex(target);

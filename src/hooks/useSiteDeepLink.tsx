@@ -49,7 +49,8 @@ export interface ConfirmSiteDeepLinkDeps {
 
 function getSuccessMessageKey(result: DeepLinkSiteImportResult): string {
   if (result.created) return "sites.deepLinkCreated";
-  if (result.updatedKey) return "sites.deepLinkUpdatedKey";
+  if (result.addedApiKey) return "sites.deepLinkAddedKey";
+  if (result.activatedApiKey) return "sites.deepLinkActivatedKey";
   return "sites.deepLinkReused";
 }
 
@@ -143,6 +144,7 @@ export function confirmSiteDeepLinkImport(
           protocol: payload.protocol,
           notes: payload.notes,
           capabilities: payload.hasCapabilityParams ? payload.capabilities : undefined,
+          keyName: payload.keyName,
         });
         deps.setSelectedSiteId(result.site.id);
         if (result.created) {

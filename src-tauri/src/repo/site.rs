@@ -1,9 +1,11 @@
 use crate::capabilities::{capabilities_json, parse_capabilities_json};
-use crate::crypto::{key_prefix, Crypto};
+use crate::crypto::Crypto;
 use crate::domain::{
-    ClaudeAuthKeyStyle, CreateSiteInput, SiteModelDto, SiteProtocol, SiteRow, UpdateSiteInput,
+    ClaudeAuthKeyStyle, CreateSiteInput, SiteKeyState, SiteModelDto, SiteProtocol, SiteRow,
+    UpdateSiteInput,
 };
 use crate::error::{AppError, AppResult};
+use crate::repo::site_api_key;
 use crate::url_normalize::{move_url_to_front, normalize_base_urls, parse_base_urls_json};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -19,13 +21,14 @@ fn map_site(row: &rusqlite::Row<'_>) -> rusqlite::Result<SiteRow> {
         .first()
         .cloned()
         .unwrap_or_else(|| base_url.clone());
+    let active_api_key_id: Option<String> = row.get(18)?;
     Ok(SiteRow {
         id: row.get(0)?,
         name: row.get(1)?,
         base_url: active,
         base_urls,
-        api_key_encrypted: row.get(3)?,
-        key_prefix: row.get(4)?,
+        api_key_encrypted: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+        key_prefix: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
         protocol: SiteProtocol::parse(&row.get::<_, String>(5)?),
         claude_auth_key_style: ClaudeAuthKeyStyle::parse(&row.get::<_, String>(6)?),
         notes: row.get(7)?,
@@ -38,6 +41,10 @@ fn map_site(row: &rusqlite::Row<'_>) -> rusqlite::Result<SiteRow> {
         created_at: row.get(14)?,
         updated_at: row.get(15)?,
         capabilities,
+        keys: SiteKeyState {
+            active_api_key_id,
+            api_keys: Vec::new(),
+        },
     })
 }
 
@@ -45,33 +52,60 @@ fn urls_json(urls: &[String]) -> AppResult<String> {
     Ok(serde_json::to_string(urls)?)
 }
 
-const SITE_COLS: &str = "id, name, base_url, api_key_encrypted, key_prefix, protocol, claude_auth_key_style, notes, enabled, sort_order, selected_model_id, last_model_fetch_at, last_model_fetch_latency_ms, last_model_fetch_error, created_at, updated_at, base_urls_json, capabilities_json";
+const SITE_SELECT: &str = "s.id, s.name, s.base_url, k.api_key_encrypted, k.key_prefix, s.protocol, s.claude_auth_key_style, s.notes, s.enabled, s.sort_order, k.selected_model_id, k.last_model_fetch_at, k.last_model_fetch_latency_ms, k.last_model_fetch_error, s.created_at, s.updated_at, s.base_urls_json, s.capabilities_json, k.id";
+const SITE_FROM: &str = "sites s LEFT JOIN site_api_keys k ON k.site_id = s.id AND k.is_active = 1";
+
+fn attach_keys(conn: &Connection, sites: &mut [SiteRow]) -> AppResult<()> {
+    for site in sites.iter_mut() {
+        site.keys.api_keys = site_api_key::summaries_for_site(conn, &site.id)?;
+        if site.keys.active_api_key_id.is_none() {
+            site.keys.active_api_key_id = site
+                .keys
+                .api_keys
+                .iter()
+                .find(|k| k.is_active)
+                .map(|k| k.id.clone());
+        }
+    }
+    Ok(())
+}
 
 pub fn list_sites(conn: &Connection) -> AppResult<Vec<SiteRow>> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT {SITE_COLS} FROM sites ORDER BY sort_order ASC, created_at ASC"
+        "SELECT {SITE_SELECT} FROM {SITE_FROM} ORDER BY s.sort_order ASC, s.created_at ASC"
     ))?;
     let rows = stmt.query_map([], map_site)?;
     let mut out = Vec::new();
     for r in rows {
         out.push(r?);
     }
+    attach_keys(conn, &mut out)?;
     Ok(out)
 }
 
 pub fn get_site(conn: &Connection, id: &str) -> AppResult<SiteRow> {
-    let mut stmt = conn.prepare(&format!("SELECT {SITE_COLS} FROM sites WHERE id = ?1"))?;
-    stmt.query_row(params![id], map_site)
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {SITE_SELECT} FROM {SITE_FROM} WHERE s.id = ?1"
+    ))?;
+    let mut site = stmt
+        .query_row(params![id], map_site)
         .optional()?
-        .ok_or_else(|| AppError::new("not_found", "site not found"))
+        .ok_or_else(|| AppError::new("not_found", "site not found"))?;
+    attach_keys(conn, std::slice::from_mut(&mut site))?;
+    Ok(site)
 }
 
-pub fn get_site_api_key(conn: &Connection, crypto: &Crypto, id: &str) -> AppResult<String> {
-    let site = get_site(conn, id)?;
-    if site.api_key_encrypted.is_empty() {
-        return Ok(String::new());
-    }
-    crypto.decrypt(&site.api_key_encrypted)
+pub fn get_site_api_key(
+    conn: &Connection,
+    crypto: &Crypto,
+    id: &str,
+    api_key_id: Option<&str>,
+) -> AppResult<String> {
+    let key = match api_key_id {
+        Some(key_id) => site_api_key::get_for_site(conn, id, key_id)?,
+        None => site_api_key::get_active(conn, id)?,
+    };
+    site_api_key::decrypt(crypto, &key)
 }
 
 pub fn create_site(
@@ -82,8 +116,6 @@ pub fn create_site(
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().timestamp_millis();
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM sites", [], |r| r.get(0))?;
-    let enc = crypto.encrypt(&input.api_key)?;
-    let prefix = key_prefix(&input.api_key);
     let protocol = input
         .protocol
         .as_deref()
@@ -106,14 +138,12 @@ pub fn create_site(
     let caps_json = capabilities_json(&capabilities)?;
 
     conn.execute(
-        "INSERT INTO sites (id, name, base_url, api_key_encrypted, key_prefix, protocol, claude_auth_key_style, notes, enabled, sort_order, selected_model_id, last_model_fetch_at, last_model_fetch_latency_ms, last_model_fetch_error, created_at, updated_at, base_urls_json, capabilities_json)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,1,?9,NULL,NULL,NULL,NULL,?10,?10,?11,?12)",
+        "INSERT INTO sites (id, name, base_url, protocol, claude_auth_key_style, notes, enabled, sort_order, created_at, updated_at, base_urls_json, capabilities_json)
+         VALUES (?1,?2,?3,?4,?5,?6,1,?7,?8,?8,?9,?10)",
         params![
             id,
             input.name,
             base_url,
-            enc,
-            prefix,
             protocol.as_str(),
             auth.as_str(),
             input.notes,
@@ -123,6 +153,7 @@ pub fn create_site(
             caps_json
         ],
     )?;
+    site_api_key::insert_active(conn, crypto, &id, "K 1", &input.api_key)?;
     get_site(conn, &id)
 }
 
@@ -153,8 +184,8 @@ pub fn update_site(
     }
     if let Some(api_key) = input.api_key {
         if !api_key.is_empty() {
-            site.api_key_encrypted = crypto.encrypt(&api_key)?;
-            site.key_prefix = key_prefix(&api_key);
+            let active = site_api_key::get_active(conn, id)?;
+            site_api_key::update(conn, crypto, id, &active.id, None, Some(&api_key))?;
         }
     }
     if let Some(p) = input.protocol {
@@ -170,7 +201,10 @@ pub fn update_site(
         site.enabled = e;
     }
     if input.selected_model_id.is_some() {
-        site.selected_model_id = input.selected_model_id;
+        site.selected_model_id = input.selected_model_id.clone();
+        if let Some(active_id) = site.keys.active_api_key_id.clone() {
+            site_api_key::set_selected_model(conn, &active_id, site.selected_model_id.as_deref())?;
+        }
     }
     if let Some(o) = input.sort_order {
         site.sort_order = o;
@@ -186,19 +220,16 @@ pub fn update_site(
 
 fn persist_site(conn: &Connection, site: &SiteRow) -> AppResult<()> {
     conn.execute(
-        "UPDATE sites SET name=?2, base_url=?3, api_key_encrypted=?4, key_prefix=?5, protocol=?6, claude_auth_key_style=?7, notes=?8, enabled=?9, sort_order=?10, selected_model_id=?11, updated_at=?12, base_urls_json=?13, capabilities_json=?14 WHERE id=?1",
+        "UPDATE sites SET name=?2, base_url=?3, protocol=?4, claude_auth_key_style=?5, notes=?6, enabled=?7, sort_order=?8, updated_at=?9, base_urls_json=?10, capabilities_json=?11 WHERE id=?1",
         params![
             site.id,
             site.name,
             site.base_url,
-            site.api_key_encrypted,
-            site.key_prefix,
             site.protocol.as_str(),
             site.claude_auth_key_style.as_str(),
             site.notes,
             site.enabled as i64,
             site.sort_order,
-            site.selected_model_id,
             site.updated_at,
             urls_json(&site.base_urls)?,
             capabilities_json(&site.capabilities)?
@@ -229,28 +260,31 @@ pub fn delete_site(conn: &Connection, id: &str) -> AppResult<()> {
 }
 
 pub fn set_selected_model(conn: &Connection, site_id: &str, model_id: &str) -> AppResult<()> {
-    let now = Utc::now().timestamp_millis();
-    let n = conn.execute(
-        "UPDATE sites SET selected_model_id = ?2, updated_at = ?3 WHERE id = ?1",
-        params![site_id, model_id, now],
-    )?;
-    if n == 0 {
-        return Err(AppError::new("not_found", "site not found"));
-    }
-    clear_model_exclusion(conn, site_id, model_id)?;
-    // ensure placeholder model cache row
+    let key = site_api_key::get_active(conn, site_id)?;
+    set_selected_model_for_key(conn, site_id, &key.id, model_id)
+}
+
+pub fn set_selected_model_for_key(
+    conn: &Connection,
+    site_id: &str,
+    api_key_id: &str,
+    model_id: &str,
+) -> AppResult<()> {
+    site_api_key::require_active(conn, site_id, api_key_id)?;
+    site_api_key::set_selected_model(conn, api_key_id, Some(model_id))?;
+    clear_model_exclusion(conn, api_key_id, model_id)?;
     let exists: bool = conn
         .query_row(
-            "SELECT 1 FROM site_models WHERE site_id = ?1 AND model_id = ?2",
-            params![site_id, model_id],
+            "SELECT 1 FROM site_models WHERE api_key_id = ?1 AND model_id = ?2",
+            params![api_key_id, model_id],
             |_| Ok(true),
         )
         .optional()?
         .unwrap_or(false);
     if !exists {
         conn.execute(
-            "INSERT INTO site_models (id, site_id, model_id, display_name, owned_by, raw_json, is_manual) VALUES (?1,?2,?3,?3,NULL,NULL,1)",
-            params![Uuid::new_v4().to_string(), site_id, model_id],
+            "INSERT INTO site_models (id, site_id, api_key_id, model_id, display_name, owned_by, raw_json, is_manual) VALUES (?1,?2,?3,?4,?4,NULL,NULL,1)",
+            params![Uuid::new_v4().to_string(), site_id, api_key_id, model_id],
         )?;
     }
     Ok(())
@@ -259,14 +293,16 @@ pub fn set_selected_model(conn: &Connection, site_id: &str, model_id: &str) -> A
 fn insert_site_model(
     conn: &Connection,
     site_id: &str,
+    api_key_id: &str,
     m: &SiteModelDto,
     is_manual: bool,
 ) -> AppResult<()> {
     conn.execute(
-        "INSERT INTO site_models (id, site_id, model_id, display_name, owned_by, raw_json, is_manual) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        "INSERT INTO site_models (id, site_id, api_key_id, model_id, display_name, owned_by, raw_json, is_manual) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
         params![
             m.id,
             site_id,
+            api_key_id,
             m.model_id,
             m.display_name,
             m.owned_by,
@@ -277,9 +313,14 @@ fn insert_site_model(
     Ok(())
 }
 
-pub fn replace_models(conn: &Connection, site_id: &str, models: &[SiteModelDto]) -> AppResult<()> {
-    let existing = list_models(conn, site_id)?;
-    let excluded = list_exclusions(conn, site_id)?;
+pub fn replace_models(
+    conn: &Connection,
+    site_id: &str,
+    api_key_id: &str,
+    models: &[SiteModelDto],
+) -> AppResult<()> {
+    let existing = list_models_for_key(conn, api_key_id)?;
+    let excluded = list_exclusions(conn, api_key_id)?;
     let fetched_ids: std::collections::HashSet<&str> =
         models.iter().map(|m| m.model_id.as_str()).collect();
     let manuals_to_keep: Vec<SiteModelDto> = existing
@@ -288,43 +329,65 @@ pub fn replace_models(conn: &Connection, site_id: &str, models: &[SiteModelDto])
         .collect();
 
     conn.execute(
-        "DELETE FROM site_models WHERE site_id = ?1",
-        params![site_id],
+        "DELETE FROM site_models WHERE api_key_id = ?1",
+        params![api_key_id],
     )?;
     for m in models {
         if excluded.contains(&m.model_id) {
             continue;
         }
-        insert_site_model(conn, site_id, m, false)?;
+        insert_site_model(conn, site_id, api_key_id, m, false)?;
     }
     for m in &manuals_to_keep {
-        insert_site_model(conn, site_id, m, true)?;
+        insert_site_model(conn, site_id, api_key_id, m, true)?;
     }
+    reconcile_selected_model(conn, api_key_id)?;
     Ok(())
 }
 
-fn clear_model_exclusion(conn: &Connection, site_id: &str, model_id: &str) -> AppResult<()> {
+fn reconcile_selected_model(conn: &Connection, api_key_id: &str) -> AppResult<()> {
+    let key = site_api_key::get(conn, api_key_id)?;
+    let models = list_models_for_key(conn, api_key_id)?;
+    let still_exists = key
+        .selected_model_id
+        .as_ref()
+        .is_some_and(|id| models.iter().any(|m| m.model_id == *id));
+    if still_exists {
+        return Ok(());
+    }
+    let next = models.first().map(|m| m.model_id.as_str());
+    site_api_key::set_selected_model(conn, api_key_id, next)?;
+    Ok(())
+}
+
+fn clear_model_exclusion(conn: &Connection, api_key_id: &str, model_id: &str) -> AppResult<()> {
     conn.execute(
-        "DELETE FROM site_model_exclusions WHERE site_id = ?1 AND model_id = ?2",
-        params![site_id, model_id],
+        "DELETE FROM site_model_exclusions WHERE api_key_id = ?1 AND model_id = ?2",
+        params![api_key_id, model_id],
     )?;
     Ok(())
 }
 
-fn exclude_model(conn: &Connection, site_id: &str, model_id: &str) -> AppResult<()> {
+fn exclude_model(
+    conn: &Connection,
+    site_id: &str,
+    api_key_id: &str,
+    model_id: &str,
+) -> AppResult<()> {
     conn.execute(
-        "INSERT OR IGNORE INTO site_model_exclusions (site_id, model_id) VALUES (?1, ?2)",
-        params![site_id, model_id],
+        "INSERT OR IGNORE INTO site_model_exclusions (site_id, api_key_id, model_id) VALUES (?1, ?2, ?3)",
+        params![site_id, api_key_id, model_id],
     )?;
     Ok(())
 }
 
 fn list_exclusions(
     conn: &Connection,
-    site_id: &str,
+    api_key_id: &str,
 ) -> AppResult<std::collections::HashSet<String>> {
-    let mut stmt = conn.prepare("SELECT model_id FROM site_model_exclusions WHERE site_id = ?1")?;
-    let rows = stmt.query_map(params![site_id], |row| row.get::<_, String>(0))?;
+    let mut stmt =
+        conn.prepare("SELECT model_id FROM site_model_exclusions WHERE api_key_id = ?1")?;
+    let rows = stmt.query_map(params![api_key_id], |row| row.get::<_, String>(0))?;
     let mut out = std::collections::HashSet::new();
     for r in rows {
         out.insert(r?);
@@ -333,58 +396,53 @@ fn list_exclusions(
 }
 
 pub fn clear_models(conn: &Connection, site_id: &str) -> AppResult<()> {
+    let key = site_api_key::get_active(conn, site_id)?;
     conn.execute(
-        "DELETE FROM site_models WHERE site_id = ?1",
-        params![site_id],
+        "DELETE FROM site_models WHERE api_key_id = ?1",
+        params![key.id],
     )?;
-    let now = Utc::now().timestamp_millis();
-    let n = conn.execute(
-        "UPDATE sites SET selected_model_id = NULL, updated_at = ?2 WHERE id = ?1",
-        params![site_id, now],
-    )?;
-    if n == 0 {
-        return Err(AppError::new("not_found", "site not found"));
-    }
+    site_api_key::set_selected_model(conn, &key.id, None)?;
     Ok(())
 }
 
 pub fn delete_model(conn: &Connection, site_id: &str, model_id: &str) -> AppResult<()> {
+    let key = site_api_key::get_active(conn, site_id)?;
     let n = conn.execute(
-        "DELETE FROM site_models WHERE site_id = ?1 AND model_id = ?2",
-        params![site_id, model_id],
+        "DELETE FROM site_models WHERE api_key_id = ?1 AND model_id = ?2",
+        params![key.id, model_id],
     )?;
     if n == 0 {
         return Err(AppError::new("not_found", "model not found"));
     }
-    exclude_model(conn, site_id, model_id)?;
-
-    let site = get_site(conn, site_id)?;
-    if site.selected_model_id.as_deref() == Some(model_id) {
-        let remaining = list_models(conn, site_id)?;
+    exclude_model(conn, site_id, &key.id, model_id)?;
+    if key.selected_model_id.as_deref() == Some(model_id) {
+        let remaining = list_models_for_key(conn, &key.id)?;
         let next = remaining.first().map(|m| m.model_id.as_str());
-        let now = Utc::now().timestamp_millis();
-        conn.execute(
-            "UPDATE sites SET selected_model_id = ?2, updated_at = ?3 WHERE id = ?1",
-            params![site_id, next, now],
-        )?;
+        site_api_key::set_selected_model(conn, &key.id, next)?;
     }
     Ok(())
 }
 
 pub fn list_models(conn: &Connection, site_id: &str) -> AppResult<Vec<SiteModelDto>> {
+    let key = site_api_key::get_active(conn, site_id)?;
+    list_models_for_key(conn, &key.id)
+}
+
+pub fn list_models_for_key(conn: &Connection, api_key_id: &str) -> AppResult<Vec<SiteModelDto>> {
     let mut stmt = conn.prepare(
-        "SELECT id, site_id, model_id, display_name, owned_by, raw_json, is_manual FROM site_models WHERE site_id = ?1 ORDER BY model_id",
+        "SELECT id, site_id, api_key_id, model_id, display_name, owned_by, raw_json, is_manual FROM site_models WHERE api_key_id = ?1 ORDER BY model_id",
     )?;
-    let rows = stmt.query_map(params![site_id], |row| {
-        let raw_json: Option<String> = row.get(5)?;
+    let rows = stmt.query_map(params![api_key_id], |row| {
+        let raw_json: Option<String> = row.get(6)?;
         Ok(SiteModelDto {
             id: row.get(0)?,
             site_id: row.get(1)?,
-            model_id: row.get(2)?,
-            display_name: row.get(3)?,
-            owned_by: row.get(4)?,
+            api_key_id: row.get(2)?,
+            model_id: row.get(3)?,
+            display_name: row.get(4)?,
+            owned_by: row.get(5)?,
             raw: raw_json.and_then(|s| serde_json::from_str(&s).ok()),
-            is_manual: row.get::<_, i64>(6)? != 0,
+            is_manual: row.get::<_, i64>(7)? != 0,
         })
     })?;
     let mut out = Vec::new();
@@ -400,16 +458,25 @@ pub fn update_fetch_meta(
     latency_ms: i64,
     error: Option<&str>,
 ) -> AppResult<()> {
-    let now = Utc::now().timestamp_millis();
-    conn.execute(
-        "UPDATE sites SET last_model_fetch_at=?2, last_model_fetch_latency_ms=?3, last_model_fetch_error=?4, updated_at=?2 WHERE id=?1",
-        params![site_id, now, latency_ms, error],
-    )?;
-    Ok(())
+    let key = site_api_key::get_active(conn, site_id)?;
+    update_fetch_meta_for_key(conn, &key.id, latency_ms, error)
+}
+
+pub fn update_fetch_meta_for_key(
+    conn: &Connection,
+    api_key_id: &str,
+    latency_ms: i64,
+    error: Option<&str>,
+) -> AppResult<()> {
+    site_api_key::update_fetch_meta(conn, api_key_id, latency_ms, error)
 }
 
 pub fn has_encrypted_sites(conn: &Connection) -> AppResult<bool> {
-    let n: i64 = conn.query_row("SELECT COUNT(*) FROM sites", [], |r| r.get(0))?;
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM site_api_keys WHERE api_key_encrypted IS NOT NULL AND api_key_encrypted != ''",
+        [],
+        |r| r.get(0),
+    )?;
     Ok(n > 0)
 }
 
@@ -421,8 +488,14 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         crate::db::apply_schema(&conn).unwrap();
         conn.execute(
-            "INSERT INTO sites (id, name, base_url, api_key_encrypted, key_prefix, protocol, claude_auth_key_style, notes, enabled, sort_order, selected_model_id, last_model_fetch_at, last_model_fetch_latency_ms, last_model_fetch_error, created_at, updated_at)
-             VALUES ('s1', 'T', 'https://api.example.com', 'x', 'sk-xx', 'openai_compatible', 'anthropic_auth_token', NULL, 1, 0, NULL, NULL, NULL, NULL, 1, 1)",
+            "INSERT INTO sites (id, name, base_url, protocol, claude_auth_key_style, notes, enabled, sort_order, created_at, updated_at)
+             VALUES ('s1', 'T', 'https://api.example.com', 'openai_compatible', 'anthropic_auth_token', NULL, 1, 0, 1, 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO site_api_keys (id, site_id, label, api_key_encrypted, key_prefix, is_active, selected_model_id, last_model_fetch_at, last_model_fetch_latency_ms, last_model_fetch_error, created_at, updated_at)
+             VALUES ('k1', 's1', 'K 1', 'x', 'sk-xx', 1, NULL, NULL, NULL, NULL, 1, 1)",
             [],
         )
         .unwrap();
@@ -433,6 +506,7 @@ mod tests {
         SiteModelDto {
             id: format!("fetched-{model_id}"),
             site_id: "s1".into(),
+            api_key_id: "k1".into(),
             model_id: model_id.into(),
             display_name: model_id.into(),
             owned_by: Some("openai".into()),
@@ -456,7 +530,7 @@ mod tests {
         let conn = setup();
         set_selected_model(&conn, "s1", "gpt-5.6-terra").unwrap();
 
-        replace_models(&conn, "s1", &[fetched("gpt-4.1")]).unwrap();
+        replace_models(&conn, "s1", "k1", &[fetched("gpt-4.1")]).unwrap();
 
         assert_eq!(
             ids(&conn),
@@ -467,8 +541,14 @@ mod tests {
     #[test]
     fn replace_models_drops_stale_fetched_models() {
         let conn = setup();
-        replace_models(&conn, "s1", &[fetched("gpt-4.1"), fetched("old-model")]).unwrap();
-        replace_models(&conn, "s1", &[fetched("gpt-4.1")]).unwrap();
+        replace_models(
+            &conn,
+            "s1",
+            "k1",
+            &[fetched("gpt-4.1"), fetched("old-model")],
+        )
+        .unwrap();
+        replace_models(&conn, "s1", "k1", &[fetched("gpt-4.1")]).unwrap();
 
         assert_eq!(ids(&conn), vec!["gpt-4.1".to_string()]);
     }
@@ -477,7 +557,7 @@ mod tests {
     fn replace_models_dedupes_when_manual_id_appears_in_fetch() {
         let conn = setup();
         set_selected_model(&conn, "s1", "gpt-4.1").unwrap();
-        replace_models(&conn, "s1", &[fetched("gpt-4.1")]).unwrap();
+        replace_models(&conn, "s1", "k1", &[fetched("gpt-4.1")]).unwrap();
 
         assert_eq!(ids(&conn), vec!["gpt-4.1".to_string()]);
     }
@@ -485,7 +565,7 @@ mod tests {
     #[test]
     fn delete_model_removes_it_from_the_list() {
         let conn = setup();
-        replace_models(&conn, "s1", &[fetched("gpt-4.1"), fetched("gpt-4.2")]).unwrap();
+        replace_models(&conn, "s1", "k1", &[fetched("gpt-4.1"), fetched("gpt-4.2")]).unwrap();
         delete_model(&conn, "s1", "gpt-4.1").unwrap();
         assert_eq!(ids(&conn), vec!["gpt-4.2".to_string()]);
     }
@@ -493,7 +573,7 @@ mod tests {
     #[test]
     fn delete_model_reassigns_selected_to_remaining() {
         let conn = setup();
-        replace_models(&conn, "s1", &[fetched("gpt-4.1"), fetched("gpt-4.2")]).unwrap();
+        replace_models(&conn, "s1", "k1", &[fetched("gpt-4.1"), fetched("gpt-4.2")]).unwrap();
         set_selected_model(&conn, "s1", "gpt-4.1").unwrap();
         delete_model(&conn, "s1", "gpt-4.1").unwrap();
         let site = get_site(&conn, "s1").unwrap();
@@ -503,7 +583,7 @@ mod tests {
     #[test]
     fn delete_model_clears_selected_when_last() {
         let conn = setup();
-        replace_models(&conn, "s1", &[fetched("gpt-4.1")]).unwrap();
+        replace_models(&conn, "s1", "k1", &[fetched("gpt-4.1")]).unwrap();
         set_selected_model(&conn, "s1", "gpt-4.1").unwrap();
         delete_model(&conn, "s1", "gpt-4.1").unwrap();
         let site = get_site(&conn, "s1").unwrap();
@@ -514,16 +594,16 @@ mod tests {
     #[test]
     fn deleted_fetched_model_stays_gone_after_replace() {
         let conn = setup();
-        replace_models(&conn, "s1", &[fetched("gpt-4.1"), fetched("gpt-4.2")]).unwrap();
+        replace_models(&conn, "s1", "k1", &[fetched("gpt-4.1"), fetched("gpt-4.2")]).unwrap();
         delete_model(&conn, "s1", "gpt-4.1").unwrap();
-        replace_models(&conn, "s1", &[fetched("gpt-4.1"), fetched("gpt-4.2")]).unwrap();
+        replace_models(&conn, "s1", "k1", &[fetched("gpt-4.1"), fetched("gpt-4.2")]).unwrap();
         assert_eq!(ids(&conn), vec!["gpt-4.2".to_string()]);
     }
 
     #[test]
     fn set_selected_model_restores_a_deleted_id() {
         let conn = setup();
-        replace_models(&conn, "s1", &[fetched("gpt-4.1")]).unwrap();
+        replace_models(&conn, "s1", "k1", &[fetched("gpt-4.1")]).unwrap();
         delete_model(&conn, "s1", "gpt-4.1").unwrap();
         set_selected_model(&conn, "s1", "gpt-4.1").unwrap();
         assert_eq!(ids(&conn), vec!["gpt-4.1".to_string()]);
@@ -549,12 +629,12 @@ mod tests {
     #[test]
     fn clear_models_empties_list_without_excluding_fetch() {
         let conn = setup();
-        replace_models(&conn, "s1", &[fetched("gpt-4.1"), fetched("gpt-4.2")]).unwrap();
+        replace_models(&conn, "s1", "k1", &[fetched("gpt-4.1"), fetched("gpt-4.2")]).unwrap();
         set_selected_model(&conn, "s1", "gpt-4.1").unwrap();
         clear_models(&conn, "s1").unwrap();
         assert!(ids(&conn).is_empty());
         assert_eq!(get_site(&conn, "s1").unwrap().selected_model_id, None);
-        replace_models(&conn, "s1", &[fetched("gpt-4.1"), fetched("gpt-4.2")]).unwrap();
+        replace_models(&conn, "s1", "k1", &[fetched("gpt-4.1"), fetched("gpt-4.2")]).unwrap();
         assert_eq!(
             ids(&conn),
             vec!["gpt-4.1".to_string(), "gpt-4.2".to_string()]
@@ -633,7 +713,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            get_site_api_key(&conn, &crypto, &created.id).unwrap(),
+            get_site_api_key(&conn, &crypto, &created.id, None).unwrap(),
             "sk-full-secret"
         );
     }

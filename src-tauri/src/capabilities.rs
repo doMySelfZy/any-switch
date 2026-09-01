@@ -6,7 +6,8 @@ pub const CODEX_VISION: &str = "codex-vision";
 pub const CODEX_IMAGEGEN: &str = "codex-imagegen";
 pub const CODEX_SEARCH: &str = "codex-search";
 
-pub const CODEX_CAPABILITY_KEYS: [&str; 4] = [CODEX_COMPACT, CODEX_VISION, CODEX_IMAGEGEN, CODEX_SEARCH];
+pub const CODEX_CAPABILITY_KEYS: [&str; 4] =
+    [CODEX_COMPACT, CODEX_VISION, CODEX_IMAGEGEN, CODEX_SEARCH];
 
 pub type SiteCapabilities = HashMap<String, bool>;
 

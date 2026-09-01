@@ -12,6 +12,7 @@ const payload: SiteDeepLinkPayload = {
   notes: "hi",
   capabilities: {},
   hasCapabilityParams: false,
+  keyName: null,
 };
 
 const site = {
@@ -111,8 +112,9 @@ describe("confirmSiteDeepLinkImport", () => {
     const importSite = vi.fn().mockResolvedValue({
       site,
       created: true,
-      updatedKey: false,
-      reused: false,
+      addedApiKey: true,
+      reusedApiKey: false,
+      activatedApiKey: true,
     });
     const setSelectedSiteId = vi.fn();
     const onCreated = vi.fn();
@@ -138,6 +140,8 @@ describe("confirmSiteDeepLinkImport", () => {
       apiKey: "sk-example",
       protocol: "openai_compatible",
       notes: "hi",
+      capabilities: undefined,
+      keyName: null,
     });
     expect(setSelectedSiteId).toHaveBeenCalledWith("site-1");
     expect(onCreated).toHaveBeenCalledWith(site);
@@ -157,8 +161,9 @@ describe("confirmSiteDeepLinkImport", () => {
       importSite: vi.fn().mockResolvedValue({
         site,
         created: false,
-        updatedKey: false,
-        reused: true,
+        addedApiKey: false,
+        reusedApiKey: true,
+        activatedApiKey: false,
       }),
       t: (key) => key,
     });
@@ -176,13 +181,14 @@ describe("confirmSiteDeepLinkImport", () => {
       importSite: vi.fn().mockResolvedValue({
         site,
         created: false,
-        updatedKey: true,
-        reused: false,
+        addedApiKey: true,
+        reusedApiKey: false,
+        activatedApiKey: false,
       }),
       t: (key) => key,
     });
     await confirm.mock.calls[0][0].onOk();
-    expect(messageSuccess).toHaveBeenCalledWith("sites.deepLinkUpdatedKey");
+    expect(messageSuccess).toHaveBeenCalledWith("sites.deepLinkAddedKey");
   });
 
   it("opens the add-site form when the link has no API key", async () => {

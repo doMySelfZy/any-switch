@@ -574,6 +574,7 @@ pub fn apply(
         orphan: false,
         applied_at: Utc::now().timestamp_millis(),
         apply_record_id: Some(Uuid::new_v4().to_string()),
+        api_key: Default::default(),
     };
     let verified = (|| {
         let summary = live_summary(override_path)?;
@@ -947,6 +948,7 @@ mod tests {
             created_at: 0,
             updated_at: 0,
             capabilities: SiteCapabilities::default(),
+            keys: Default::default(),
         }
     }
 

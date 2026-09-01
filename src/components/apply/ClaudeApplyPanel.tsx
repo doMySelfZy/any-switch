@@ -49,10 +49,10 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
 
   useEffect(() => {
     if (!siteId) return;
-    void listModels(siteId).catch(() => null);
-  }, [siteId, listModels]);
+    void listModels(siteId, { force: true }).catch(() => null);
+  }, [siteId, site?.activeApiKeyId, listModels]);
 
-  const lastHydrate = useRef<{ siteId: string; stamp: number | null } | null>(null);
+  const lastHydrate = useRef<{ siteId: string; apiKeyId: string | null; stamp: number | null } | null>(null);
   useEffect(() => {
     if (!site) {
       lastHydrate.current = null;
@@ -64,8 +64,9 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
       return;
     }
     const stamp = status?.lastAppliedAt ?? null;
+    const apiKeyId = site.activeApiKeyId ?? null;
     const prev = lastHydrate.current;
-    if (prev && prev.siteId === site.id && prev.stamp === stamp) return;
+    if (prev && prev.siteId === site.id && prev.apiKeyId === apiKeyId && prev.stamp === stamp) return;
     const defaults = hydrateClaudeForm(site, status);
     setModelId(defaults.modelId);
     setOpusModel(defaults.opusModel);
@@ -74,7 +75,7 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
     setEffort(defaults.effort);
     setClaudeAuth(defaults.auth);
     setUse1mContext(defaults.use1mContext);
-    lastHydrate.current = { siteId: site.id, stamp };
+    lastHydrate.current = { siteId: site.id, apiKeyId, stamp };
   }, [site, status]);
 
   const modelOptions = useMemo(
@@ -100,6 +101,7 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
       }
       const result = await apply({
         siteId: site.id,
+        apiKeyId: site.activeApiKeyId ?? undefined,
         targets: ["claude_code"],
         modelId,
         claudeAuthKeyStyle: claudeAuth,

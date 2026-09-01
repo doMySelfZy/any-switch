@@ -21,12 +21,17 @@ fn map_binding(row: &rusqlite::Row<'_>) -> rusqlite::Result<TargetBinding> {
         orphan: row.get::<_, i64>(9)? != 0,
         apply_record_id: row.get(10)?,
         applied_at: row.get(11)?,
+        api_key: crate::domain::BindingApiKeySnapshot {
+            id: row.get(12).ok().flatten(),
+            label: row.get(13).ok().flatten(),
+            prefix: row.get(14).ok().flatten(),
+        },
     })
 }
 
 pub fn get_binding(conn: &Connection, target: TargetKind) -> AppResult<Option<TargetBinding>> {
     let mut stmt = conn.prepare(
-        "SELECT target, site_id, site_name_snapshot, model_id, provider_id, key_fingerprint, managed_paths_json, managed_env_keys_json, expected_fields_json, orphan, apply_record_id, applied_at FROM target_bindings WHERE target = ?1",
+        "SELECT target, site_id, site_name_snapshot, model_id, provider_id, key_fingerprint, managed_paths_json, managed_env_keys_json, expected_fields_json, orphan, apply_record_id, applied_at, site_api_key_id, site_api_key_label_snapshot, site_api_key_prefix_snapshot FROM target_bindings WHERE target = ?1",
     )?;
     Ok(stmt
         .query_row(params![target.as_str()], map_binding)
@@ -35,7 +40,7 @@ pub fn get_binding(conn: &Connection, target: TargetKind) -> AppResult<Option<Ta
 
 pub fn list_bindings(conn: &Connection) -> AppResult<Vec<TargetBinding>> {
     let mut stmt = conn.prepare(
-        "SELECT target, site_id, site_name_snapshot, model_id, provider_id, key_fingerprint, managed_paths_json, managed_env_keys_json, expected_fields_json, orphan, apply_record_id, applied_at FROM target_bindings",
+        "SELECT target, site_id, site_name_snapshot, model_id, provider_id, key_fingerprint, managed_paths_json, managed_env_keys_json, expected_fields_json, orphan, apply_record_id, applied_at, site_api_key_id, site_api_key_label_snapshot, site_api_key_prefix_snapshot FROM target_bindings",
     )?;
     let rows = stmt.query_map([], map_binding)?;
     let mut out = Vec::new();
@@ -47,8 +52,8 @@ pub fn list_bindings(conn: &Connection) -> AppResult<Vec<TargetBinding>> {
 
 pub fn upsert_binding(conn: &Connection, b: &TargetBinding) -> AppResult<()> {
     conn.execute(
-        "INSERT INTO target_bindings (target, site_id, site_name_snapshot, model_id, provider_id, key_fingerprint, managed_paths_json, managed_env_keys_json, expected_fields_json, orphan, apply_record_id, applied_at)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+        "INSERT INTO target_bindings (target, site_id, site_name_snapshot, model_id, provider_id, key_fingerprint, managed_paths_json, managed_env_keys_json, expected_fields_json, orphan, apply_record_id, applied_at, site_api_key_id, site_api_key_label_snapshot, site_api_key_prefix_snapshot)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
          ON CONFLICT(target) DO UPDATE SET
            site_id=excluded.site_id,
            site_name_snapshot=excluded.site_name_snapshot,
@@ -60,7 +65,10 @@ pub fn upsert_binding(conn: &Connection, b: &TargetBinding) -> AppResult<()> {
            expected_fields_json=excluded.expected_fields_json,
            orphan=excluded.orphan,
            apply_record_id=excluded.apply_record_id,
-           applied_at=excluded.applied_at",
+           applied_at=excluded.applied_at,
+           site_api_key_id=excluded.site_api_key_id,
+           site_api_key_label_snapshot=excluded.site_api_key_label_snapshot,
+           site_api_key_prefix_snapshot=excluded.site_api_key_prefix_snapshot",
         params![
             b.target.as_str(),
             b.site_id,
@@ -73,7 +81,10 @@ pub fn upsert_binding(conn: &Connection, b: &TargetBinding) -> AppResult<()> {
             serde_json::to_string(&b.expected_fields)?,
             b.orphan as i64,
             b.apply_record_id,
-            b.applied_at
+            b.applied_at,
+            b.api_key.id,
+            b.api_key.label,
+            b.api_key.prefix
         ],
     )?;
     Ok(())
@@ -97,7 +108,7 @@ pub fn delete_binding(conn: &Connection, target: TargetKind) -> AppResult<()> {
 
 pub fn list_bindings_for_site(conn: &Connection, site_id: &str) -> AppResult<Vec<TargetBinding>> {
     let mut stmt = conn.prepare(
-        "SELECT target, site_id, site_name_snapshot, model_id, provider_id, key_fingerprint, managed_paths_json, managed_env_keys_json, expected_fields_json, orphan, apply_record_id, applied_at FROM target_bindings WHERE site_id = ?1",
+        "SELECT target, site_id, site_name_snapshot, model_id, provider_id, key_fingerprint, managed_paths_json, managed_env_keys_json, expected_fields_json, orphan, apply_record_id, applied_at, site_api_key_id, site_api_key_label_snapshot, site_api_key_prefix_snapshot FROM target_bindings WHERE site_id = ?1",
     )?;
     let rows = stmt.query_map(params![site_id], map_binding)?;
     let mut out = Vec::new();

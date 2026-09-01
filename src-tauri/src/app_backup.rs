@@ -270,21 +270,14 @@ fn validate_restored_database(database_path: &Path, key: &[u8]) -> AppResult<()>
         ));
     }
     let crypto = Crypto::from_restore_key(key)?;
-    let mut stmt = conn
-        .prepare("SELECT api_key_encrypted FROM sites")
-        .map_err(|e| AppError::new("backup_invalid", format!("missing sites schema: {e}")))?;
-    let encrypted = stmt
-        .query_map([], |row| row.get::<_, String>(0))
+    crate::db::apply_schema_with_crypto(&conn, Some(&crypto), crate::db::migrate::BackupMode::Skip)
         .map_err(|e| AppError::new("backup_invalid", e.to_string()))?;
-    for value in encrypted {
-        let value = value.map_err(|e| AppError::new("backup_invalid", e.to_string()))?;
-        crypto.decrypt(&value).map_err(|_| {
-            AppError::new(
-                "backup_invalid",
-                "backup database and master.key do not belong together",
-            )
-        })?;
-    }
+    crate::db::verify_encrypted_payloads(&conn, &crypto).map_err(|_| {
+        AppError::new(
+            "backup_invalid",
+            "backup database and master.key do not belong together",
+        )
+    })?;
     Ok(())
 }
 
@@ -661,8 +654,15 @@ mod tests {
         let crypto = Crypto::from_restore_key(&[7_u8; 32]).unwrap();
         conn.execute(
             "INSERT INTO sites (
-               id, name, base_url, api_key_encrypted, key_prefix, created_at, updated_at
-             ) VALUES ('site-a', 'Site A', 'https://example.com', ?1, 'sk-…', 1, 1)",
+               id, name, base_url, protocol, claude_auth_key_style, notes, enabled, sort_order, created_at, updated_at
+             ) VALUES ('site-a', 'Site A', 'https://example.com', 'openai_compatible', 'anthropic_auth_token', NULL, 1, 0, 1, 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO site_api_keys (
+               id, site_id, label, api_key_encrypted, key_prefix, is_active, created_at, updated_at
+             ) VALUES ('key-a', 'site-a', 'K 1', ?1, 'sk-…', 1, 1, 1)",
             [crypto.encrypt("sk-secret").unwrap()],
         )
         .unwrap();
