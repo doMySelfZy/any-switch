@@ -74,6 +74,24 @@ describe("siteStore fetchModels", () => {
     expect(ids).toContain("gpt-5.6-terra");
   });
 
+  it("creates a site with extra api keys in one call", async () => {
+    const site = await useSiteStore.getState().createSite({
+      name: "Relay",
+      baseUrl: "https://api.example.com",
+      apiKey: "sk-one",
+      apiKeyLabel: "prod",
+      extraApiKeys: [{ label: "dev", apiKey: "sk-two" }],
+    });
+
+    expect(site.apiKeys?.map((key) => key.label)).toEqual(["prod", "dev"]);
+    expect(site.apiKeys?.[0]?.isActive).toBe(true);
+    expect(site.apiKeys?.[1]?.isActive).toBe(false);
+    await expect(useSiteStore.getState().getSiteApiKey(site.id)).resolves.toBe("sk-one");
+    await expect(
+      useSiteStore.getState().getSiteApiKey(site.id, site.apiKeys?.[1]?.id),
+    ).resolves.toBe("sk-two");
+  });
+
   it("loads the complete API key for site editing", async () => {
     const site = await useSiteStore.getState().createSite({
       name: "Relay",

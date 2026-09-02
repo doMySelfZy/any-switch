@@ -137,7 +137,8 @@ pub fn create_site(
     let capabilities = input.capabilities.unwrap_or_default();
     let caps_json = capabilities_json(&capabilities)?;
 
-    conn.execute(
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
         "INSERT INTO sites (id, name, base_url, protocol, claude_auth_key_style, notes, enabled, sort_order, created_at, updated_at, base_urls_json, capabilities_json)
          VALUES (?1,?2,?3,?4,?5,?6,1,?7,?8,?8,?9,?10)",
         params![
@@ -153,7 +154,25 @@ pub fn create_site(
             caps_json
         ],
     )?;
-    site_api_key::insert_active(conn, crypto, &id, "K 1", &input.api_key)?;
+    let first_label = match input
+        .api_key_label
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(label) => label.to_string(),
+        None => site_api_key::next_label(&tx, &id)?,
+    };
+    site_api_key::insert_active(&tx, crypto, &id, &first_label, &input.api_key)?;
+    for extra in input.extra_api_keys {
+        let label = extra
+            .label
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        site_api_key::add(&tx, crypto, &id, label, &extra.api_key)?;
+    }
+    tx.commit()?;
     get_site(conn, &id)
 }
 
@@ -163,6 +182,18 @@ pub fn update_site(
     id: &str,
     input: UpdateSiteInput,
 ) -> AppResult<SiteRow> {
+    let tx = conn.unchecked_transaction()?;
+    apply_site_update(&tx, crypto, id, input)?;
+    tx.commit()?;
+    get_site(conn, id)
+}
+
+fn apply_site_update(
+    conn: &Connection,
+    crypto: &Crypto,
+    id: &str,
+    input: UpdateSiteInput,
+) -> AppResult<()> {
     let mut site = get_site(conn, id)?;
     if let Some(name) = input.name {
         site.name = name;
@@ -182,7 +213,9 @@ pub fn update_site(
         }
         site.base_url = selected;
     }
-    if let Some(api_key) = input.api_key {
+    if let Some(api_keys) = input.api_keys {
+        site_api_key::sync_for_site(conn, crypto, id, &api_keys)?;
+    } else if let Some(api_key) = input.api_key {
         if !api_key.is_empty() {
             let active = site_api_key::get_active(conn, id)?;
             site_api_key::update(conn, crypto, id, &active.id, None, Some(&api_key))?;
@@ -215,7 +248,7 @@ pub fn update_site(
     site.updated_at = Utc::now().timestamp_millis();
 
     persist_site(conn, &site)?;
-    Ok(site)
+    Ok(())
 }
 
 fn persist_site(conn: &Connection, site: &SiteRow) -> AppResult<()> {
@@ -657,6 +690,8 @@ mod tests {
                 base_url: "https://a.example.com".into(),
                 base_urls: None,
                 api_key: "sk-test".into(),
+                api_key_label: None,
+                extra_api_keys: Vec::new(),
                 protocol: None,
                 claude_auth_key_style: None,
                 notes: None,
@@ -704,6 +739,8 @@ mod tests {
                 base_url: "https://a.example.com".into(),
                 base_urls: None,
                 api_key: "sk-full-secret".into(),
+                api_key_label: None,
+                extra_api_keys: Vec::new(),
                 protocol: None,
                 claude_auth_key_style: None,
                 notes: None,
@@ -715,6 +752,160 @@ mod tests {
         assert_eq!(
             get_site_api_key(&conn, &crypto, &created.id, None).unwrap(),
             "sk-full-secret"
+        );
+    }
+
+    #[test]
+    fn create_site_persists_extra_api_keys_atomically() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        let crypto = crate::crypto::Crypto::from_key([5u8; 32]);
+        let created = create_site(
+            &conn,
+            &crypto,
+            CreateSiteInput {
+                name: "Relay".into(),
+                base_url: "https://a.example.com".into(),
+                base_urls: None,
+                api_key: "sk-one".into(),
+                api_key_label: Some("prod".into()),
+                extra_api_keys: vec![crate::domain::AddSiteApiKeyInput {
+                    label: Some("dev".into()),
+                    api_key: "sk-two".into(),
+                }],
+                protocol: None,
+                claude_auth_key_style: None,
+                notes: None,
+                capabilities: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(created.keys.api_keys.len(), 2);
+        assert_eq!(created.keys.api_keys[0].label, "prod");
+        assert!(created.keys.api_keys[0].is_active);
+        assert_eq!(created.keys.api_keys[1].label, "dev");
+        assert!(!created.keys.api_keys[1].is_active);
+        assert_eq!(
+            get_site_api_key(&conn, &crypto, &created.id, None).unwrap(),
+            "sk-one"
+        );
+        assert_eq!(
+            get_site_api_key(
+                &conn,
+                &crypto,
+                &created.id,
+                Some(created.keys.api_keys[1].id.as_str())
+            )
+            .unwrap(),
+            "sk-two"
+        );
+    }
+
+    #[test]
+    fn create_site_rolls_back_when_extra_key_duplicates() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        let crypto = crate::crypto::Crypto::from_key([5u8; 32]);
+        let err = create_site(
+            &conn,
+            &crypto,
+            CreateSiteInput {
+                name: "Relay".into(),
+                base_url: "https://a.example.com".into(),
+                base_urls: None,
+                api_key: "sk-one".into(),
+                api_key_label: None,
+                extra_api_keys: vec![crate::domain::AddSiteApiKeyInput {
+                    label: None,
+                    api_key: "sk-one".into(),
+                }],
+                protocol: None,
+                claude_auth_key_style: None,
+                notes: None,
+                capabilities: None,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("already exists"));
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sites", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
+        let keys: i64 = conn
+            .query_row("SELECT COUNT(*) FROM site_api_keys", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(keys, 0);
+    }
+
+    #[test]
+    fn update_site_syncs_api_key_list() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        let crypto = crate::crypto::Crypto::from_key([5u8; 32]);
+        let created = create_site(
+            &conn,
+            &crypto,
+            CreateSiteInput {
+                name: "Relay".into(),
+                base_url: "https://a.example.com".into(),
+                base_urls: None,
+                api_key: "sk-one".into(),
+                api_key_label: Some("prod".into()),
+                extra_api_keys: Vec::new(),
+                protocol: None,
+                claude_auth_key_style: None,
+                notes: None,
+                capabilities: None,
+            },
+        )
+        .unwrap();
+        let first_id = created.keys.api_keys[0].id.clone();
+
+        let updated = update_site(
+            &conn,
+            &crypto,
+            &created.id,
+            UpdateSiteInput {
+                api_keys: Some(vec![
+                    crate::domain::UpsertSiteApiKeyInput {
+                        id: Some(first_id.clone()),
+                        label: Some("prod".into()),
+                        api_key: "sk-one".into(),
+                    },
+                    crate::domain::UpsertSiteApiKeyInput {
+                        id: None,
+                        label: Some("dev".into()),
+                        api_key: "sk-two".into(),
+                    },
+                ]),
+                ..UpdateSiteInput::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(updated.keys.api_keys.len(), 2);
+        assert_eq!(updated.keys.api_keys[0].label, "prod");
+        assert!(updated.keys.api_keys[0].is_active);
+        assert_eq!(updated.keys.api_keys[1].label, "dev");
+
+        let replaced = update_site(
+            &conn,
+            &crypto,
+            &created.id,
+            UpdateSiteInput {
+                api_keys: Some(vec![crate::domain::UpsertSiteApiKeyInput {
+                    id: Some(first_id),
+                    label: Some("prod".into()),
+                    api_key: "sk-replacement".into(),
+                }]),
+                ..UpdateSiteInput::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(replaced.keys.api_keys.len(), 1);
+        assert_eq!(
+            get_site_api_key(&conn, &crypto, &created.id, None).unwrap(),
+            "sk-replacement"
         );
     }
 }

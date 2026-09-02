@@ -143,10 +143,18 @@ export interface CreateSiteInput {
   baseUrl?: string;
   baseUrls?: string[];
   apiKey: string;
+  apiKeyLabel?: string | null;
+  extraApiKeys?: AddSiteApiKeyInput[];
   protocol?: SiteProtocol;
   claudeAuthKeyStyle?: ClaudeAuthKeyStyle;
   notes?: string | null;
   capabilities?: SiteCapabilities;
+}
+
+export interface UpsertSiteApiKeyInput {
+  id?: string | null;
+  label?: string | null;
+  apiKey: string;
 }
 
 export interface UpdateSiteInput {
@@ -154,6 +162,7 @@ export interface UpdateSiteInput {
   baseUrl?: string;
   baseUrls?: string[];
   apiKey?: string | null;
+  apiKeys?: UpsertSiteApiKeyInput[] | null;
   protocol?: SiteProtocol;
   claudeAuthKeyStyle?: ClaudeAuthKeyStyle;
   notes?: string | null;
@@ -169,6 +178,12 @@ export interface FetchModelsResult {
   endpoint: string;
   fetchedAt: number;
   apiKeyId?: string;
+}
+
+export interface ProbeSiteApiKeyResult {
+  modelCount: number;
+  latencyMs: number;
+  endpoint: string;
 }
 
 export interface ModelFetchOutcome {

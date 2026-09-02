@@ -136,6 +136,7 @@ pub fn run() {
             commands::reorder_sites,
             commands::set_selected_model,
             commands::fetch_site_models,
+            commands::probe_site_api_key,
             commands::list_site_models,
             commands::delete_site_model,
             commands::clear_site_models,

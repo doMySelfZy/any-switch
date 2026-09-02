@@ -1,8 +1,9 @@
 use crate::crypto::{key_fingerprint, key_prefix, Crypto};
-use crate::domain::{SiteApiKeyRow, SiteApiKeySummary};
+use crate::domain::{SiteApiKeyRow, SiteApiKeySummary, UpsertSiteApiKeyInput};
 use crate::error::{AppError, AppResult};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 const KEY_COLS: &str = "id, site_id, label, api_key_encrypted, key_prefix, is_active, selected_model_id, last_model_fetch_at, last_model_fetch_latency_ms, last_model_fetch_error, created_at, updated_at";
@@ -207,7 +208,12 @@ pub fn insert(
     assert_unique_label(conn, site_id, &label, None)?;
     assert_unique_secret(conn, crypto, site_id, secret, None)?;
     let id = Uuid::new_v4().to_string();
-    let now = Utc::now().timestamp_millis();
+    let last: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(created_at), 0) FROM site_api_keys WHERE site_id = ?1",
+        params![site_id],
+        |r| r.get(0),
+    )?;
+    let now = Utc::now().timestamp_millis().max(last + 1);
     let enc = crypto.encrypt(secret)?;
     conn.execute(
         "INSERT INTO site_api_keys (id, site_id, label, api_key_encrypted, key_prefix, is_active, selected_model_id, last_model_fetch_at, last_model_fetch_latency_ms, last_model_fetch_error, created_at, updated_at)
@@ -372,6 +378,89 @@ pub fn quota_revision(key: &SiteApiKeyRow) -> String {
     key_fingerprint(&key.api_key_encrypted)
 }
 
+fn optional_text(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|s| !s.is_empty())
+}
+
+pub fn sync_for_site(
+    conn: &Connection,
+    crypto: &Crypto,
+    site_id: &str,
+    items: &[UpsertSiteApiKeyInput],
+) -> AppResult<()> {
+    if items.is_empty() {
+        return Err(AppError::new("validation_failed", "API key is required"));
+    }
+    let existing = list_for_site(conn, site_id)?;
+    let existing_ids: HashSet<&str> = existing.iter().map(|key| key.id.as_str()).collect();
+    let mut assigned: Vec<Option<String>> = Vec::with_capacity(items.len());
+    let mut keep = HashSet::new();
+    for item in items {
+        if optional_text(Some(item.api_key.as_str())).is_none() {
+            return Err(AppError::new("validation_failed", "API key is required"));
+        }
+        match optional_text(item.id.as_deref()) {
+            Some(id) if existing_ids.contains(id) => {
+                keep.insert(id.to_string());
+                assigned.push(Some(id.to_string()));
+            }
+            Some(_) => {
+                return Err(AppError::new(
+                    "validation_failed",
+                    "api key does not belong to this site",
+                ));
+            }
+            None => assigned.push(None),
+        }
+    }
+
+    let first_kept = assigned.iter().flatten().next().cloned();
+    if let Some(id) = first_kept {
+        let active = get_active(conn, site_id)?;
+        if active.id != id {
+            activate(conn, site_id, &id)?;
+        }
+    } else {
+        let first = &items[0];
+        let label = optional_text(first.label.as_deref());
+        let row = add(conn, crypto, site_id, label, &first.api_key)?;
+        activate(conn, site_id, &row.id)?;
+        keep.insert(row.id.clone());
+        assigned[0] = Some(row.id);
+    }
+
+    for key in &existing {
+        if !keep.contains(&key.id) {
+            delete(conn, site_id, &key.id)?;
+        }
+    }
+
+    for (index, item) in items.iter().enumerate() {
+        if let Some(id) = assigned[index].clone() {
+            let current = get_for_site(conn, site_id, &id)?;
+            let next_label = optional_text(item.label.as_deref()).filter(|label| *label != current.label.as_str());
+            let current_secret = decrypt(crypto, &current)?;
+            let next_secret = optional_text(Some(item.api_key.as_str())).filter(|secret| *secret != current_secret.as_str());
+            if next_label.is_some() || next_secret.is_some() {
+                update(conn, crypto, site_id, &id, next_label, next_secret)?;
+            }
+            continue;
+        }
+        let label = optional_text(item.label.as_deref());
+        let row = add(conn, crypto, site_id, label, &item.api_key)?;
+        assigned[index] = Some(row.id);
+    }
+
+    let first_id = assigned[0]
+        .as_deref()
+        .ok_or_else(|| AppError::new("internal", "synced api key is missing"))?;
+    let active = get_active(conn, site_id)?;
+    if active.id != first_id {
+        activate(conn, site_id, first_id)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -389,6 +478,8 @@ mod tests {
                 base_url: "https://a.example.com".into(),
                 base_urls: None,
                 api_key: "sk-one".into(),
+                api_key_label: None,
+                extra_api_keys: Vec::new(),
                 protocol: None,
                 claude_auth_key_style: None,
                 notes: None,
@@ -431,6 +522,8 @@ mod tests {
                 base_url: "https://b.example.com".into(),
                 base_urls: None,
                 api_key: "sk-other".into(),
+                api_key_label: None,
+                extra_api_keys: Vec::new(),
                 protocol: None,
                 claude_auth_key_style: None,
                 notes: None,

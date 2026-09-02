@@ -24,13 +24,19 @@ describe("SiteApiKeyManageModal", () => {
     resetQuotaInflight();
     writeText.mockClear();
     Object.assign(navigator, { clipboard: { writeText } });
+    useSiteStore.setState({
+      sites: [],
+      modelsBySite: {},
+      fetchingModels: false,
+      fetchingModelsByKey: {},
+    });
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it("puts copy first in the key actions and copies the decrypted secret", async () => {
+  it("copies the plaintext key from the list row", async () => {
     const created = await useSiteStore.getState().createSite({
       name: "Relay",
       baseUrl: "https://api.example.com",
@@ -44,12 +50,67 @@ describe("SiteApiKeyManageModal", () => {
       </Wrapper>,
     );
 
-    const copy = screen.getByRole("button", { name: /复\s*制/ });
-    const rename = screen.getByRole("button", { name: "重命名" });
-    expect(copy.compareDocumentPosition(rename) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-
-    fireEvent.click(copy);
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("sk-...")).toHaveValue("sk-one-secret");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "复制" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("sk-one-secret"));
     expect(await screen.findByText("已复制")).toBeInTheDocument();
+  });
+
+  it("tests a key without replacing the current key models", async () => {
+    const created = await useSiteStore.getState().createSite({
+      name: "Relay",
+      baseUrl: "https://api.example.com",
+      apiKey: "sk-one",
+    });
+    await useSiteStore.getState().addApiKey(created.id, { apiKey: "sk-two", label: "K 2" });
+    await useSiteStore.getState().fetchModels(created.id);
+    const before = useSiteStore.getState().modelsBySite[created.id] ?? [];
+    expect(before.map((model) => model.modelId).sort()).toEqual(["claude-sonnet-4", "gpt-4.1"]);
+    const site = useSiteStore.getState().sites.find((item) => item.id === created.id) ?? created;
+
+    render(
+      <Wrapper>
+        <SiteApiKeyManageModal open site={site} onClose={() => undefined} />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByPlaceholderText("sk-...")).toHaveLength(2);
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "测试密钥" })[1]!);
+    expect(await screen.findByText("测试成功，获取到 2 个模型")).toBeInTheDocument();
+    expect((useSiteStore.getState().modelsBySite[created.id] ?? []).map((model) => model.modelId).sort()).toEqual(
+      ["claude-sonnet-4", "gpt-4.1"],
+    );
+  });
+
+  it("shows the probe error without changing stored models", async () => {
+    const created = await useSiteStore.getState().createSite({
+      name: "Relay",
+      baseUrl: "https://api.example.com",
+      apiKey: "sk-one",
+    });
+    await useSiteStore.getState().fetchModels(created.id);
+    const site = useSiteStore.getState().sites.find((item) => item.id === created.id) ?? created;
+
+    render(
+      <Wrapper>
+        <SiteApiKeyManageModal open site={site} onClose={() => undefined} />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("sk-...")).toHaveValue("sk-one");
+    });
+    fireEvent.change(screen.getByPlaceholderText("sk-..."), {
+      target: { value: "sk-fail" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "测试密钥" }));
+    expect(await screen.findByText("测试失败：unauthorized")).toBeInTheDocument();
+    expect((useSiteStore.getState().modelsBySite[created.id] ?? []).map((model) => model.modelId).sort()).toEqual(
+      ["claude-sonnet-4", "gpt-4.1"],
+    );
   });
 });

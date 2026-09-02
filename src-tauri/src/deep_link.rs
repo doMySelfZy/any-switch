@@ -175,6 +175,8 @@ pub fn import_site_from_deep_link_conn(
             base_url: urls[0].clone(),
             base_urls: Some(urls),
             api_key: api_key.to_string(),
+            api_key_label: input.key_name.clone(),
+            extra_api_keys: Vec::new(),
             protocol: Some(protocol.as_str().to_string()),
             claude_auth_key_style: None,
             notes,
@@ -184,24 +186,6 @@ pub fn import_site_from_deep_link_conn(
                 .map(|incoming| merge_codex_capabilities(&Default::default(), incoming)),
         },
     )?;
-    if let Some(key_name) = input
-        .key_name
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        if let Some(active_id) = row.keys.active_api_key_id.clone() {
-            crate::repo::site_api_key::update(
-                conn,
-                crypto,
-                &row.id,
-                &active_id,
-                Some(key_name),
-                None,
-            )?;
-        }
-    }
-    let row = site::get_site(conn, &row.id)?;
 
     Ok(DeepLinkSiteImportResult {
         site: row.to_dto(),

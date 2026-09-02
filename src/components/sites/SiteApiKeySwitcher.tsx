@@ -93,58 +93,53 @@ export function SiteApiKeySwitcher({ site }: Props) {
           <span className="shrink-0 font-mono opacity-60">{key.keyPrefix}</span>
         </button>
       ))}
-      <div style={{ borderTop: `1px solid ${token.colorBorderSecondary}` }} className="mt-1 pt-1">
-        <Button
-          type="text"
-          size="small"
-          block
-          className="cursor-pointer"
-          icon={<Settings2 size={12} />}
-          onClick={(e) => {
-            e.stopPropagation();
-            setOpen(false);
-            setManageOpen(true);
-          }}
-        >
-          {t("sites.manageKeys")}
-        </Button>
-      </div>
     </div>
   );
 
   return (
     <>
-      <Dropdown
-        open={open}
-        onOpenChange={setOpen}
-        trigger={["click"]}
-        popupRender={() => panel}
-        destroyOnHidden
-      >
-        <button
-          type="button"
-          className="inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1 text-left"
-          aria-label={t("sites.switchKey")}
-          style={{ color: token.colorText }}
-          onMouseEnter={() => setHover(true)}
-          onMouseLeave={() => setHover(false)}
+      <div className="flex min-w-0 items-center gap-2">
+        <Dropdown
+          open={open}
+          onOpenChange={setOpen}
+          trigger={["click"]}
+          popupRender={() => panel}
+          destroyOnHidden
         >
-          <span
-            className="min-w-0 truncate"
-            style={{
-              borderBottom: `1px dashed ${hover || open ? token.colorPrimary : token.colorTextSecondary}`,
-              paddingBottom: 1,
-            }}
+          <button
+            type="button"
+            className="inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1 text-left"
+            aria-label={t("sites.switchKey")}
+            style={{ color: token.colorText }}
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
           >
-            {active ? `${active.label} · ${active.keyPrefix}` : site.keyPrefix || "—"}
-          </span>
-          {loading ? (
-            <Spin size="small" />
-          ) : (
-            <ChevronDown size={14} className="shrink-0" style={{ color: token.colorTextTertiary }} />
-          )}
-        </button>
-      </Dropdown>
+            <span
+              className="min-w-0 truncate"
+              style={{
+                borderBottom: `1px dashed ${hover || open ? token.colorPrimary : token.colorTextSecondary}`,
+                paddingBottom: 1,
+              }}
+            >
+              {active ? `${active.label} · ${active.keyPrefix}` : site.keyPrefix || "—"}
+            </span>
+            {loading ? (
+              <Spin size="small" />
+            ) : (
+              <ChevronDown size={14} className="shrink-0" style={{ color: token.colorTextTertiary }} />
+            )}
+          </button>
+        </Dropdown>
+        <Button
+          type="link"
+          size="small"
+          className="shrink-0 px-0"
+          icon={<Settings2 size={12} />}
+          onClick={() => setManageOpen(true)}
+        >
+          {t("sites.manageKeys")}
+        </Button>
+      </div>
       <SiteApiKeyManageModal open={manageOpen} site={site} onClose={() => setManageOpen(false)} />
       <Modal
         open={Boolean(pendingKeyId)}

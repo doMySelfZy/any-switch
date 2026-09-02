@@ -39,11 +39,13 @@ describe("SiteApiKeySwitcher", () => {
       </Wrapper>,
     );
 
+    expect(screen.getByRole("button", { name: "管理密钥" })).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("切换密钥"));
     expect(await screen.findByText("K 1")).toBeInTheDocument();
     expect(screen.getByText("K 2")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("管理密钥"));
-    expect(await screen.findByText("添加密钥")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "管理密钥" }));
+    expect(await screen.findByPlaceholderText("sk-...")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "测试密钥" }).length).toBeGreaterThan(0);
   });
 
   it("opens a closable confirm with spaced actions and no cancel button", async () => {

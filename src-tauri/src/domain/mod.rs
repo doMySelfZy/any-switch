@@ -160,12 +160,23 @@ pub struct SiteModelDto {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AddSiteApiKeyInput {
+    pub label: Option<String>,
+    pub api_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateSiteInput {
     pub name: String,
     #[serde(default)]
     pub base_url: String,
     pub base_urls: Option<Vec<String>>,
     pub api_key: String,
+    #[serde(default)]
+    pub api_key_label: Option<String>,
+    #[serde(default)]
+    pub extra_api_keys: Vec<AddSiteApiKeyInput>,
     pub protocol: Option<String>,
     pub claude_auth_key_style: Option<String>,
     pub notes: Option<String>,
@@ -197,18 +208,21 @@ pub struct DeepLinkSiteImportResult {
     pub activated_api_key: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AddSiteApiKeyInput {
-    pub label: Option<String>,
-    pub api_key: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateSiteApiKeyInput {
     pub label: Option<String>,
     pub api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertSiteApiKeyInput {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    pub api_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -218,6 +232,8 @@ pub struct UpdateSiteInput {
     pub base_url: Option<String>,
     pub base_urls: Option<Vec<String>>,
     pub api_key: Option<String>,
+    #[serde(default)]
+    pub api_keys: Option<Vec<UpsertSiteApiKeyInput>>,
     pub protocol: Option<String>,
     pub claude_auth_key_style: Option<String>,
     pub notes: Option<String>,
@@ -237,6 +253,14 @@ pub struct FetchModelsResult {
     pub fetched_at: i64,
     #[serde(default)]
     pub api_key_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeSiteApiKeyResult {
+    pub model_count: usize,
+    pub latency_ms: u64,
+    pub endpoint: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

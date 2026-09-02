@@ -35,6 +35,20 @@ function sampleSite(): Site {
     lastModelFetchError: null,
     createdAt: 1,
     updatedAt: 1,
+    activeApiKeyId: "k1",
+    apiKeys: [
+      {
+        id: "k1",
+        label: "K 1",
+        keyPrefix: "sk-t…",
+        isActive: true,
+        quotaRevision: "rev-1",
+        selectedModelId: null,
+        lastModelFetchAt: null,
+        lastModelFetchLatencyMs: null,
+        lastModelFetchError: null,
+      },
+    ],
   };
 }
 
@@ -49,6 +63,62 @@ describe("SiteFormModal base url list", () => {
 
   afterEach(() => {
     useSiteStore.setState({ getSiteApiKey: originalGetSiteApiKey });
+  });
+
+  it("starts with one api key row and can add another", () => {
+    render(
+      <Wrapper>
+        <SiteFormModal open site={null} onClose={() => undefined} />
+      </Wrapper>,
+    );
+
+    const keyInput = screen.getByPlaceholderText("sk-...");
+    expect(keyInput).toHaveAttribute("type", "text");
+    expect(screen.queryByRole("button", { name: "Show" })).not.toBeInTheDocument();
+    expect(screen.getAllByPlaceholderText("sk-...")).toHaveLength(1);
+    fireEvent.click(screen.getAllByRole("button", { name: "添加密钥" })[0]);
+    expect(screen.getAllByPlaceholderText("sk-...")).toHaveLength(2);
+    expect(screen.getByText("可一次添加多个密钥，第一项为当前密钥")).toBeInTheDocument();
+  });
+
+  it("creates a site with multiple api keys in one save", async () => {
+    const originalCreateSite = useSiteStore.getState().createSite;
+    const createSite = vi.fn().mockResolvedValue(sampleSite());
+    useSiteStore.setState({ createSite });
+
+    try {
+      render(
+        <Wrapper>
+          <SiteFormModal open site={null} onClose={() => undefined} />
+        </Wrapper>,
+      );
+
+      fireEvent.change(screen.getByPlaceholderText("My Relay"), {
+        target: { value: "Relay" },
+      });
+      fireEvent.change(screen.getByPlaceholderText("https://api.example.com"), {
+        target: { value: "https://api.example.com" },
+      });
+      fireEvent.change(screen.getByPlaceholderText("sk-..."), {
+        target: { value: "sk-one" },
+      });
+      fireEvent.click(screen.getAllByRole("button", { name: "添加密钥" })[0]);
+      fireEvent.change(screen.getAllByPlaceholderText("sk-...")[1]!, {
+        target: { value: "sk-two" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /保.*存/ }));
+
+      await waitFor(() => expect(createSite).toHaveBeenCalledTimes(1));
+      expect(createSite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Relay",
+          apiKey: "sk-one",
+          extraApiKeys: [{ label: null, apiKey: "sk-two" }],
+        }),
+      );
+    } finally {
+      useSiteStore.setState({ createSite: originalCreateSite });
+    }
   });
 
   it("starts with one row and can add another", () => {
@@ -95,10 +165,9 @@ describe("SiteFormModal base url list", () => {
       expect(screen.getByPlaceholderText("sk-...")).toHaveValue("sk-full-secret");
     });
     const apiKeyInput = screen.getByPlaceholderText("sk-...");
-    expect(apiKeyInput).toHaveAttribute("type", "password");
-    fireEvent.click(screen.getByRole("button", { name: "Show" }));
     expect(apiKeyInput).toHaveAttribute("type", "text");
-    expect(getSiteApiKey).toHaveBeenCalledWith("s1");
+    expect(screen.queryByRole("button", { name: "Show" })).not.toBeInTheDocument();
+    expect(getSiteApiKey).toHaveBeenCalledWith("s1", "k1");
   });
 
   it("does not write the complete key back when it is unchanged", async () => {
@@ -124,7 +193,9 @@ describe("SiteFormModal base url list", () => {
       await waitFor(() => expect(updateSite).toHaveBeenCalledTimes(1));
       expect(updateSite).toHaveBeenCalledWith(
         "s1",
-        expect.objectContaining({ apiKey: null }),
+        expect.objectContaining({
+          apiKeys: [{ id: "k1", label: "K 1", apiKey: "sk-full-secret" }],
+        }),
       );
     } finally {
       useSiteStore.setState({ updateSite: originalUpdateSite });
@@ -157,7 +228,48 @@ describe("SiteFormModal base url list", () => {
       await waitFor(() => expect(updateSite).toHaveBeenCalledTimes(1));
       expect(updateSite).toHaveBeenCalledWith(
         "s1",
-        expect.objectContaining({ apiKey: "sk-replacement" }),
+        expect.objectContaining({
+          apiKeys: [{ id: "k1", label: "K 1", apiKey: "sk-replacement" }],
+        }),
+      );
+    } finally {
+      useSiteStore.setState({ updateSite: originalUpdateSite });
+    }
+  });
+
+  it("edits multiple keys in the same list used for create", async () => {
+    const originalUpdateSite = useSiteStore.getState().updateSite;
+    const updateSite = vi.fn().mockResolvedValue(sampleSite());
+    useSiteStore.setState({
+      getSiteApiKey: vi.fn().mockResolvedValue("sk-full-secret"),
+      updateSite,
+    });
+
+    try {
+      render(
+        <Wrapper>
+          <SiteFormModal open site={sampleSite()} onClose={() => undefined} />
+        </Wrapper>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText("sk-...")).toHaveValue("sk-full-secret");
+      });
+      fireEvent.click(screen.getAllByRole("button", { name: "添加密钥" })[0]);
+      fireEvent.change(screen.getAllByPlaceholderText("sk-...")[1]!, {
+        target: { value: "sk-two" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /保.*存/ }));
+
+      await waitFor(() => expect(updateSite).toHaveBeenCalledTimes(1));
+      expect(updateSite).toHaveBeenCalledWith(
+        "s1",
+        expect.objectContaining({
+          apiKeys: [
+            { id: "k1", label: "K 1", apiKey: "sk-full-secret" },
+            { id: null, label: null, apiKey: "sk-two" },
+          ],
+        }),
       );
     } finally {
       useSiteStore.setState({ updateSite: originalUpdateSite });

@@ -1,11 +1,16 @@
 import { useEffect, useState } from "react";
-import { App, Button, Form, Input, Modal, Popconfirm, Space } from "antd";
+import { App, Form, Modal } from "antd";
 import { useTranslation } from "react-i18next";
-import type { Site } from "@/types/domain";
+import type { ProbeSiteApiKeyResult, Site } from "@/types/domain";
 import { useSiteStore } from "@/stores";
 import { copyText } from "@/lib/copyText";
-import { isAppError } from "@/lib/invoke";
-import { siteApiKeys } from "@/lib/siteApiKey";
+import { invoke, isAppError } from "@/lib/invoke";
+import {
+  ApiKeyListInput,
+  loadSiteKeyDrafts,
+  normalizeApiKeyDrafts,
+  type ApiKeyDraft,
+} from "./ApiKeyListInput";
 
 interface Props {
   open: boolean;
@@ -13,61 +18,59 @@ interface Props {
   onClose: () => void;
 }
 
-type Mode = "list" | "add" | "rename" | "rotate";
-
 export function SiteApiKeyManageModal({ open, site, onClose }: Props) {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const getSiteApiKey = useSiteStore((s) => s.getSiteApiKey);
-  const addApiKey = useSiteStore((s) => s.addApiKey);
-  const updateApiKey = useSiteStore((s) => s.updateApiKey);
-  const deleteApiKey = useSiteStore((s) => s.deleteApiKey);
+  const updateSite = useSiteStore((s) => s.updateSite);
+  const liveSite = useSiteStore((s) => s.sites.find((item) => item.id === site.id) ?? site);
   const [form] = Form.useForm();
-  const [mode, setMode] = useState<Mode>("list");
-  const [targetId, setTargetId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const keys = siteApiKeys(site);
+  const [keyLoading, setKeyLoading] = useState(false);
+  const [testingIndex, setTestingIndex] = useState<number | null>(null);
+  const siteId = site.id;
 
   useEffect(() => {
     if (!open) {
-      setMode("list");
-      setTargetId(null);
       form.resetFields();
+      setTestingIndex(null);
+      return;
     }
-  }, [open, form]);
+    let cancelled = false;
+    const current = useSiteStore.getState().sites.find((item) => item.id === siteId);
+    if (!current) return;
+    setKeyLoading(true);
+    form.setFieldsValue({
+      apiKeys: [{ id: current.activeApiKeyId ?? "", label: "", apiKey: "" }],
+    });
+    void loadSiteKeyDrafts(current, getSiteApiKey)
+      .then((apiKeys) => {
+        if (!cancelled) form.setFieldValue("apiKeys", apiKeys);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        message.error(isAppError(error) ? error.message : t("sites.apiKeyLoadFailed"));
+      })
+      .finally(() => {
+        if (!cancelled) setKeyLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, siteId, form, getSiteApiKey, message, t]);
 
-  const closeForm = () => {
-    form.resetFields();
-    setMode("list");
-    setTargetId(null);
+  const rowDraft = (index: number): ApiKeyDraft | undefined => {
+    const rows = form.getFieldValue("apiKeys") as ApiKeyDraft[] | undefined;
+    return rows?.[index];
   };
 
-  const handleSave = async () => {
-    const values = await form.validateFields();
-    setSaving(true);
-    try {
-      if (mode === "add") {
-        await addApiKey(site.id, { label: values.label, apiKey: values.apiKey });
-        message.success(t("sites.keyAdded"));
-      } else if (mode === "rename" && targetId) {
-        await updateApiKey(site.id, targetId, { label: values.label });
-        message.success(t("sites.keyRenamed"));
-      } else if (mode === "rotate" && targetId) {
-        await updateApiKey(site.id, targetId, { apiKey: values.apiKey });
-        message.success(t("sites.keyRotated"));
-      }
-      closeForm();
-    } catch (e) {
-      if (e && typeof e === "object" && "errorFields" in e) return;
-      message.error(isAppError(e) ? e.message : String(e));
-    } finally {
-      setSaving(false);
+  const handleCopy = async (index: number) => {
+    const secret = String(rowDraft(index)?.apiKey ?? "").trim();
+    if (!secret) {
+      message.error(t("sites.apiKey"));
+      return;
     }
-  };
-
-  const handleCopy = async (apiKeyId: string) => {
     try {
-      const secret = await getSiteApiKey(site.id, apiKeyId);
       await copyText(secret);
       message.success(t("common.copied"));
     } catch (e) {
@@ -75,12 +78,46 @@ export function SiteApiKeyManageModal({ open, site, onClose }: Props) {
     }
   };
 
-  const handleDelete = async (apiKeyId: string) => {
+  const handleTest = async (index: number) => {
+    const secret = String(rowDraft(index)?.apiKey ?? "").trim();
+    if (!secret) {
+      message.error(t("sites.apiKey"));
+      return;
+    }
+    setTestingIndex(index);
     try {
-      await deleteApiKey(site.id, apiKeyId);
-      message.success(t("sites.keyDeleted"));
+      const result = await invoke<ProbeSiteApiKeyResult>("probe_site_api_key", {
+        siteId: liveSite.id,
+        apiKey: secret,
+      });
+      message.success(t("sites.testKeySuccess", { count: result.modelCount }));
     } catch (e) {
+      message.error(
+        t("sites.testKeyFailed", { error: isAppError(e) ? e.message : String(e) }),
+      );
+    } finally {
+      setTestingIndex(null);
+    }
+  };
+
+  const handleSave = async () => {
+    try {
+      const values = await form.validateFields();
+      const keys = normalizeApiKeyDrafts(values.apiKeys);
+      if (keys.length === 0) {
+        message.error(t("sites.apiKey"));
+        return;
+      }
+      setSaving(true);
+      const saved = await updateSite(liveSite.id, { apiKeys: keys });
+      const drafts = await loadSiteKeyDrafts(saved, getSiteApiKey);
+      form.setFieldValue("apiKeys", drafts);
+      message.success(t("sites.updateSuccess"));
+    } catch (e) {
+      if (e && typeof e === "object" && "errorFields" in e) return;
       message.error(isAppError(e) ? e.message : String(e));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -90,97 +127,38 @@ export function SiteApiKeyManageModal({ open, site, onClose }: Props) {
       centered
       destroyOnHidden
       mask={{ enabled: true, blur: true }}
-      width={520}
+      width={560}
       title={t("sites.manageKeys")}
-      onCancel={() => {
-        form.resetFields();
-        onClose();
+      onCancel={onClose}
+      okText={t("sites.save")}
+      cancelText={t("sites.cancel")}
+      confirmLoading={saving}
+      okButtonProps={{ disabled: keyLoading }}
+      onOk={() => void handleSave()}
+      styles={{
+        container: {
+          maxHeight: "calc(100vh - 32px)",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        },
+        body: {
+          overflowY: "auto",
+          overflowX: "hidden",
+          minHeight: 0,
+        },
       }}
-      footer={
-        mode === "list"
-          ? [
-              <Button key="close" onClick={onClose}>
-                {t("common.close")}
-              </Button>,
-              <Button key="add" type="primary" onClick={() => setMode("add")}>
-                {t("sites.addKey")}
-              </Button>,
-            ]
-          : [
-              <Button key="back" onClick={closeForm}>
-                {t("common.cancel")}
-              </Button>,
-              <Button key="save" type="primary" loading={saving} onClick={() => void handleSave()}>
-                {t("common.save")}
-              </Button>,
-            ]
-      }
     >
-      {mode === "list" ? (
-        <div className="space-y-2">
-          {keys.map((key) => (
-            <div
-              key={key.id}
-              className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
-              style={{ borderColor: "var(--border-color)" }}
-            >
-              <div className="min-w-0">
-                <div className="truncate text-sm">
-                  {key.label}
-                  {key.isActive ? ` · ${t("sites.currentKey")}` : ""}
-                </div>
-                <div className="font-mono text-xs opacity-60">{key.keyPrefix}</div>
-              </div>
-              <Space size={4}>
-                <Button size="small" onClick={() => void handleCopy(key.id)}>
-                  {t("common.copy")}
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() => {
-                    setTargetId(key.id);
-                    form.setFieldsValue({ label: key.label, apiKey: "" });
-                    setMode("rename");
-                  }}
-                >
-                  {t("sites.renameKey")}
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() => {
-                    setTargetId(key.id);
-                    form.setFieldsValue({ apiKey: "" });
-                    setMode("rotate");
-                  }}
-                >
-                  {t("sites.rotateKey")}
-                </Button>
-                <Popconfirm
-                  title={t("sites.deleteKeyConfirm")}
-                  onConfirm={() => void handleDelete(key.id)}
-                >
-                  <Button size="small" danger disabled={key.isActive || keys.length <= 1}>
-                    {t("common.delete")}
-                  </Button>
-                </Popconfirm>
-              </Space>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <Form form={form} layout="vertical">
-          {mode !== "rotate" && (
-            <Form.Item name="label" label={t("sites.keyName")} rules={mode === "add" ? [] : [{ required: true }]}>
-              <Input allowClear placeholder={t("sites.keyNamePlaceholder")} />
-            </Form.Item>
-          )}
-          {mode !== "rename" && (
-            <Form.Item name="apiKey" label={t("sites.apiKey")} rules={[{ required: true }]}>
-              <Input.Password allowClear autoComplete="off" />
-            </Form.Item>
-          )}
-        </Form>
-      )}
+      <Form form={form} layout="vertical" requiredMark="optional">
+        <Form.Item label={t("sites.apiKey")} extra={t("sites.apiKeyCreateHint")} required>
+          <ApiKeyListInput
+            disabled={keyLoading}
+            testingIndex={testingIndex}
+            onCopy={(index) => void handleCopy(index)}
+            onTest={(index) => void handleTest(index)}
+          />
+        </Form.Item>
+      </Form>
     </Modal>
   );
 }

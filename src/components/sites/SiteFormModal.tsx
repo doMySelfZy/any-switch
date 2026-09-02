@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { App, Collapse, Form, Input, Modal, Select } from "antd";
 import { useTranslation } from "react-i18next";
 import type { Site, SiteCapabilities, SiteProtocol } from "@/types/domain";
 import { useSiteStore } from "@/stores";
 import { UrlWritePreviewIcon } from "./UrlWritePreview";
+import { ApiKeyListInput, loadSiteKeyDrafts, normalizeApiKeyDrafts } from "./ApiKeyListInput";
 import { BaseUrlListInput } from "./BaseUrlListInput";
 import { isAppError } from "@/lib/invoke";
 import { invalidateSiteIconCache } from "@/lib/siteIcon";
+import { siteApiKeys } from "@/lib/siteApiKey";
 import { normalizeBaseUrls, siteBaseUrls } from "@/lib/urlNormalize";
 import {
   anyCodexCapabilityOn,
@@ -52,7 +54,6 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [keyLoading, setKeyLoading] = useState(false);
-  const loadedApiKey = useRef<string | null>(null);
   const [codexFlags, setCodexFlags] = useState<CodexCapabilityFlags>(EMPTY_CODEX_FLAGS);
   const [advancedOpen, setAdvancedOpen] = useState<string[]>([]);
   const [capOpen, setCapOpen] = useState<string[]>([]);
@@ -70,42 +71,40 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
     setAdvancedOpen(shouldOpenAdvanced(protocol, notes) ? ["advanced"] : []);
     setCapOpen(anyCodexCapabilityOn(caps) ? ["codex"] : []);
     if (site) {
-      loadedApiKey.current = null;
-      setKeyLoading(site.hasKey);
+      const currentKeys = siteApiKeys(site);
+      const summaries = [
+        ...currentKeys.filter((key) => key.isActive),
+        ...currentKeys.filter((key) => !key.isActive),
+      ];
+      setKeyLoading(summaries.length > 0 || site.hasKey);
       form.setFieldsValue({
         name: site.name,
         baseUrls: siteBaseUrls(site),
-        apiKey: "",
         protocol: site.protocol,
         notes: site.notes ?? "",
+        apiKeys: summaries.length
+          ? summaries.map((key) => ({ id: key.id, label: key.label, apiKey: "" }))
+          : [{ label: "", apiKey: "" }],
       });
-      if (site.hasKey) {
-        void getSiteApiKey(site.id)
-          .then((apiKey) => {
-            if (cancelled) return;
-            loadedApiKey.current = apiKey;
-            form.setFieldValue("apiKey", apiKey);
-          })
-          .catch((error: unknown) => {
-            if (cancelled) return;
-            message.error(
-              isAppError(error) ? error.message : t("sites.apiKeyLoadFailed"),
-            );
-          })
-          .finally(() => {
-            if (!cancelled) setKeyLoading(false);
-          });
-      }
+      void loadSiteKeyDrafts(site, getSiteApiKey)
+        .then((apiKeys) => {
+          if (!cancelled) form.setFieldValue("apiKeys", apiKeys);
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          message.error(isAppError(error) ? error.message : t("sites.apiKeyLoadFailed"));
+        })
+        .finally(() => {
+          if (!cancelled) setKeyLoading(false);
+        });
     } else {
-      const initialApiKey = initialValues?.apiKey ?? "";
-      loadedApiKey.current = initialApiKey;
       setKeyLoading(false);
       form.resetFields();
       form.setFieldsValue({
         protocol: initialValues?.protocol ?? "openai_compatible",
         baseUrls: initialValues?.baseUrls?.length ? initialValues.baseUrls : [""],
         name: initialValues?.name,
-        apiKey: initialApiKey,
+        apiKeys: [{ label: "", apiKey: initialValues?.apiKey ?? "" }],
         notes: initialValues?.notes ?? "",
       });
     }
@@ -122,6 +121,11 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
         site?.capabilities ?? initialValues?.capabilities ?? {},
         capabilitiesFromCodexFlags(codexFlags),
       );
+      const keys = normalizeApiKeyDrafts(values.apiKeys);
+      if (keys.length === 0) {
+        message.error(t("sites.apiKey"));
+        return;
+      }
       setSaving(true);
       let saved: Site;
       const isCreate = !site;
@@ -130,22 +134,23 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
           name: values.name,
           baseUrls,
           baseUrl: baseUrls[0],
-          apiKey: values.apiKey && values.apiKey !== loadedApiKey.current ? values.apiKey : null,
+          apiKeys: keys,
           protocol: values.protocol as SiteProtocol,
           notes: values.notes || null,
           capabilities,
         });
         invalidateSiteIconCache(site.id);
       } else {
-        if (!values.apiKey) {
-          message.error(t("sites.apiKey"));
-          return;
-        }
         saved = await createSite({
           name: values.name,
           baseUrls,
           baseUrl: baseUrls[0],
-          apiKey: values.apiKey,
+          apiKey: keys[0]!.apiKey,
+          apiKeyLabel: keys[0]!.label,
+          extraApiKeys: keys.slice(1).map((row) => ({
+            label: row.label,
+            apiKey: row.apiKey,
+          })),
           protocol: values.protocol,
           notes: values.notes || null,
           capabilities,
@@ -205,22 +210,8 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
         >
           <BaseUrlListInput />
         </Form.Item>
-        <Form.Item
-          name="apiKey"
-          label={t("sites.apiKey")}
-          rules={site ? [] : [{ required: true, message: t("sites.apiKey") }]}
-          extra={site ? t("sites.apiKeyKeepHint") : undefined}
-        >
-          <Input.Password
-            placeholder={keyLoading ? t("sites.apiKeyLoading") : "sk-..."}
-            allowClear
-            disabled={keyLoading}
-            onFocus={(event) => {
-              if (site && event.currentTarget.value === loadedApiKey.current) {
-                event.currentTarget.select();
-              }
-            }}
-          />
+        <Form.Item label={t("sites.apiKey")} extra={t("sites.apiKeyCreateHint")} required>
+          <ApiKeyListInput disabled={keyLoading} />
         </Form.Item>
         <div className="flex flex-col gap-2">
           <Collapse

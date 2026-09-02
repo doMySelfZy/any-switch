@@ -495,7 +495,7 @@ export function SitesPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <span className="w-28 shrink-0 opacity-50">{t("sites.keyPrefix")}</span>
+                  <span className="w-28 shrink-0 opacity-50">{t("sites.apiKey")}</span>
                   <div className="min-w-0 flex-1">
                     <SiteApiKeySwitcher site={selected} />
                   </div>

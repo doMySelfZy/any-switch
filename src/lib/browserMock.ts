@@ -14,6 +14,7 @@ import type {
   HttpBytesResult,
   LocalBackupInfo,
   ModelProbeResult,
+  ProbeSiteApiKeyResult,
   MarketplaceSkill,
   RemoteBackupInfo,
   Skill,
@@ -349,6 +350,54 @@ function makeApiKey(
   };
 }
 
+function syncSiteApiKeys(site: Site, incoming: NonNullable<UpdateSiteInput["apiKeys"]>): Site {
+  if (incoming.length === 0) {
+    throw { code: "validation_failed", message: "API key is required" };
+  }
+  const current = site.apiKeys ?? [];
+  const next: SiteApiKeySummary[] = [];
+  const kept = new Set<string>();
+  for (const item of incoming) {
+    const secret = item.apiKey.trim();
+    if (!secret) throw { code: "validation_failed", message: "API key is required" };
+    const existing = item.id ? current.find((key) => key.id === item.id) : undefined;
+    if (item.id && !existing) {
+      throw { code: "validation_failed", message: "api key does not belong to this site" };
+    }
+    if (existing) {
+      const previous = keySecrets.get(existing.id);
+      const changed = previous !== secret;
+      if (changed) keySecrets.set(existing.id, secret);
+      next.push({
+        ...existing,
+        label: item.label?.trim() || existing.label,
+        keyPrefix: changed ? keyPrefix(secret) : existing.keyPrefix,
+        quotaRevision: changed ? uid() : existing.quotaRevision,
+        isActive: false,
+      });
+      kept.add(existing.id);
+    } else {
+      const created = makeApiKey(
+        site.id,
+        secret,
+        item.label?.trim() || `K ${next.length + 1}`,
+        false,
+      );
+      next.push(created);
+      kept.add(created.id);
+    }
+  }
+  for (const old of current) {
+    if (!kept.has(old.id)) {
+      keySecrets.delete(old.id);
+      models.delete(old.id);
+      exclusions.delete(old.id);
+    }
+  }
+  if (next[0]) next[0] = { ...next[0], isActive: true };
+  return projectSite({ ...site, apiKeys: next });
+}
+
 function projectSite(site: Site): Site {
   const apiKeys = site.apiKeys ?? [];
   const active = apiKeys.find((key) => key.isActive) ?? apiKeys[0] ?? null;
@@ -577,7 +626,12 @@ export async function handleBrowserCommand<T>(
       const id = args?.id as string;
       const site = sites.find((item) => item.id === id);
       if (!site) throw { code: "not_found", message: "Site not found" };
-      const key = requireKey(site, args?.apiKeyId as string | undefined);
+      const keys = site.apiKeys ?? [];
+      const wanted = args?.apiKeyId as string | undefined;
+      const key = wanted
+        ? keys.find((item) => item.id === wanted)
+        : (keys.find((item) => item.isActive) ?? keys[0]);
+      if (!key) throw { code: "not_found", message: "api key not found" };
       return (keySecrets.get(key.id) ?? "") as T;
     }
     case "create_site": {
@@ -588,14 +642,28 @@ export async function handleBrowserCommand<T>(
         input.baseUrls && input.baseUrls.length > 0
           ? input.baseUrls
           : [input.baseUrl ?? ""];
-      const apiKey = makeApiKey(id, input.apiKey, "K 1", true);
+      const firstLabel = input.apiKeyLabel?.trim() || "K 1";
+      const apiKeys = [makeApiKey(id, input.apiKey, firstLabel, true)];
+      for (const extra of input.extraApiKeys ?? []) {
+        const secret = extra.apiKey?.trim() ?? "";
+        if (!secret) throw { code: "validation_failed", message: "API key is required" };
+        if (apiKeys.some((item) => keySecrets.get(item.id) === secret)) {
+          throw { code: "validation_failed", message: "this API key already exists on the site" };
+        }
+        const label = extra.label?.trim() || `K ${apiKeys.length + 1}`;
+        if (apiKeys.some((item) => item.label.toLowerCase() === label.toLowerCase())) {
+          throw { code: "validation_failed", message: "key name already exists on this site" };
+        }
+        apiKeys.push(makeApiKey(id, secret, label, false));
+      }
+      const active = apiKeys[0]!;
       const site = projectSite({
         id,
         name: input.name,
         baseUrl: urls[0] ?? "",
         baseUrls: urls,
-        keyPrefix: apiKey.keyPrefix,
-        quotaRevision: apiKey.quotaRevision,
+        keyPrefix: active.keyPrefix,
+        quotaRevision: active.quotaRevision,
         hasKey: true,
         protocol: input.protocol ?? "openai_compatible",
         claudeAuthKeyStyle: input.claudeAuthKeyStyle ?? "anthropic_auth_token",
@@ -609,8 +677,8 @@ export async function handleBrowserCommand<T>(
         createdAt: t,
         updatedAt: t,
         capabilities: input.capabilities ?? {},
-        activeApiKeyId: apiKey.id,
-        apiKeys: [apiKey],
+        activeApiKeyId: active.id,
+        apiKeys,
       });
       sites = [...sites, site];
       return site as T;
@@ -692,7 +760,9 @@ export async function handleBrowserCommand<T>(
       const input = (args?.input ?? {}) as UpdateSiteInput;
       sites = sites.map((s) => {
         if (s.id !== id) return s;
-        if (input.apiKey) {
+        if (input.apiKeys) {
+          s = syncSiteApiKeys(s, input.apiKeys);
+        } else if (input.apiKey) {
           const active = (s.apiKeys ?? []).find((item) => item.isActive);
           if (active) {
             keySecrets.set(active.id, input.apiKey);
@@ -1233,6 +1303,22 @@ export async function handleBrowserCommand<T>(
         fetchedAt: now(),
         latencyMs: 12,
         error: null,
+      };
+      return result as T;
+    }
+    case "probe_site_api_key": {
+      const siteId = args?.siteId as string;
+      const apiKey = String(args?.apiKey ?? "").trim();
+      const site = sites.find((s) => s.id === siteId);
+      if (!site) throw { code: "not_found", message: "Site not found" };
+      if (!apiKey) throw { code: "validation_failed", message: "API key is required" };
+      if (/fail/i.test(apiKey)) {
+        throw { code: "unauthorized", message: "unauthorized" };
+      }
+      const result: ProbeSiteApiKeyResult = {
+        modelCount: 2,
+        latencyMs: 12,
+        endpoint: `${site.baseUrl}/v1/models`,
       };
       return result as T;
     }
