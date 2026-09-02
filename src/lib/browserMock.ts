@@ -899,12 +899,13 @@ export async function handleBrowserCommand<T>(
       const appliedAt = now();
       const claudeUse1mContext = Boolean(args?.claudeUse1mContext);
       const claudeLiveSummary: Record<string, string | null> = {
-        ANTHROPIC_MODEL: declareClaude1m(modelId, claudeUse1mContext),
+        model: declareClaude1m(modelId, claudeUse1mContext),
       };
       for (const [argKey, envKey, supports1m] of [
         ["claudeOpusModelId", "ANTHROPIC_DEFAULT_OPUS_MODEL", true],
         ["claudeSonnetModelId", "ANTHROPIC_DEFAULT_SONNET_MODEL", true],
         ["claudeHaikuModelId", "ANTHROPIC_DEFAULT_HAIKU_MODEL", false],
+        ["claudeFableModelId", "ANTHROPIC_DEFAULT_FABLE_MODEL", false],
       ] as const) {
         const aliasModel = args?.[argKey];
         if (typeof aliasModel === "string" && aliasModel.trim()) {
@@ -919,7 +920,7 @@ export async function handleBrowserCommand<T>(
         : "ANTHROPIC_AUTH_TOKEN";
       claudeLiveSummary[authKey] = site?.keyPrefix ?? "sk-xx";
       if (typeof args?.claudeEffortLevel === "string") {
-        claudeLiveSummary.CLAUDE_CODE_EFFORT_LEVEL = args.claudeEffortLevel;
+        claudeLiveSummary.effortLevel = args.claudeEffortLevel;
       }
       const piWriteAllModels = Boolean(args?.piWriteAllModels);
       const piModelCount = piWriteAllModels ? Math.max(models.get(siteId)?.length ?? 0, 1) : 1;

@@ -110,6 +110,7 @@ pub fn apply(
     let auth_key = auth.env_key();
     let other_key = auth.other_env_key();
     let declared_model = declare_1m_context(model_id, options.use_1m_context);
+    let fable = optional_model(&options.fable_model_id);
     let opus = optional_model(&options.opus_model_id)
         .map(|id| declare_1m_context(&id, options.use_1m_context));
     let sonnet = optional_model(&options.sonnet_model_id)
@@ -133,12 +134,13 @@ pub fn apply(
             Value::String(preview.claude_base_url.clone()),
         );
         env_obj.insert(auth_key.into(), Value::String(api_key.into()));
-        env_obj.insert(
-            "ANTHROPIC_MODEL".into(),
-            Value::String(declared_model.clone()),
-        );
+        // These environment variables override Claude Code's interactive model and
+        // effort controls for the whole process. Persist them at the top level only.
+        env_obj.remove("ANTHROPIC_MODEL");
+        env_obj.remove("CLAUDE_CODE_EFFORT_LEVEL");
 
         for (key, val) in [
+            ("ANTHROPIC_DEFAULT_FABLE_MODEL", &fable),
             ("ANTHROPIC_DEFAULT_OPUS_MODEL", &opus),
             ("ANTHROPIC_DEFAULT_SONNET_MODEL", &sonnet),
             ("ANTHROPIC_DEFAULT_HAIKU_MODEL", &haiku),
@@ -156,22 +158,6 @@ pub fn apply(
                     }
                 }
             }
-        }
-
-        if let Some(effort) = &options.effort_level {
-            env_obj.insert(
-                "CLAUDE_CODE_EFFORT_LEVEL".into(),
-                Value::String(effort.as_str().into()),
-            );
-        } else if binding_before
-            .map(|b| {
-                b.managed_env_keys
-                    .iter()
-                    .any(|k| k == "CLAUDE_CODE_EFFORT_LEVEL")
-            })
-            .unwrap_or(false)
-        {
-            env_obj.remove("CLAUDE_CODE_EFFORT_LEVEL");
         }
 
         let should_remove_other = if force_exclusive {
@@ -194,19 +180,17 @@ pub fn apply(
     let clear_effort_toplevel = options.effort_level.is_none()
         && binding_before
             .map(|b| {
-                b.managed_env_keys
-                    .iter()
-                    .any(|k| k == "CLAUDE_CODE_EFFORT_LEVEL")
+                b.expected_fields.contains_key("effortLevel")
+                    || b.expected_fields.contains_key("CLAUDE_CODE_EFFORT_LEVEL")
+                    || b.managed_env_keys
+                        .iter()
+                        .any(|k| k == "CLAUDE_CODE_EFFORT_LEVEL")
             })
             .unwrap_or(false);
-    let effort_toplevel = options.effort_level.as_ref().map(|e| {
-        // max is env-preferred; settings field accepts low/medium/high more reliably
-        if e.as_str() == "max" {
-            "high".to_string()
-        } else {
-            e.as_str().to_string()
-        }
-    });
+    let effort_toplevel = options
+        .effort_level
+        .as_ref()
+        .map(|e| e.as_str().to_string());
     {
         let obj = root
             .as_object_mut()
@@ -253,14 +237,63 @@ pub fn apply(
     {
         return Err(AppError::new("invalid_config", "self-check auth key empty"));
     }
-    if venv.get("ANTHROPIC_MODEL").and_then(|v| v.as_str()) != Some(declared_model.as_str()) {
+    if venv.contains_key("ANTHROPIC_MODEL") || venv.contains_key("CLAUDE_CODE_EFFORT_LEVEL") {
+        return Err(AppError::new(
+            "invalid_config",
+            "self-check session override cleanup failed",
+        ));
+    }
+    for (key, expected_alias) in [
+        ("ANTHROPIC_DEFAULT_FABLE_MODEL", &fable),
+        ("ANTHROPIC_DEFAULT_OPUS_MODEL", &opus),
+        ("ANTHROPIC_DEFAULT_SONNET_MODEL", &sonnet),
+        ("ANTHROPIC_DEFAULT_HAIKU_MODEL", &haiku),
+    ] {
+        let actual = venv.get(key).and_then(|v| v.as_str());
+        match expected_alias {
+            Some(expected_alias) if actual != Some(expected_alias.as_str()) => {
+                return Err(AppError::new(
+                    "invalid_config",
+                    format!("self-check {key} failed"),
+                ));
+            }
+            None if binding_before
+                .map(|b| b.managed_env_keys.iter().any(|managed| managed == key))
+                .unwrap_or(false)
+                && actual.is_some() =>
+            {
+                return Err(AppError::new(
+                    "invalid_config",
+                    format!("self-check {key} cleanup failed"),
+                ));
+            }
+            _ => {}
+        }
+    }
+    if verify.get("model").and_then(|v| v.as_str()) != Some(declared_model.as_str()) {
         return Err(AppError::new("invalid_config", "self-check MODEL failed"));
+    }
+    if let Some(effort) = &options.effort_level {
+        if verify.get("effortLevel").and_then(|v| v.as_str()) != Some(effort.as_str()) {
+            return Err(AppError::new(
+                "invalid_config",
+                "self-check effortLevel failed",
+            ));
+        }
+    } else if clear_effort_toplevel && verify.get("effortLevel").is_some() {
+        return Err(AppError::new(
+            "invalid_config",
+            "self-check effortLevel cleanup failed",
+        ));
     }
 
     let mut expected = HashMap::new();
     expected.insert("ANTHROPIC_BASE_URL".into(), preview.claude_base_url.clone());
-    expected.insert("ANTHROPIC_MODEL".into(), declared_model.clone());
+    expected.insert("model".into(), declared_model.clone());
     expected.insert("auth_env_key".into(), auth_key.into());
+    if let Some(v) = &fable {
+        expected.insert("ANTHROPIC_DEFAULT_FABLE_MODEL".into(), v.clone());
+    }
     if let Some(v) = &opus {
         expected.insert("ANTHROPIC_DEFAULT_OPUS_MODEL".into(), v.clone());
     }
@@ -271,14 +304,13 @@ pub fn apply(
         expected.insert("ANTHROPIC_DEFAULT_HAIKU_MODEL".into(), v.clone());
     }
     if let Some(effort) = &options.effort_level {
-        expected.insert("CLAUDE_CODE_EFFORT_LEVEL".into(), effort.as_str().into());
+        expected.insert("effortLevel".into(), effort.as_str().into());
     }
 
-    let mut managed_env_keys = vec![
-        "ANTHROPIC_BASE_URL".into(),
-        auth_key.into(),
-        "ANTHROPIC_MODEL".into(),
-    ];
+    let mut managed_env_keys = vec!["ANTHROPIC_BASE_URL".into(), auth_key.into()];
+    if fable.is_some() {
+        managed_env_keys.push("ANTHROPIC_DEFAULT_FABLE_MODEL".into());
+    }
     if opus.is_some() {
         managed_env_keys.push("ANTHROPIC_DEFAULT_OPUS_MODEL".into());
     }
@@ -288,9 +320,6 @@ pub fn apply(
     if haiku.is_some() {
         managed_env_keys.push("ANTHROPIC_DEFAULT_HAIKU_MODEL".into());
     }
-    if options.effort_level.is_some() {
-        managed_env_keys.push("CLAUDE_CODE_EFFORT_LEVEL".into());
-    }
     touched.claude_env_keys = managed_env_keys.clone();
 
     let mut live_summary = HashMap::new();
@@ -299,7 +328,10 @@ pub fn apply(
         Some(preview.claude_base_url.clone()),
     );
     live_summary.insert(auth_key.into(), Some(key_prefix(api_key)));
-    live_summary.insert("ANTHROPIC_MODEL".into(), Some(declared_model));
+    live_summary.insert("model".into(), Some(declared_model));
+    if let Some(v) = &fable {
+        live_summary.insert("ANTHROPIC_DEFAULT_FABLE_MODEL".into(), Some(v.clone()));
+    }
     if let Some(v) = &opus {
         live_summary.insert("ANTHROPIC_DEFAULT_OPUS_MODEL".into(), Some(v.clone()));
     }
@@ -310,10 +342,7 @@ pub fn apply(
         live_summary.insert("ANTHROPIC_DEFAULT_HAIKU_MODEL".into(), Some(v.clone()));
     }
     if let Some(effort) = &options.effort_level {
-        live_summary.insert(
-            "CLAUDE_CODE_EFFORT_LEVEL".into(),
-            Some(effort.as_str().into()),
-        );
+        live_summary.insert("effortLevel".into(), Some(effort.as_str().into()));
     }
 
     let binding = TargetBinding {
@@ -362,8 +391,6 @@ pub fn surgical_revert(
                     }
                 } else if binding.expected_fields.get(k).map(|s| s.as_str()) == Some(live) {
                     env.remove(k);
-                } else {
-                    env.remove(k);
                 }
             }
         }
@@ -376,17 +403,29 @@ pub fn surgical_revert(
         }
     }
     // Clear top-level fields we may have written if they still match
-    if let Some(expected_model) = binding.expected_fields.get("ANTHROPIC_MODEL") {
+    if let Some(expected_model) = binding
+        .expected_fields
+        .get("model")
+        .or_else(|| binding.expected_fields.get("ANTHROPIC_MODEL"))
+    {
         if obj.get("model").and_then(|v| v.as_str()) == Some(expected_model.as_str()) {
             obj.remove("model");
         }
     }
-    if binding
-        .managed_env_keys
-        .iter()
-        .any(|k| k == "CLAUDE_CODE_EFFORT_LEVEL")
-    {
-        obj.remove("effortLevel");
+    if let Some(expected_effort) = binding.expected_fields.get("effortLevel") {
+        if obj.get("effortLevel").and_then(|v| v.as_str()) == Some(expected_effort.as_str()) {
+            obj.remove("effortLevel");
+        }
+    } else if let Some(expected_effort) = binding.expected_fields.get("CLAUDE_CODE_EFFORT_LEVEL") {
+        // Older bindings normalized the session-only max level to high at the top level.
+        let expected_toplevel = if expected_effort == "max" {
+            "high"
+        } else {
+            expected_effort.as_str()
+        };
+        if obj.get("effortLevel").and_then(|v| v.as_str()) == Some(expected_toplevel) {
+            obj.remove("effortLevel");
+        }
     }
     let pretty = serde_json::to_string_pretty(&root)? + "\n";
     atomic_write(&path, pretty.as_bytes(), false)?;
@@ -400,6 +439,7 @@ const OFFICIAL_RESTORE_ENV_KEYS: &[&str] = &[
     "ANTHROPIC_AUTH_TOKEN",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL",
     "ANTHROPIC_DEFAULT_OPUS_MODEL",
     "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
@@ -460,6 +500,7 @@ pub fn summary_from_settings(root: &Value) -> HashMap<String, Option<String>> {
             "ANTHROPIC_MODEL",
             "ANTHROPIC_AUTH_TOKEN",
             "ANTHROPIC_API_KEY",
+            "ANTHROPIC_DEFAULT_FABLE_MODEL",
             "ANTHROPIC_DEFAULT_OPUS_MODEL",
             "ANTHROPIC_DEFAULT_SONNET_MODEL",
             "ANTHROPIC_DEFAULT_HAIKU_MODEL",
@@ -527,16 +568,33 @@ pub fn detect_status(
             if key_fingerprint(key) != b.key_fingerprint {
                 return Ok((ApplyStatus::Stale, Some("API key changed".into())));
             }
-            if let Some(env) = live
-                .as_ref()
-                .and_then(|v| v.get("env"))
-                .and_then(|e| e.as_object())
-            {
+            if let Some(root) = live.as_ref() {
+                let Some(env) = root.get("env").and_then(|e| e.as_object()) else {
+                    return Ok((ApplyStatus::Stale, Some("config missing".into())));
+                };
+                if b.expected_fields.contains_key("model") && env.contains_key("ANTHROPIC_MODEL") {
+                    return Ok((
+                        ApplyStatus::Stale,
+                        Some("ANTHROPIC_MODEL overrides model".into()),
+                    ));
+                }
+                if b.expected_fields.contains_key("effortLevel")
+                    && env.contains_key("CLAUDE_CODE_EFFORT_LEVEL")
+                {
+                    return Ok((
+                        ApplyStatus::Stale,
+                        Some("CLAUDE_CODE_EFFORT_LEVEL overrides effortLevel".into()),
+                    ));
+                }
                 for (k, expected) in &b.expected_fields {
                     if k == "auth_env_key" {
                         continue;
                     }
-                    if env.get(k).and_then(|v| v.as_str()) != Some(expected.as_str()) {
+                    let actual = match k.as_str() {
+                        "model" | "effortLevel" => root.get(k).and_then(|v| v.as_str()),
+                        _ => env.get(k).and_then(|v| v.as_str()),
+                    };
+                    if actual != Some(expected.as_str()) {
                         return Ok((ApplyStatus::Stale, Some(format!("{k} mismatch"))));
                     }
                 }
@@ -651,6 +709,7 @@ mod context_1m_tests {
         let backup_root = dir.path().join("backups");
         fs::create_dir_all(&backup_root).unwrap();
         let options = ClaudeApplyOptions {
+            fable_model_id: Some("relay-fable".into()),
             opus_model_id: Some("relay-opus".into()),
             sonnet_model_id: Some("relay-sonnet[1M]".into()),
             haiku_model_id: Some("relay-haiku".into()),
@@ -673,18 +732,26 @@ mod context_1m_tests {
 
         let settings = read_settings(&dir.path().join("settings.json")).unwrap();
         let env = settings["env"].as_object().unwrap();
-        assert_eq!(env["ANTHROPIC_MODEL"], "relay-default[1m]");
+        assert!(!env.contains_key("ANTHROPIC_MODEL"));
+        assert_eq!(env["ANTHROPIC_DEFAULT_FABLE_MODEL"], "relay-fable");
         assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "relay-opus[1m]");
         assert_eq!(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "relay-sonnet[1M]");
         assert_eq!(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "relay-haiku");
         assert_eq!(settings["model"], "relay-default[1m]");
         assert_eq!(
-            outcome.binding.expected_fields.get("ANTHROPIC_MODEL"),
+            outcome.binding.expected_fields.get("model"),
             Some(&"relay-default[1m]".to_string())
         );
         assert_eq!(
-            outcome.live_summary.get("ANTHROPIC_MODEL"),
+            outcome.live_summary.get("model"),
             Some(&Some("relay-default[1m]".into()))
+        );
+        assert_eq!(
+            outcome
+                .binding
+                .expected_fields
+                .get("ANTHROPIC_DEFAULT_FABLE_MODEL"),
+            Some(&"relay-fable".to_string())
         );
     }
 
@@ -694,6 +761,281 @@ mod context_1m_tests {
         assert_eq!(strip_1m_suffix(" relay-model[1M] "), "relay-model");
         assert_eq!(declare_1m_context(" relay-model ", true), "relay-model[1m]");
         assert_eq!(declare_1m_context("relay-model", false), "relay-model");
+        assert_eq!(
+            crate::domain::ClaudeEffortLevel::parse("max"),
+            Some(crate::domain::ClaudeEffortLevel::Xhigh)
+        );
+        assert_eq!(
+            crate::domain::ClaudeEffortLevel::parse("xhigh")
+                .unwrap()
+                .as_str(),
+            "xhigh"
+        );
+        assert_eq!(
+            serde_json::from_str::<crate::domain::ClaudeEffortLevel>(r#""max""#).unwrap(),
+            crate::domain::ClaudeEffortLevel::Xhigh
+        );
+    }
+
+    #[test]
+    fn apply_does_not_lock_model_or_effort_with_session_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let backup_root = dir.path().join("backups");
+        fs::create_dir_all(&backup_root).unwrap();
+        fs::write(
+            dir.path().join("settings.json"),
+            r#"{
+  "env": {
+    "ANTHROPIC_MODEL": "legacy-model",
+    "CLAUDE_CODE_EFFORT_LEVEL": "max"
+  }
+}
+"#,
+        )
+        .unwrap();
+        let options = ClaudeApplyOptions {
+            effort_level: Some(crate::domain::ClaudeEffortLevel::High),
+            ..Default::default()
+        };
+
+        let outcome = apply(
+            &row(),
+            "sk-test",
+            "relay-default",
+            ClaudeAuthKeyStyle::AnthropicAuthToken,
+            false,
+            &options,
+            None,
+            Some(dir.path().to_str().unwrap()),
+            &backup_root,
+        )
+        .unwrap();
+
+        let settings = read_settings(&dir.path().join("settings.json")).unwrap();
+        let env = settings["env"].as_object().unwrap();
+        assert!(!env.contains_key("ANTHROPIC_MODEL"));
+        assert!(!env.contains_key("CLAUDE_CODE_EFFORT_LEVEL"));
+        assert_eq!(settings["model"], "relay-default");
+        assert_eq!(settings["effortLevel"], "high");
+        assert_eq!(
+            outcome.binding.expected_fields.get("model"),
+            Some(&"relay-default".to_string())
+        );
+        assert_eq!(
+            outcome.binding.expected_fields.get("effortLevel"),
+            Some(&"high".to_string())
+        );
+        assert_eq!(
+            outcome.live_summary.get("model"),
+            Some(&Some("relay-default".into()))
+        );
+        assert_eq!(
+            outcome.live_summary.get("effortLevel"),
+            Some(&Some("high".into()))
+        );
+        assert!(!outcome
+            .binding
+            .managed_env_keys
+            .iter()
+            .any(|key| key == "ANTHROPIC_MODEL" || key == "CLAUDE_CODE_EFFORT_LEVEL"));
+        assert_eq!(
+            detect_status(
+                Some(&outcome.binding),
+                Some(&row()),
+                Some("sk-test"),
+                Some(dir.path().to_str().unwrap()),
+            )
+            .unwrap(),
+            (ApplyStatus::Applied, None)
+        );
+
+        let mut overridden = settings.clone();
+        overridden["env"]["ANTHROPIC_MODEL"] = Value::String("forced-model".into());
+        fs::write(
+            dir.path().join("settings.json"),
+            serde_json::to_string_pretty(&overridden).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            detect_status(
+                Some(&outcome.binding),
+                Some(&row()),
+                Some("sk-test"),
+                Some(dir.path().to_str().unwrap()),
+            )
+            .unwrap()
+            .0,
+            ApplyStatus::Stale
+        );
+
+        overridden["env"]
+            .as_object_mut()
+            .unwrap()
+            .remove("ANTHROPIC_MODEL");
+        overridden["env"]["CLAUDE_CODE_EFFORT_LEVEL"] = Value::String("low".into());
+        fs::write(
+            dir.path().join("settings.json"),
+            serde_json::to_string_pretty(&overridden).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            detect_status(
+                Some(&outcome.binding),
+                Some(&row()),
+                Some("sk-test"),
+                Some(dir.path().to_str().unwrap()),
+            )
+            .unwrap()
+            .0,
+            ApplyStatus::Stale
+        );
+
+        fs::write(
+            dir.path().join("settings.json"),
+            serde_json::to_string_pretty(&settings).unwrap(),
+        )
+        .unwrap();
+
+        surgical_revert(&outcome.binding, Some(dir.path().to_str().unwrap())).unwrap();
+        let reverted = read_settings(&dir.path().join("settings.json")).unwrap();
+        assert!(reverted.get("model").is_none());
+        assert!(reverted.get("effortLevel").is_none());
+    }
+
+    #[test]
+    fn surgical_revert_preserves_values_changed_after_apply() {
+        let dir = tempfile::tempdir().unwrap();
+        let backup_root = dir.path().join("backups");
+        fs::create_dir_all(&backup_root).unwrap();
+        let options = ClaudeApplyOptions {
+            fable_model_id: Some("relay-fable".into()),
+            effort_level: Some(crate::domain::ClaudeEffortLevel::High),
+            ..Default::default()
+        };
+        let outcome = apply(
+            &row(),
+            "sk-test",
+            "relay-default",
+            ClaudeAuthKeyStyle::AnthropicAuthToken,
+            false,
+            &options,
+            None,
+            Some(dir.path().to_str().unwrap()),
+            &backup_root,
+        )
+        .unwrap();
+
+        let path = dir.path().join("settings.json");
+        let mut settings = read_settings(&path).unwrap();
+        settings["model"] = Value::String("user-model".into());
+        settings["effortLevel"] = Value::String("low".into());
+        settings["env"]["ANTHROPIC_BASE_URL"] = Value::String("https://user.example.com".into());
+        settings["env"]["ANTHROPIC_DEFAULT_FABLE_MODEL"] = Value::String("user-fable".into());
+        fs::write(&path, serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+
+        surgical_revert(&outcome.binding, Some(dir.path().to_str().unwrap())).unwrap();
+        let reverted = read_settings(&path).unwrap();
+        assert_eq!(reverted["model"], "user-model");
+        assert_eq!(reverted["effortLevel"], "low");
+        assert_eq!(
+            reverted["env"]["ANTHROPIC_BASE_URL"],
+            "https://user.example.com"
+        );
+        assert_eq!(
+            reverted["env"]["ANTHROPIC_DEFAULT_FABLE_MODEL"],
+            "user-fable"
+        );
+        assert!(reverted["env"].get("ANTHROPIC_AUTH_TOKEN").is_none());
+    }
+
+    #[test]
+    fn legacy_binding_remains_detectable_summarizable_and_revertible() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("settings.json"),
+            r#"{
+  "model": "legacy-model",
+  "effortLevel": "high",
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://api.example.com",
+    "ANTHROPIC_AUTH_TOKEN": "sk-test",
+    "ANTHROPIC_MODEL": "legacy-model",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "legacy-fable",
+    "CLAUDE_CODE_EFFORT_LEVEL": "max"
+  }
+}
+"#,
+        )
+        .unwrap();
+        let expected_fields = HashMap::from([
+            (
+                "ANTHROPIC_BASE_URL".into(),
+                "https://api.example.com".into(),
+            ),
+            ("ANTHROPIC_MODEL".into(), "legacy-model".into()),
+            ("CLAUDE_CODE_EFFORT_LEVEL".into(), "max".into()),
+            ("auth_env_key".into(), "ANTHROPIC_AUTH_TOKEN".into()),
+        ]);
+        let binding = TargetBinding {
+            target: TargetKind::ClaudeCode,
+            site_id: Some("s1".into()),
+            site_name_snapshot: "Relay".into(),
+            model_id: "legacy-model".into(),
+            provider_id: None,
+            key_fingerprint: key_fingerprint("sk-test"),
+            managed_paths: vec![],
+            managed_env_keys: vec![
+                "ANTHROPIC_BASE_URL".into(),
+                "ANTHROPIC_AUTH_TOKEN".into(),
+                "ANTHROPIC_MODEL".into(),
+                "CLAUDE_CODE_EFFORT_LEVEL".into(),
+            ],
+            expected_fields,
+            orphan: false,
+            applied_at: 1,
+            apply_record_id: None,
+            api_key: Default::default(),
+        };
+
+        assert_eq!(
+            detect_status(
+                Some(&binding),
+                Some(&row()),
+                Some("sk-test"),
+                Some(dir.path().to_str().unwrap()),
+            )
+            .unwrap(),
+            (ApplyStatus::Applied, None)
+        );
+        let summary = live_summary(Some(dir.path().to_str().unwrap())).unwrap();
+        assert_eq!(
+            summary.get("ANTHROPIC_MODEL"),
+            Some(&Some("legacy-model".into()))
+        );
+        assert_eq!(summary.get("model"), Some(&Some("legacy-model".into())));
+        assert_eq!(
+            summary.get("CLAUDE_CODE_EFFORT_LEVEL"),
+            Some(&Some("max".into()))
+        );
+        assert_eq!(summary.get("effortLevel"), Some(&Some("high".into())));
+        assert_eq!(
+            summary.get("ANTHROPIC_DEFAULT_FABLE_MODEL"),
+            Some(&Some("legacy-fable".into()))
+        );
+
+        let path = dir.path().join("settings.json");
+        let mut changed = read_settings(&path).unwrap();
+        changed["effortLevel"] = Value::String("low".into());
+        fs::write(&path, serde_json::to_string_pretty(&changed).unwrap()).unwrap();
+
+        surgical_revert(&binding, Some(dir.path().to_str().unwrap())).unwrap();
+        let reverted = read_settings(&dir.path().join("settings.json")).unwrap();
+        assert!(reverted.get("model").is_none());
+        assert_eq!(reverted["effortLevel"], "low");
+        let env = reverted["env"].as_object().unwrap();
+        assert!(!env.contains_key("ANTHROPIC_MODEL"));
+        assert!(!env.contains_key("CLAUDE_CODE_EFFORT_LEVEL"));
+        assert_eq!(env["ANTHROPIC_DEFAULT_FABLE_MODEL"], "legacy-fable");
     }
 }
 
@@ -800,6 +1142,7 @@ mod restore_official_tests {
     "ANTHROPIC_AUTH_TOKEN": "sk-relay",
     "ANTHROPIC_API_KEY": "sk-also",
     "ANTHROPIC_MODEL": "relay-opus",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "relay-fable",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "relay-opus",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "relay-sonnet",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "relay-haiku",

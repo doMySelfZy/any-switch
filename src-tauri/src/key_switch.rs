@@ -15,6 +15,7 @@ use crate::redact;
 use crate::repo;
 use crate::state::AppState;
 use chrono::Utc;
+use std::collections::HashMap;
 use std::fs;
 
 pub async fn switch_site_api_key(
@@ -125,6 +126,90 @@ fn supported(ids: &std::collections::HashSet<String>, model_id: &str) -> bool {
     ids.contains(trimmed) || ids.contains(&strip_1m_suffix(trimmed))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ClaudeApplyValues {
+    model_id: String,
+    auth: Option<ClaudeAuthKeyStyle>,
+    fable_model_id: Option<String>,
+    opus_model_id: Option<String>,
+    sonnet_model_id: Option<String>,
+    haiku_model_id: Option<String>,
+    effort_level: Option<ClaudeEffortLevel>,
+    use_1m_context: bool,
+}
+
+fn live_value(summary: Option<&HashMap<String, Option<String>>>, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        summary
+            .and_then(|values| values.get(*key))
+            .and_then(|value| value.as_ref())
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })
+}
+
+fn binding_value(binding: &TargetBinding, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        binding
+            .expected_fields
+            .get(*key)
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })
+}
+
+fn resolve_claude_values(
+    binding: &TargetBinding,
+    live: Option<&HashMap<String, Option<String>>>,
+) -> ClaudeApplyValues {
+    // Legacy env keys win in live settings because Claude Code gives them runtime precedence.
+    let raw_model = live_value(live, &["ANTHROPIC_MODEL", "model"])
+        .or_else(|| binding_value(binding, &["model", "ANTHROPIC_MODEL"]))
+        .unwrap_or_else(|| binding.model_id.clone());
+    let fable = live_value(live, &["ANTHROPIC_DEFAULT_FABLE_MODEL"])
+        .or_else(|| binding_value(binding, &["ANTHROPIC_DEFAULT_FABLE_MODEL"]));
+    let opus = live_value(live, &["ANTHROPIC_DEFAULT_OPUS_MODEL"])
+        .or_else(|| binding_value(binding, &["ANTHROPIC_DEFAULT_OPUS_MODEL"]));
+    let sonnet = live_value(live, &["ANTHROPIC_DEFAULT_SONNET_MODEL"])
+        .or_else(|| binding_value(binding, &["ANTHROPIC_DEFAULT_SONNET_MODEL"]));
+    let haiku = live_value(live, &["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
+        .or_else(|| binding_value(binding, &["ANTHROPIC_DEFAULT_HAIKU_MODEL"]));
+    let effort = live_value(live, &["CLAUDE_CODE_EFFORT_LEVEL", "effortLevel"])
+        .or_else(|| binding_value(binding, &["effortLevel", "CLAUDE_CODE_EFFORT_LEVEL"]))
+        .and_then(|value| ClaudeEffortLevel::parse(&value));
+    let auth = if live_value(live, &["ANTHROPIC_AUTH_TOKEN"]).is_some() {
+        Some(ClaudeAuthKeyStyle::AnthropicAuthToken)
+    } else if live_value(live, &["ANTHROPIC_API_KEY"]).is_some() {
+        Some(ClaudeAuthKeyStyle::AnthropicApiKey)
+    } else {
+        match binding_value(binding, &["auth_env_key"]).as_deref() {
+            Some("ANTHROPIC_AUTH_TOKEN") => Some(ClaudeAuthKeyStyle::AnthropicAuthToken),
+            Some("ANTHROPIC_API_KEY") => Some(ClaudeAuthKeyStyle::AnthropicApiKey),
+            _ => None,
+        }
+    };
+    let use_1m_context = [
+        &raw_model,
+        opus.as_deref().unwrap_or(""),
+        sonnet.as_deref().unwrap_or(""),
+    ]
+    .into_iter()
+    .any(|model| has_1m_suffix(model));
+
+    ClaudeApplyValues {
+        model_id: strip_1m_suffix(&raw_model),
+        auth,
+        fable_model_id: fable.map(|model| strip_1m_suffix(&model)),
+        opus_model_id: opus.map(|model| strip_1m_suffix(&model)),
+        sonnet_model_id: sonnet.map(|model| strip_1m_suffix(&model)),
+        haiku_model_id: haiku.map(|model| strip_1m_suffix(&model)),
+        effort_level: effort,
+        use_1m_context,
+    }
+}
+
 fn skip_result(target: TargetKind, message: &str) -> ApplyTargetResult {
     ApplyTargetResult {
         target,
@@ -157,20 +242,53 @@ pub fn sync_applied_keys(
             continue;
         }
         let target = binding.target;
-        if let Some(skipped) = skip_if_incompatible(target, &binding, &ids) {
+        let claude_values = if target == TargetKind::ClaudeCode {
+            match crate::adapters::claude_code::live_summary(
+                settings.claude_home_override.as_deref(),
+            ) {
+                Ok(live) => Some(resolve_claude_values(&binding, Some(&live))),
+                Err(error) => {
+                    results.push(ApplyTargetResult {
+                        target,
+                        ok: false,
+                        status: ApplyStatus::Failed,
+                        backup_paths: vec![],
+                        message: error.to_string(),
+                        live_summary: None,
+                        touched_keys: None,
+                    });
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
+        if let Some(skipped) = skip_if_incompatible(target, &binding, &ids, claude_values.as_ref())
+        {
             results.push(skipped);
             continue;
         }
         let _lock = try_lock_target(target.as_str())?;
+        let backup_model_id = claude_values
+            .as_ref()
+            .map(|values| values.model_id.clone())
+            .unwrap_or_else(|| binding.model_id.clone());
         let backup_root = backups_dir()?
             .join(target.as_str())
             .join(format!("{}", applied_at));
         fs::create_dir_all(&backup_root)?;
 
         let rewrite = match target {
-            TargetKind::ClaudeCode => {
-                apply_claude(site, &api_key, &binding, &settings, &backup_root)
-            }
+            TargetKind::ClaudeCode => apply_claude(
+                site,
+                &api_key,
+                &binding,
+                claude_values
+                    .as_ref()
+                    .expect("Claude values resolved above"),
+                &settings,
+                &backup_root,
+            ),
             TargetKind::Codex => {
                 apply_codex(site, &api_key, &binding, models, &settings, &backup_root)
             }
@@ -214,7 +332,7 @@ pub fn sync_applied_keys(
             &backup_root,
             target,
             &site.name,
-            &binding.model_id,
+            &backup_model_id,
             None,
             applied_at,
             settings.max_backup_copies,
@@ -228,26 +346,41 @@ fn skip_if_incompatible(
     target: TargetKind,
     binding: &TargetBinding,
     ids: &std::collections::HashSet<String>,
+    claude_values: Option<&ClaudeApplyValues>,
 ) -> Option<ApplyTargetResult> {
-    if !supported(ids, &binding.model_id) {
+    let model_id = claude_values
+        .map(|values| values.model_id.as_str())
+        .unwrap_or(binding.model_id.as_str());
+    if !supported(ids, model_id) {
         return Some(skip_result(
             target,
             "current model is not available on the new API key",
         ));
     }
     if target == TargetKind::ClaudeCode {
-        for key in [
-            "ANTHROPIC_DEFAULT_OPUS_MODEL",
-            "ANTHROPIC_DEFAULT_SONNET_MODEL",
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-        ] {
-            if let Some(model) = binding.expected_fields.get(key) {
-                if !supported(ids, model) {
-                    return Some(skip_result(
-                        target,
-                        "Claude model alias is not available on the new API key",
-                    ));
-                }
+        let fallback;
+        let aliases = if let Some(values) = claude_values {
+            [
+                values.fable_model_id.as_deref(),
+                values.opus_model_id.as_deref(),
+                values.sonnet_model_id.as_deref(),
+                values.haiku_model_id.as_deref(),
+            ]
+        } else {
+            fallback = resolve_claude_values(binding, None);
+            [
+                fallback.fable_model_id.as_deref(),
+                fallback.opus_model_id.as_deref(),
+                fallback.sonnet_model_id.as_deref(),
+                fallback.haiku_model_id.as_deref(),
+            ]
+        };
+        for model in aliases.into_iter().flatten() {
+            if !supported(ids, model) {
+                return Some(skip_result(
+                    target,
+                    "Claude model alias is not available on the new API key",
+                ));
             }
         }
     }
@@ -258,6 +391,7 @@ fn apply_claude(
     site: &SiteRow,
     api_key: &str,
     binding: &TargetBinding,
+    values: &ClaudeApplyValues,
     settings: &crate::domain::AppSettings,
     backup_root: &std::path::PathBuf,
 ) -> AppResult<(
@@ -267,38 +401,22 @@ fn apply_claude(
     std::collections::HashMap<String, Option<String>>,
     Vec<String>,
 )> {
-    let auth = match binding
-        .expected_fields
-        .get("auth_env_key")
-        .map(|s| s.as_str())
-    {
-        Some("ANTHROPIC_API_KEY") => ClaudeAuthKeyStyle::AnthropicApiKey,
-        Some("ANTHROPIC_AUTH_TOKEN") => ClaudeAuthKeyStyle::AnthropicAuthToken,
-        _ => site.claude_auth_key_style.clone(),
-    };
+    let auth = values
+        .auth
+        .clone()
+        .unwrap_or_else(|| site.claude_auth_key_style.clone());
     let options = ClaudeApplyOptions {
-        opus_model_id: binding
-            .expected_fields
-            .get("ANTHROPIC_DEFAULT_OPUS_MODEL")
-            .cloned(),
-        sonnet_model_id: binding
-            .expected_fields
-            .get("ANTHROPIC_DEFAULT_SONNET_MODEL")
-            .cloned(),
-        haiku_model_id: binding
-            .expected_fields
-            .get("ANTHROPIC_DEFAULT_HAIKU_MODEL")
-            .cloned(),
-        effort_level: binding
-            .expected_fields
-            .get("CLAUDE_CODE_EFFORT_LEVEL")
-            .and_then(|s| ClaudeEffortLevel::parse(s)),
-        use_1m_context: has_1m_suffix(&binding.model_id),
+        fable_model_id: values.fable_model_id.clone(),
+        opus_model_id: values.opus_model_id.clone(),
+        sonnet_model_id: values.sonnet_model_id.clone(),
+        haiku_model_id: values.haiku_model_id.clone(),
+        effort_level: values.effort_level.clone(),
+        use_1m_context: values.use_1m_context,
     };
     let outcome = crate::adapters::claude_code::apply(
         site,
         api_key,
-        &binding.model_id,
+        &values.model_id,
         auth,
         settings.force_exclusive_claude_auth_key,
         &options,
@@ -490,4 +608,135 @@ fn apply_prime(
 
 pub fn stamp_binding(binding: &mut TargetBinding, snapshot: &BindingApiKeySnapshot) {
     binding.api_key = snapshot.clone();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn binding(expected_fields: HashMap<String, String>) -> TargetBinding {
+        TargetBinding {
+            target: TargetKind::ClaudeCode,
+            site_id: Some("site-1".into()),
+            site_name_snapshot: "Relay".into(),
+            model_id: "raw-binding-model".into(),
+            provider_id: None,
+            key_fingerprint: "fingerprint".into(),
+            managed_paths: vec![],
+            managed_env_keys: vec![],
+            expected_fields,
+            orphan: false,
+            applied_at: 1,
+            apply_record_id: None,
+            api_key: Default::default(),
+        }
+    }
+
+    #[test]
+    fn claude_values_prefer_live_runtime_values() {
+        let binding = binding(HashMap::from([
+            ("model".into(), "binding-model".into()),
+            ("effortLevel".into(), "low".into()),
+            ("auth_env_key".into(), "ANTHROPIC_AUTH_TOKEN".into()),
+        ]));
+        let live = HashMap::from([
+            ("model".into(), Some("top-level-model".into())),
+            ("ANTHROPIC_MODEL".into(), Some("live-model[1M]".into())),
+            (
+                "ANTHROPIC_DEFAULT_FABLE_MODEL".into(),
+                Some("live-fable[1m]".into()),
+            ),
+            (
+                "ANTHROPIC_DEFAULT_OPUS_MODEL".into(),
+                Some("live-opus[1m]".into()),
+            ),
+            (
+                "ANTHROPIC_DEFAULT_SONNET_MODEL".into(),
+                Some("live-sonnet".into()),
+            ),
+            (
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL".into(),
+                Some("live-haiku[1m]".into()),
+            ),
+            ("ANTHROPIC_API_KEY".into(), Some("sk-live".into())),
+            ("effortLevel".into(), Some("low".into())),
+            ("CLAUDE_CODE_EFFORT_LEVEL".into(), Some("high".into())),
+        ]);
+
+        let values = resolve_claude_values(&binding, Some(&live));
+
+        assert_eq!(values.model_id, "live-model");
+        assert_eq!(values.auth, Some(ClaudeAuthKeyStyle::AnthropicApiKey));
+        assert_eq!(values.fable_model_id.as_deref(), Some("live-fable"));
+        assert_eq!(values.opus_model_id.as_deref(), Some("live-opus"));
+        assert_eq!(values.sonnet_model_id.as_deref(), Some("live-sonnet"));
+        assert_eq!(values.haiku_model_id.as_deref(), Some("live-haiku"));
+        assert_eq!(values.effort_level, Some(ClaudeEffortLevel::High));
+        assert!(values.use_1m_context);
+    }
+
+    #[test]
+    fn claude_values_fall_back_to_new_and_legacy_binding_fields() {
+        let binding = binding(HashMap::from([
+            ("model".into(), "binding-model[1m]".into()),
+            (
+                "ANTHROPIC_DEFAULT_FABLE_MODEL".into(),
+                "binding-fable[1m]".into(),
+            ),
+            ("ANTHROPIC_DEFAULT_OPUS_MODEL".into(), "binding-opus".into()),
+            (
+                "ANTHROPIC_DEFAULT_SONNET_MODEL".into(),
+                "binding-sonnet".into(),
+            ),
+            (
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL".into(),
+                "binding-haiku[1m]".into(),
+            ),
+            ("CLAUDE_CODE_EFFORT_LEVEL".into(), "max".into()),
+            ("auth_env_key".into(), "ANTHROPIC_AUTH_TOKEN".into()),
+        ]));
+
+        let values = resolve_claude_values(&binding, None);
+
+        assert_eq!(values.model_id, "binding-model");
+        assert_eq!(values.auth, Some(ClaudeAuthKeyStyle::AnthropicAuthToken));
+        assert_eq!(values.fable_model_id.as_deref(), Some("binding-fable"));
+        assert_eq!(values.opus_model_id.as_deref(), Some("binding-opus"));
+        assert_eq!(values.sonnet_model_id.as_deref(), Some("binding-sonnet"));
+        assert_eq!(values.haiku_model_id.as_deref(), Some("binding-haiku"));
+        assert_eq!(
+            values.effort_level.as_ref().map(ClaudeEffortLevel::as_str),
+            Some("xhigh")
+        );
+        assert!(values.use_1m_context);
+    }
+
+    #[test]
+    fn compatibility_check_uses_resolved_live_models() {
+        let binding = binding(HashMap::from([
+            ("model".into(), "stale-binding-model".into()),
+            (
+                "ANTHROPIC_DEFAULT_SONNET_MODEL".into(),
+                "stale-binding-sonnet".into(),
+            ),
+        ]));
+        let live = HashMap::from([
+            ("model".into(), Some("live-model".into())),
+            (
+                "ANTHROPIC_DEFAULT_SONNET_MODEL".into(),
+                Some("live-sonnet".into()),
+            ),
+        ]);
+        let values = resolve_claude_values(&binding, Some(&live));
+        let ids = std::collections::HashSet::from(["live-model".into(), "live-sonnet".into()]);
+
+        assert!(
+            skip_if_incompatible(TargetKind::ClaudeCode, &binding, &ids, Some(&values)).is_none()
+        );
+
+        let ids = std::collections::HashSet::from(["live-model".into()]);
+        assert!(
+            skip_if_incompatible(TargetKind::ClaudeCode, &binding, &ids, Some(&values)).is_some()
+        );
+    }
 }

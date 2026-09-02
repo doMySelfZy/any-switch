@@ -14,7 +14,7 @@ import {
   codexFlagsFromCapabilities,
 } from "@/lib/siteCapabilities";
 
-const CLAUDE_EFFORTS = new Set<ClaudeEffortLevel>(["low", "medium", "high", "max"]);
+const CLAUDE_EFFORTS = new Set<ClaudeEffortLevel>(["low", "medium", "high", "xhigh"]);
 const CODEX_EFFORTS = new Set<CodexReasoningEffort>([
   "minimal",
   "low",
@@ -58,6 +58,7 @@ export function liveStr(summary: LiveSummary | undefined, ...keys: string[]): st
 
 export function parseClaudeEffort(raw: string | undefined): ClaudeEffortLevel | undefined {
   if (!raw) return undefined;
+  if (raw === "max") return "xhigh";
   return CLAUDE_EFFORTS.has(raw as ClaudeEffortLevel) ? (raw as ClaudeEffortLevel) : undefined;
 }
 
@@ -80,6 +81,7 @@ export interface ClaudeFormDefaults {
   opusModel: string | undefined;
   sonnetModel: string | undefined;
   haikuModel: string | undefined;
+  fableModel: string | undefined;
   effort: ClaudeEffortLevel | undefined;
   auth: ClaudeAuthKeyStyle;
   use1mContext: boolean;
@@ -132,11 +134,13 @@ export function hydrateClaudeForm(
     const liveOpus = liveStr(live, "ANTHROPIC_DEFAULT_OPUS_MODEL");
     const liveSonnet = liveStr(live, "ANTHROPIC_DEFAULT_SONNET_MODEL");
     const liveHaiku = liveStr(live, "ANTHROPIC_DEFAULT_HAIKU_MODEL");
+    const liveFable = liveStr(live, "ANTHROPIC_DEFAULT_FABLE_MODEL");
     return {
       modelId: stripClaude1mSuffix(liveModel) ?? site?.selectedModelId ?? undefined,
       opusModel: stripClaude1mSuffix(liveOpus),
       sonnetModel: stripClaude1mSuffix(liveSonnet),
       haikuModel: stripClaude1mSuffix(liveHaiku),
+      fableModel: stripClaude1mSuffix(liveFable),
       effort: parseClaudeEffort(liveStr(live, "CLAUDE_CODE_EFFORT_LEVEL", "effortLevel")),
       auth: inferClaudeAuth(live) ?? fallbackAuth,
       use1mContext: [liveModel, liveOpus, liveSonnet].some(hasClaude1mSuffix),
@@ -148,6 +152,7 @@ export function hydrateClaudeForm(
     opusModel: undefined,
     sonnetModel: undefined,
     haikuModel: undefined,
+    fableModel: undefined,
     effort: parseClaudeEffort(liveStr(live, "CLAUDE_CODE_EFFORT_LEVEL", "effortLevel")),
     auth: site?.claudeAuthKeyStyle ?? fallbackAuth,
     use1mContext: false,

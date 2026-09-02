@@ -30,6 +30,7 @@ pub fn apply_site(
     targets: Vec<TargetKind>,
     model_id: String,
     claude_auth_key_style: Option<String>,
+    claude_fable_model_id: Option<String>,
     claude_opus_model_id: Option<String>,
     claude_sonnet_model_id: Option<String>,
     claude_haiku_model_id: Option<String>,
@@ -72,6 +73,7 @@ pub fn apply_site(
         .unwrap_or(site.claude_auth_key_style.clone());
 
     let claude_opts = ClaudeApplyOptions {
+        fable_model_id: non_empty(claude_fable_model_id),
         opus_model_id: non_empty(claude_opus_model_id),
         sonnet_model_id: non_empty(claude_sonnet_model_id),
         haiku_model_id: non_empty(claude_haiku_model_id),

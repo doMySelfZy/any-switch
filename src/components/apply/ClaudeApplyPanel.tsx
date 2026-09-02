@@ -41,6 +41,7 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
   const [opusModel, setOpusModel] = useState<string | undefined>();
   const [sonnetModel, setSonnetModel] = useState<string | undefined>();
   const [haikuModel, setHaikuModel] = useState<string | undefined>();
+  const [fableModel, setFableModel] = useState<string | undefined>();
   const [effort, setEffort] = useState<ClaudeEffortLevel | undefined>();
   const [use1mContext, setUse1mContext] = useState(false);
 
@@ -60,6 +61,7 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
       setOpusModel(undefined);
       setSonnetModel(undefined);
       setHaikuModel(undefined);
+      setFableModel(undefined);
       setUse1mContext(false);
       return;
     }
@@ -72,6 +74,7 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
     setOpusModel(defaults.opusModel);
     setSonnetModel(defaults.sonnetModel);
     setHaikuModel(defaults.haikuModel);
+    setFableModel(defaults.fableModel);
     setEffort(defaults.effort);
     setClaudeAuth(defaults.auth);
     setUse1mContext(defaults.use1mContext);
@@ -79,8 +82,8 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
   }, [site, status]);
 
   const modelOptions = useMemo(
-    () => buildModelOptions(models, [modelId, opusModel, sonnetModel, haikuModel]),
-    [models, modelId, opusModel, sonnetModel, haikuModel],
+    () => buildModelOptions(models, [modelId, opusModel, sonnetModel, haikuModel, fableModel]),
+    [models, modelId, opusModel, sonnetModel, haikuModel, fableModel],
   );
 
   const handleApply = async () => {
@@ -108,6 +111,7 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
         claudeOpusModelId: opusModel ?? null,
         claudeSonnetModelId: sonnetModel ?? null,
         claudeHaikuModelId: haikuModel ?? null,
+        claudeFableModelId: fableModel ?? null,
         claudeEffortLevel: effort ?? null,
         claudeUse1mContext: use1mContext,
       });
@@ -206,6 +210,7 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
                   { key: "opus", label: t("apply.aliasOpus"), value: opusModel, set: setOpusModel },
                   { key: "sonnet", label: t("apply.aliasSonnet"), value: sonnetModel, set: setSonnetModel },
                   { key: "haiku", label: t("apply.aliasHaiku"), value: haikuModel, set: setHaikuModel },
+                  { key: "fable", label: t("apply.aliasFable"), value: fableModel, set: setFableModel },
                 ] as const
               ).map((row, idx) => (
                 <div key={row.key}>
@@ -262,7 +267,7 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
                     { value: "low", label: t("apply.effortLow") },
                     { value: "medium", label: t("apply.effortMedium") },
                     { value: "high", label: t("apply.effortHigh") },
-                    { value: "max", label: t("apply.effortMax") },
+                    { value: "xhigh", label: t("apply.effortXhigh") },
                   ]}
                 />
               </div>

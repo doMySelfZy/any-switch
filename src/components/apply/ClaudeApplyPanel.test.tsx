@@ -79,8 +79,9 @@ describe("ClaudeApplyPanel", () => {
       liveSummary: {
         ANTHROPIC_MODEL: "codex-auto-review[1m]",
         ANTHROPIC_DEFAULT_OPUS_MODEL: "opus-live[1m]",
+        ANTHROPIC_DEFAULT_FABLE_MODEL: "fable-live",
         ANTHROPIC_AUTH_TOKEN: "sk-live",
-        CLAUDE_CODE_EFFORT_LEVEL: "high",
+        CLAUDE_CODE_EFFORT_LEVEL: "max",
       },
       lastAppliedAt: 42,
       staleReason: null,
@@ -106,7 +107,8 @@ describe("ClaudeApplyPanel", () => {
       expect(document.querySelector('.ant-select-content[title="codex-auto-review"]')).toBeTruthy();
     });
     expect(document.querySelector('.ant-select-content[title="opus-live"]')).toBeTruthy();
-    expect(document.querySelector('.ant-select-content[title="High"]')).toBeTruthy();
+    expect(document.querySelector('.ant-select-content[title="fable-live"]')).toBeTruthy();
+    expect(document.querySelector('.ant-select-content[title="Extra High"]')).toBeTruthy();
     expect(
       document.querySelector('.ant-select-content[title="ANTHROPIC_AUTH_TOKEN（推荐）"]'),
     ).toBeTruthy();
@@ -155,13 +157,17 @@ describe("ClaudeApplyPanel", () => {
           installed: true,
           version: "2.1.197",
           configPath: "/tmp/settings.json",
-          status: "not_applied",
-          appliedSiteId: null,
-          appliedSiteName: null,
-          appliedModelId: null,
+          status: "applied",
+          appliedSiteId: site.id,
+          appliedSiteName: site.name,
+          appliedModelId: "gpt-4.1",
           providerId: null,
           orphan: false,
-          liveSummary: {},
+          liveSummary: {
+            model: "gpt-4.1",
+            ANTHROPIC_DEFAULT_FABLE_MODEL: "gpt-4.1",
+            effortLevel: "xhigh",
+          },
           lastAppliedAt: null,
           staleReason: null,
         },
@@ -200,8 +206,20 @@ describe("ClaudeApplyPanel", () => {
     expect(within(dialog).queryByText(/Browser mock/i)).not.toBeInTheDocument();
     expect(
       useApplyStore.getState().statuses.find((row) => row.kind === "claude_code")?.liveSummary
-        .ANTHROPIC_MODEL,
+        .model,
     ).toBe("gpt-4.1[1m]");
+    expect(
+      useApplyStore.getState().statuses.find((row) => row.kind === "claude_code")?.liveSummary
+        .ANTHROPIC_DEFAULT_FABLE_MODEL,
+    ).toBe("gpt-4.1");
+    expect(
+      useApplyStore.getState().statuses.find((row) => row.kind === "claude_code")?.liveSummary
+        .effortLevel,
+    ).toBe("xhigh");
+    expect(
+      useApplyStore.getState().statuses.find((row) => row.kind === "claude_code")?.liveSummary
+        .CLAUDE_CODE_EFFORT_LEVEL,
+    ).toBeUndefined();
   });
 
   it("groups disabled sites as unselectable in the apply picker", async () => {

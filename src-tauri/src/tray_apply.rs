@@ -3,7 +3,7 @@ use crate::capabilities::{
 };
 use crate::domain::{
     ApplyTargetResult, CapabilitySource, ClaudeAuthKeyStyle, ClaudeEffortLevel,
-    CodexReasoningEffort, SiteRow, TargetKind, TargetLiveStatus,
+    CodexReasoningEffort, SiteRow, TargetBinding, TargetKind, TargetLiveStatus,
 };
 use crate::error::{AppError, AppResult};
 use crate::repo;
@@ -15,6 +15,7 @@ use tauri::{AppHandle, Emitter, Manager};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClaudeHydration {
     pub model_id: Option<String>,
+    pub fable_model: Option<String>,
     pub opus_model: Option<String>,
     pub sonnet_model: Option<String>,
     pub haiku_model: Option<String>,
@@ -65,6 +66,16 @@ fn live_str(summary: &HashMap<String, Option<String>>, keys: &[&str]) -> Option<
     None
 }
 
+fn binding_str(binding: Option<&TargetBinding>, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        binding
+            .and_then(|value| value.expected_fields.get(*key))
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })
+}
+
 fn applied_on_site(site_id: &str, status: Option<&TargetLiveStatus>) -> bool {
     status
         .and_then(|s| s.applied_site_id.as_deref())
@@ -87,17 +98,49 @@ fn infer_claude_auth(
     fallback
 }
 
-pub fn hydrate_claude(site: &SiteRow, status: Option<&TargetLiveStatus>) -> ClaudeHydration {
+#[cfg(test)]
+fn hydrate_claude(site: &SiteRow, status: Option<&TargetLiveStatus>) -> ClaudeHydration {
+    hydrate_claude_with_binding(site, status, None)
+}
+
+fn hydrate_claude_with_binding(
+    site: &SiteRow,
+    status: Option<&TargetLiveStatus>,
+    binding: Option<&TargetBinding>,
+) -> ClaudeHydration {
     let live = status.map(|s| &s.live_summary);
-    let on_site = applied_on_site(&site.id, status);
+    let binding_on_site = binding.filter(|value| value.site_id.as_deref() == Some(&site.id));
+    let on_site = applied_on_site(&site.id, status) || binding_on_site.is_some();
     let live_model = live
         .and_then(|s| live_str(s, &["ANTHROPIC_MODEL", "model"]))
-        .or_else(|| status.and_then(|s| s.applied_model_id.clone()));
-    let live_opus = live.and_then(|s| live_str(s, &["ANTHROPIC_DEFAULT_OPUS_MODEL"]));
-    let live_sonnet = live.and_then(|s| live_str(s, &["ANTHROPIC_DEFAULT_SONNET_MODEL"]));
-    let live_haiku = live.and_then(|s| live_str(s, &["ANTHROPIC_DEFAULT_HAIKU_MODEL"]));
-    let fallback_auth = site.claude_auth_key_style.clone();
-    let effort = live.and_then(|s| live_str(s, &["CLAUDE_CODE_EFFORT_LEVEL", "effortLevel"]));
+        .or_else(|| binding_str(binding_on_site, &["model", "ANTHROPIC_MODEL"]))
+        .or_else(|| status.and_then(|s| s.applied_model_id.clone()))
+        .or_else(|| binding_on_site.map(|value| value.model_id.clone()));
+    let live_fable = live
+        .and_then(|s| live_str(s, &["ANTHROPIC_DEFAULT_FABLE_MODEL"]))
+        .or_else(|| binding_str(binding_on_site, &["ANTHROPIC_DEFAULT_FABLE_MODEL"]));
+    let live_opus = live
+        .and_then(|s| live_str(s, &["ANTHROPIC_DEFAULT_OPUS_MODEL"]))
+        .or_else(|| binding_str(binding_on_site, &["ANTHROPIC_DEFAULT_OPUS_MODEL"]));
+    let live_sonnet = live
+        .and_then(|s| live_str(s, &["ANTHROPIC_DEFAULT_SONNET_MODEL"]))
+        .or_else(|| binding_str(binding_on_site, &["ANTHROPIC_DEFAULT_SONNET_MODEL"]));
+    let live_haiku = live
+        .and_then(|s| live_str(s, &["ANTHROPIC_DEFAULT_HAIKU_MODEL"]))
+        .or_else(|| binding_str(binding_on_site, &["ANTHROPIC_DEFAULT_HAIKU_MODEL"]));
+    let fallback_auth = match binding_str(binding_on_site, &["auth_env_key"]).as_deref() {
+        Some("ANTHROPIC_API_KEY") => ClaudeAuthKeyStyle::AnthropicApiKey,
+        Some("ANTHROPIC_AUTH_TOKEN") => ClaudeAuthKeyStyle::AnthropicAuthToken,
+        _ => site.claude_auth_key_style.clone(),
+    };
+    let effort = live
+        .and_then(|s| live_str(s, &["CLAUDE_CODE_EFFORT_LEVEL", "effortLevel"]))
+        .or_else(|| {
+            binding_str(
+                binding_on_site,
+                &["effortLevel", "CLAUDE_CODE_EFFORT_LEVEL"],
+            )
+        });
     let effort = effort.as_deref().and_then(ClaudeEffortLevel::parse);
 
     if on_site {
@@ -114,6 +157,9 @@ pub fn hydrate_claude(site: &SiteRow, status: Option<&TargetLiveStatus>) -> Clau
                 .as_deref()
                 .map(crate::adapters::claude_code::strip_1m_suffix)
                 .or_else(|| site.selected_model_id.clone()),
+            fable_model: live_fable
+                .as_deref()
+                .map(crate::adapters::claude_code::strip_1m_suffix),
             opus_model: live_opus
                 .as_deref()
                 .map(crate::adapters::claude_code::strip_1m_suffix),
@@ -130,6 +176,7 @@ pub fn hydrate_claude(site: &SiteRow, status: Option<&TargetLiveStatus>) -> Clau
     } else {
         ClaudeHydration {
             model_id: site.selected_model_id.clone(),
+            fable_model: None,
             opus_model: None,
             sonnet_model: None,
             haiku_model: None,
@@ -317,9 +364,10 @@ fn apply_site_from_tray_inner(app: &AppHandle, site_id: &str) -> AppResult<Vec<A
     let mut attempted = false;
     for target in targets {
         let status = statuses.iter().find(|s| s.kind == target);
+        let binding = bindings.iter().find(|value| value.target == target);
         match target {
             TargetKind::ClaudeCode => {
-                let h = hydrate_claude(&site, status);
+                let h = hydrate_claude_with_binding(&site, status, binding);
                 let Some(model_id) = h.model_id.filter(|s| !s.trim().is_empty()) else {
                     continue;
                 };
@@ -331,6 +379,7 @@ fn apply_site_from_tray_inner(app: &AppHandle, site_id: &str) -> AppResult<Vec<A
                     vec![TargetKind::ClaudeCode],
                     model_id,
                     Some(h.auth.as_str().into()),
+                    h.fable_model,
                     h.opus_model,
                     h.sonnet_model,
                     h.haiku_model,
@@ -361,6 +410,7 @@ fn apply_site_from_tray_inner(app: &AppHandle, site_id: &str) -> AppResult<Vec<A
                     site.id.clone(),
                     vec![TargetKind::Codex],
                     model_id,
+                    None,
                     None,
                     None,
                     None,
@@ -406,6 +456,7 @@ fn apply_site_from_tray_inner(app: &AppHandle, site_id: &str) -> AppResult<Vec<A
                     None,
                     None,
                     None,
+                    None,
                     Some(hydration.write_all_models),
                     None,
                     None,
@@ -425,6 +476,7 @@ fn apply_site_from_tray_inner(app: &AppHandle, site_id: &str) -> AppResult<Vec<A
                     site.id.clone(),
                     vec![TargetKind::Prime],
                     model_id,
+                    None,
                     None,
                     None,
                     None,
@@ -487,7 +539,11 @@ mod tests {
 
     fn claude_status() -> TargetLiveStatus {
         let mut live = HashMap::new();
-        live.insert("ANTHROPIC_MODEL".into(), Some("codex-auto-review".into()));
+        live.insert("model".into(), Some("codex-auto-review".into()));
+        live.insert(
+            "ANTHROPIC_DEFAULT_FABLE_MODEL".into(),
+            Some("fable-live[1m]".into()),
+        );
         live.insert(
             "ANTHROPIC_DEFAULT_OPUS_MODEL".into(),
             Some("opus-live".into()),
@@ -501,7 +557,7 @@ mod tests {
             Some("haiku-live".into()),
         );
         live.insert("ANTHROPIC_AUTH_TOKEN".into(), Some("sk-live".into()));
-        live.insert("CLAUDE_CODE_EFFORT_LEVEL".into(), Some("high".into()));
+        live.insert("effortLevel".into(), Some("high".into()));
         TargetLiveStatus {
             kind: TargetKind::ClaudeCode,
             installed: true,
@@ -552,6 +608,7 @@ mod tests {
             Some(&claude_status()),
         );
         assert_eq!(defaults.model_id.as_deref(), Some("codex-auto-review"));
+        assert_eq!(defaults.fable_model.as_deref(), Some("fable-live"));
         assert_eq!(defaults.opus_model.as_deref(), Some("opus-live"));
         assert_eq!(defaults.sonnet_model.as_deref(), Some("sonnet-live"));
         assert_eq!(defaults.haiku_model.as_deref(), Some("haiku-live"));
@@ -563,10 +620,9 @@ mod tests {
     #[test]
     fn hydrate_claude_preserves_1m_declaration_for_tray_apply() {
         let mut status = claude_status();
-        status.live_summary.insert(
-            "ANTHROPIC_MODEL".into(),
-            Some("codex-auto-review[1m]".into()),
-        );
+        status
+            .live_summary
+            .insert("model".into(), Some("codex-auto-review[1m]".into()));
         status.live_summary.insert(
             "ANTHROPIC_DEFAULT_OPUS_MODEL".into(),
             Some("opus-live[1M]".into()),
@@ -586,6 +642,109 @@ mod tests {
     }
 
     #[test]
+    fn hydrate_claude_legacy_env_values_keep_runtime_precedence() {
+        let mut status = claude_status();
+        status
+            .live_summary
+            .insert("ANTHROPIC_MODEL".into(), Some("legacy-live[1m]".into()));
+        status
+            .live_summary
+            .insert("CLAUDE_CODE_EFFORT_LEVEL".into(), Some("max".into()));
+
+        let defaults = hydrate_claude(
+            &site(
+                "shuai",
+                Some("gpt-4.1"),
+                ClaudeAuthKeyStyle::AnthropicAuthToken,
+            ),
+            Some(&status),
+        );
+
+        assert_eq!(defaults.model_id.as_deref(), Some("legacy-live"));
+        assert_eq!(
+            defaults.effort.as_ref().map(ClaudeEffortLevel::as_str),
+            Some("xhigh")
+        );
+        assert!(defaults.use_1m_context);
+    }
+
+    #[test]
+    fn hydrate_claude_falls_back_to_binding_when_live_summary_is_missing() {
+        let mut status = claude_status();
+        status.live_summary.clear();
+        status.applied_model_id = Some("raw-binding-model".into());
+        let binding = TargetBinding {
+            target: TargetKind::ClaudeCode,
+            site_id: Some("shuai".into()),
+            site_name_snapshot: "shuai".into(),
+            model_id: "raw-binding-model".into(),
+            provider_id: None,
+            key_fingerprint: "fingerprint".into(),
+            managed_paths: vec![],
+            managed_env_keys: vec![],
+            expected_fields: HashMap::from([
+                ("model".into(), "binding-model[1m]".into()),
+                (
+                    "ANTHROPIC_DEFAULT_FABLE_MODEL".into(),
+                    "binding-fable".into(),
+                ),
+                ("ANTHROPIC_DEFAULT_OPUS_MODEL".into(), "binding-opus".into()),
+                (
+                    "ANTHROPIC_DEFAULT_SONNET_MODEL".into(),
+                    "binding-sonnet".into(),
+                ),
+                (
+                    "ANTHROPIC_DEFAULT_HAIKU_MODEL".into(),
+                    "binding-haiku".into(),
+                ),
+                ("effortLevel".into(), "xhigh".into()),
+                ("auth_env_key".into(), "ANTHROPIC_API_KEY".into()),
+            ]),
+            orphan: false,
+            applied_at: 1,
+            apply_record_id: None,
+            api_key: Default::default(),
+        };
+
+        let defaults = hydrate_claude_with_binding(
+            &site(
+                "shuai",
+                Some("gpt-4.1"),
+                ClaudeAuthKeyStyle::AnthropicAuthToken,
+            ),
+            Some(&status),
+            Some(&binding),
+        );
+
+        assert_eq!(defaults.model_id.as_deref(), Some("binding-model"));
+        assert_eq!(defaults.fable_model.as_deref(), Some("binding-fable"));
+        assert_eq!(defaults.opus_model.as_deref(), Some("binding-opus"));
+        assert_eq!(defaults.sonnet_model.as_deref(), Some("binding-sonnet"));
+        assert_eq!(defaults.haiku_model.as_deref(), Some("binding-haiku"));
+        assert_eq!(
+            defaults.effort.as_ref().map(ClaudeEffortLevel::as_str),
+            Some("xhigh")
+        );
+        assert_eq!(defaults.auth, ClaudeAuthKeyStyle::AnthropicApiKey);
+        assert!(defaults.use_1m_context);
+
+        let switched = hydrate_claude_with_binding(
+            &site(
+                "other",
+                Some("other-model"),
+                ClaudeAuthKeyStyle::AnthropicAuthToken,
+            ),
+            Some(&status),
+            Some(&binding),
+        );
+        assert_eq!(switched.model_id.as_deref(), Some("other-model"));
+        assert_eq!(switched.fable_model, None);
+        assert_eq!(switched.opus_model, None);
+        assert_eq!(switched.effort, None);
+        assert_eq!(switched.auth, ClaudeAuthKeyStyle::AnthropicAuthToken);
+    }
+
+    #[test]
     fn hydrate_claude_does_not_copy_aliases_when_switching_site() {
         let defaults = hydrate_claude(
             &site(
@@ -596,6 +755,7 @@ mod tests {
             Some(&claude_status()),
         );
         assert_eq!(defaults.model_id.as_deref(), Some("gpt-4.1"));
+        assert_eq!(defaults.fable_model, None);
         assert_eq!(defaults.opus_model, None);
         assert_eq!(defaults.sonnet_model, None);
         assert_eq!(defaults.haiku_model, None);
@@ -616,6 +776,7 @@ mod tests {
         );
         assert_eq!(defaults.model_id.as_deref(), Some("gpt-4.1"));
         assert_eq!(defaults.effort, None);
+        assert_eq!(defaults.fable_model, None);
         assert_eq!(defaults.opus_model, None);
         assert!(!defaults.use_1m_context);
     }

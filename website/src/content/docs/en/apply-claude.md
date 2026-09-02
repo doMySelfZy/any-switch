@@ -11,7 +11,7 @@ The default write path is `~/.claude/settings.json` (the Claude config directory
 ## Site and model
 
 - Pick an enabled site
-- The **default model** is written as `ANTHROPIC_MODEL`
+- The **default model** is written to the top-level `model` field; Claude Code’s `/model` can still switch and save it
 - Make sure the site already has models
 
 The same model id may not be accepted by Claude Code, Codex, and Pi. If you see a multi-target warning you can still force-apply, but picking separately is usually better.
@@ -27,11 +27,13 @@ Settings can turn on “force exclusive Claude auth key”, which deletes the ot
 
 ## Model alias map
 
-Map Claude Code’s built-in **opus / sonnet / haiku** aliases to model ids on the current site. They may match the default model, or be cleared.
+Map Claude Code’s built-in **fable / opus / sonnet / haiku** aliases to model ids on the current site. They may match the default model, or be cleared. With custom model ids, Claude Code displays `Custom <family> model` by default; this does not mean the mapping failed.
 
 ## Thinking effort
 
-Effort is written as `effortLevel` and `CLAUDE_CODE_EFFORT_LEVEL` (Minimal / Low / Medium / High / Max / Extra High).
+Effort is written to the top-level `effortLevel` field. The persistent choices are Low, Medium, High, and Extra High (`xhigh`). This does not lock Claude Code’s interactive selector: `/effort` can change and save supported levels. `max` is session-only and is not persisted.
+
+When an older configuration is reapplied, XiaoBaiSwitch migrates its binding and removes the legacy `ANTHROPIC_MODEL` and `CLAUDE_CODE_EFFORT_LEVEL` entries from `settings.json`. It does not remove variables with the same names that the user set in a shell or another external environment.
 
 ## After apply
 

@@ -50,6 +50,7 @@ function status(partial: Partial<TargetLiveStatus> = {}): TargetLiveStatus {
       ANTHROPIC_DEFAULT_OPUS_MODEL: "opus-live",
       ANTHROPIC_DEFAULT_SONNET_MODEL: "sonnet-live",
       ANTHROPIC_DEFAULT_HAIKU_MODEL: "haiku-live",
+      ANTHROPIC_DEFAULT_FABLE_MODEL: "fable-live",
       ANTHROPIC_AUTH_TOKEN: "sk-live",
       CLAUDE_CODE_EFFORT_LEVEL: "high",
     },
@@ -109,6 +110,7 @@ describe("hydrateClaudeForm", () => {
     expect(defaults.opusModel).toBe("opus-live");
     expect(defaults.sonnetModel).toBe("sonnet-live");
     expect(defaults.haikuModel).toBe("haiku-live");
+    expect(defaults.fableModel).toBe("fable-live");
     expect(defaults.effort).toBe("high");
     expect(defaults.auth).toBe("anthropic_auth_token");
     expect(defaults.use1mContext).toBe(false);
@@ -123,6 +125,7 @@ describe("hydrateClaudeForm", () => {
           ANTHROPIC_DEFAULT_OPUS_MODEL: "opus-live[1M]",
           ANTHROPIC_DEFAULT_SONNET_MODEL: "sonnet-live[1m]",
           ANTHROPIC_DEFAULT_HAIKU_MODEL: "haiku-live",
+          ANTHROPIC_DEFAULT_FABLE_MODEL: "fable-live",
         },
       }),
     );
@@ -130,6 +133,7 @@ describe("hydrateClaudeForm", () => {
     expect(defaults.opusModel).toBe("opus-live");
     expect(defaults.sonnetModel).toBe("sonnet-live");
     expect(defaults.haikuModel).toBe("haiku-live");
+    expect(defaults.fableModel).toBe("fable-live");
     expect(defaults.use1mContext).toBe(true);
   });
 
@@ -142,6 +146,7 @@ describe("hydrateClaudeForm", () => {
     expect(defaults.opusModel).toBeUndefined();
     expect(defaults.sonnetModel).toBeUndefined();
     expect(defaults.haikuModel).toBeUndefined();
+    expect(defaults.fableModel).toBeUndefined();
     expect(defaults.auth).toBe("anthropic_api_key");
     expect(defaults.effort).toBe("high");
     expect(defaults.use1mContext).toBe(false);
@@ -152,7 +157,16 @@ describe("hydrateClaudeForm", () => {
     expect(defaults.modelId).toBe("gpt-4.1");
     expect(defaults.effort).toBeUndefined();
     expect(defaults.opusModel).toBeUndefined();
+    expect(defaults.fableModel).toBeUndefined();
     expect(defaults.use1mContext).toBe(false);
+  });
+
+  it("normalizes the legacy max effort to xhigh", () => {
+    const defaults = hydrateClaudeForm(
+      site({ id: "shuai" }),
+      status({ liveSummary: { CLAUDE_CODE_EFFORT_LEVEL: "max" } }),
+    );
+    expect(defaults.effort).toBe("xhigh");
   });
 });
 

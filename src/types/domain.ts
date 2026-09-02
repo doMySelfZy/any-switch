@@ -216,7 +216,7 @@ export interface TargetLiveStatus {
 }
 
 /** Claude Code effort / thinking level */
-export type ClaudeEffortLevel = "low" | "medium" | "high" | "max";
+export type ClaudeEffortLevel = "low" | "medium" | "high" | "xhigh";
 
 /** Codex reasoning effort in config.toml */
 export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -233,6 +233,8 @@ export interface ApplyRequest {
   claudeSonnetModelId?: string | null;
   /** Maps Claude Code "haiku" alias to a site model id */
   claudeHaikuModelId?: string | null;
+  /** Maps Claude Code "fable" alias to a site model id */
+  claudeFableModelId?: string | null;
   claudeEffortLevel?: ClaudeEffortLevel | null;
   /** Append Claude Code's official `[1m]` declaration to compatible model ids. */
   claudeUse1mContext?: boolean;

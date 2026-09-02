@@ -318,14 +318,15 @@ pub struct TargetLiveStatus {
     pub stale_reason: Option<String>,
 }
 
-/// Claude Code effort / thinking level written to settings + env.
+/// Claude Code effort / thinking level persisted in settings.json.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ClaudeEffortLevel {
     Low,
     Medium,
     High,
-    Max,
+    #[serde(alias = "max")]
+    Xhigh,
 }
 
 impl ClaudeEffortLevel {
@@ -334,7 +335,7 @@ impl ClaudeEffortLevel {
             Self::Low => "low",
             Self::Medium => "medium",
             Self::High => "high",
-            Self::Max => "max",
+            Self::Xhigh => "xhigh",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -342,7 +343,7 @@ impl ClaudeEffortLevel {
             "low" => Some(Self::Low),
             "medium" => Some(Self::Medium),
             "high" => Some(Self::High),
-            "max" => Some(Self::Max),
+            "xhigh" | "max" => Some(Self::Xhigh),
             _ => None,
         }
     }
@@ -407,6 +408,7 @@ impl CapabilitySource {
 /// Extra options for Claude Code apply.
 #[derive(Debug, Clone, Default)]
 pub struct ClaudeApplyOptions {
+    pub fable_model_id: Option<String>,
     pub opus_model_id: Option<String>,
     pub sonnet_model_id: Option<String>,
     pub haiku_model_id: Option<String>,
