@@ -138,6 +138,8 @@ pub fn run() {
             commands::fetch_site_models,
             commands::probe_site_api_key,
             commands::list_site_models,
+            commands::get_site_thinking_preset,
+            commands::save_site_thinking_preset,
             commands::delete_site_model,
             commands::clear_site_models,
             commands::probe_site_model,

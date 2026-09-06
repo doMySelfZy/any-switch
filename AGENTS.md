@@ -57,8 +57,8 @@
 - 每个目标有各自的专用表单（不是共享的双目标复选框面板）
 - Claude 关键字段：鉴权 key 风格、默认模型、opus/sonnet/haiku 别名映射、effort 等级
 - Codex 关键字段：默认模型、写入全部模型目录开关、reasoning effort；平台能力默认跟随站点 `codex-compact` / `codex-vision` / `codex-imagegen` / `codex-search`，也可在应用中心自定义覆盖
-- Pi 关键字段：默认模型、写入站点全部模型开关、协议说明；首版模型高级元数据使用 Pi 官方默认值
-- Prime 关键字段：默认模型、写入站点全部模型开关、协议说明；配置目录默认 `~/.prime/agent`，不要写到 `~/.pi/agent`
+- Pi 关键字段：默认模型、写入站点全部模型开关、协议说明、逐模型思考能力与默认思考等级；思考预设按 `(site_id, target)` 记忆，不根据模型名称猜测
+- Prime 关键字段：默认模型、写入站点全部模型开关、协议说明、逐模型思考能力与默认思考等级；配置目录默认 `~/.prime/agent`，不要写到 `~/.pi/agent`
 - 站点编辑含默认收起的「高级配置」（连接协议、备注）与「Codex私有能力」；`xiaobaiswitch://sites` 用同一套 kebab 键导入预设
 - 分区卡片复用 `SettingsGroup`，保持视觉语言一致
 

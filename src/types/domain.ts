@@ -236,6 +236,28 @@ export type ClaudeEffortLevel = "low" | "medium" | "high" | "xhigh";
 /** Codex reasoning effort in config.toml */
 export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
+export type ThinkingTarget = "pi" | "prime";
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface ModelThinkingConfig {
+  reasoning: boolean;
+  forceAdaptiveThinking?: boolean;
+  thinkingLevelMap?: Record<string, string>;
+}
+
+export interface ThinkingExtendedMap {
+  xhigh?: string | null;
+  max?: string | null;
+}
+
+export interface SiteThinkingPreset {
+  siteId: string;
+  target: ThinkingTarget;
+  defaultLevel?: ThinkingLevel | null;
+  extended: ThinkingExtendedMap;
+  models: Record<string, ModelThinkingConfig>;
+}
+
 export interface ApplyRequest {
   siteId: string;
   apiKeyId?: string;

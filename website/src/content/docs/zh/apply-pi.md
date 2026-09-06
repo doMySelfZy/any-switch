@@ -20,7 +20,7 @@ XiaoBaiSwitch 使用 Pi 官方配置接口，不安装 extension：
 
 关闭「将站点全部模型写入 Pi」时，只写当前默认模型；开启后写入站点模型列表，可在 Pi 中打开 `/model` 重新加载和切换。
 
-首版只写可靠的模型 ID 与显示名称。`reasoning`、图像输入、上下文窗口、最大输出和兼容选项使用 Pi 官方默认值，不根据模型名称猜测。
+模型 ID、显示名称与图像输入会写入目录。思考能力不会按模型名称猜测：需要在应用中心逐模型开启 `reasoning`，并可选写入 `defaultThinkingLevel` 与扩展等级映射。Pi 的 Anthropic 协议若要使用 `xhigh` / `max`，还需开启 Adaptive thinking（`compat.forceAdaptiveThinking`）。上下文窗口、最大输出等其余字段仍使用 Pi 官方默认值。
 
 ## 保留与单活
 

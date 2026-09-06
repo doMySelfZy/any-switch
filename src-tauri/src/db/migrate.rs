@@ -76,6 +76,14 @@ CREATE TABLE IF NOT EXISTS site_model_exclusions (
   PRIMARY KEY (api_key_id, model_id)
 );
 
+CREATE TABLE IF NOT EXISTS site_thinking_presets (
+  site_id TEXT NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+  target TEXT NOT NULL,
+  json TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (site_id, target)
+);
+
 CREATE TABLE IF NOT EXISTS target_bindings (
   target TEXT PRIMARY KEY,
   site_id TEXT,
@@ -701,6 +709,7 @@ mod tests {
         apply_schema(&conn, None, BackupMode::Skip).unwrap();
         assert_eq!(user_version(&conn).unwrap(), SCHEMA_VERSION);
         assert!(table_exists(&conn, "site_api_keys").unwrap());
+        assert!(table_exists(&conn, "site_thinking_presets").unwrap());
         assert!(!column_exists(&conn, "sites", "api_key_encrypted").unwrap());
     }
 

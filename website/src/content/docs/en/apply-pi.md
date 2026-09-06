@@ -20,7 +20,7 @@ XiaoBaiSwitch uses Pi's official config interfaces and does not install an exten
 
 With “Write all site models into Pi” off, only the default model is written. Turn it on to write the site's catalog, then open `/model` in Pi to reload and switch.
 
-The first version writes only reliable model IDs and display names. Reasoning, image input, context windows, output limits, and compatibility options use Pi's official defaults instead of being guessed from model names.
+Model IDs, display names, and image input are written to the catalog. Thinking support is not inferred from model names: enable `reasoning` per model in the Apply Center, then optionally write `defaultThinkingLevel` and extended-level mappings. Pi Anthropic needs Adaptive thinking (`compat.forceAdaptiveThinking`) before `xhigh` / `max`. Context windows, output limits, and other fields still use Pi's official defaults.
 
 ## Preservation and single-active behavior
 

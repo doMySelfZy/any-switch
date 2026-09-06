@@ -100,6 +100,7 @@ describe("PrimeApplyPanel", () => {
     );
 
     expect(await screen.findByText("将写入 1 个模型到目录文件")).toBeInTheDocument();
+    expect(await screen.findByText("默认思考等级")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "应用配置" }));
     await waitFor(() => {
       expect(apply).toHaveBeenCalledWith({

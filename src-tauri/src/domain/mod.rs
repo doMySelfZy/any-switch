@@ -3,7 +3,10 @@ use crate::crypto::key_fingerprint;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+mod thinking;
+pub use thinking::*;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SiteProtocol {
     OpenaiCompatible,
@@ -460,6 +463,7 @@ pub struct PiApplyOptions {
     pub write_all_models: bool,
     /// Site models used when `write_all_models` is true.
     pub catalog_models: Vec<(String, String)>, // (model_id, display_name)
+    pub thinking: ThinkingWrite,
 }
 
 /// Extra options for Prime Agent apply.
@@ -468,6 +472,7 @@ pub struct PrimeApplyOptions {
     pub write_all_models: bool,
     /// Site models used when `write_all_models` is true.
     pub catalog_models: Vec<(String, String)>, // (model_id, display_name)
+    pub thinking: ThinkingWrite,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

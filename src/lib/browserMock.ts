@@ -23,6 +23,7 @@ import type {
   SiteApiKeySummary,
   SiteQuota,
   SiteModel,
+  SiteThinkingPreset,
   SwitchRouteResult,
   SwitchSiteApiKeyResult,
   AddSiteApiKeyInput,
@@ -149,6 +150,7 @@ let latestLocalBackupAt: number | null = null;
 let webdavLastAttemptAt: number | null = null;
 let webdavLastSuccessAt: number | null = null;
 const models = new Map<string, SiteModel[]>();
+const thinkingPresets = new Map<string, SiteThinkingPreset>();
 const keys = new Map<string, string>();
 const keySecrets = new Map<string, string>();
 const exclusions = new Map<string, Set<string>>();
@@ -278,6 +280,7 @@ export function resetBrowserMock() {
   webdavLastAttemptAt = null;
   webdavLastSuccessAt = null;
   models.clear();
+  thinkingPresets.clear();
   keys.clear();
   keySecrets.clear();
   exclusions.clear();
@@ -819,6 +822,9 @@ export async function handleBrowserCommand<T>(
       }
       sites = sites.filter((s) => s.id !== id);
       keys.delete(id);
+      for (const key of [...thinkingPresets.keys()]) {
+        if (key.startsWith(`${id}:`)) thinkingPresets.delete(key);
+      }
       return undefined as T;
     }
     case "reorder_sites": {
@@ -957,6 +963,24 @@ export async function handleBrowserCommand<T>(
         item.id === key.id ? { ...item, selectedModelId: nextSelected } : item,
       );
       return updateSiteKeys(siteId, apiKeys) as T;
+    }
+    case "get_site_thinking_preset": {
+      const siteId = String(args?.siteId ?? "");
+      const target = (args?.target as "pi" | "prime") ?? "pi";
+      return (
+        thinkingPresets.get(`${siteId}:${target}`) ?? {
+          siteId,
+          target,
+          defaultLevel: null,
+          extended: {},
+          models: {},
+        }
+      ) as T;
+    }
+    case "save_site_thinking_preset": {
+      const preset = args?.preset as SiteThinkingPreset;
+      thinkingPresets.set(`${preset.siteId}:${preset.target}`, preset);
+      return preset as T;
     }
     case "list_target_status": {
       return targetStatuses as T;

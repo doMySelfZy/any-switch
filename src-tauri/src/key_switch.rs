@@ -233,6 +233,12 @@ pub fn sync_applied_keys(
         .with_conn(|c| repo::binding::list_bindings_for_site(c, &site.id))?;
     let api_key = state.crypto.decrypt(&site.api_key_encrypted)?;
     let snapshot = site.api_key_snapshot();
+    let pi_thinking = state
+        .db
+        .with_conn(|c| repo::thinking::get_write(c, &site.id, TargetKind::Pi))?;
+    let prime_thinking = state
+        .db
+        .with_conn(|c| repo::thinking::get_write(c, &site.id, TargetKind::Prime))?;
     let ids = model_ids(models);
     let applied_at = Utc::now().timestamp_millis();
     let mut results = Vec::new();
@@ -292,10 +298,24 @@ pub fn sync_applied_keys(
             TargetKind::Codex => {
                 apply_codex(site, &api_key, &binding, models, &settings, &backup_root)
             }
-            TargetKind::Pi => apply_pi(site, &api_key, &binding, models, &settings, &backup_root),
-            TargetKind::Prime => {
-                apply_prime(site, &api_key, &binding, models, &settings, &backup_root)
-            }
+            TargetKind::Pi => apply_pi(
+                site,
+                &api_key,
+                &binding,
+                models,
+                &settings,
+                &backup_root,
+                &pi_thinking,
+            ),
+            TargetKind::Prime => apply_prime(
+                site,
+                &api_key,
+                &binding,
+                models,
+                &settings,
+                &backup_root,
+                &prime_thinking,
+            ),
         };
 
         match rewrite {
@@ -515,6 +535,7 @@ fn apply_pi(
     models: &[SiteModelDto],
     settings: &crate::domain::AppSettings,
     backup_root: &std::path::Path,
+    thinking: &crate::domain::ThinkingWrite,
 ) -> AppResult<(
     TargetBinding,
     Vec<String>,
@@ -538,6 +559,7 @@ fn apply_pi(
     let options = PiApplyOptions {
         write_all_models: write_all,
         catalog_models,
+        thinking: thinking.clone(),
     };
     let outcome = crate::adapters::pi::apply(
         site,
@@ -564,6 +586,7 @@ fn apply_prime(
     models: &[SiteModelDto],
     settings: &crate::domain::AppSettings,
     backup_root: &std::path::Path,
+    thinking: &crate::domain::ThinkingWrite,
 ) -> AppResult<(
     TargetBinding,
     Vec<String>,
@@ -587,6 +610,7 @@ fn apply_prime(
     let options = PrimeApplyOptions {
         write_all_models: write_all,
         catalog_models,
+        thinking: thinking.clone(),
     };
     let outcome = crate::adapters::prime::apply(
         site,

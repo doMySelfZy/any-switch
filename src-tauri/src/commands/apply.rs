@@ -138,9 +138,18 @@ pub fn apply_site(
     } else {
         Vec::new()
     };
+    let mut pi_thinking = if targets.contains(&TargetKind::Pi) {
+        state
+            .db
+            .with_conn(|c| repo::thinking::get_write(c, &site_id, TargetKind::Pi))?
+    } else {
+        crate::domain::ThinkingWrite::default()
+    };
+    crate::adapters::thinking::fill_extended_maps(&mut pi_thinking);
     let pi_opts = PiApplyOptions {
         write_all_models: pi_write_all,
         catalog_models: pi_catalog_models,
+        thinking: pi_thinking,
     };
 
     let prime_write_all = prime_write_all_models.unwrap_or(false);
@@ -155,9 +164,18 @@ pub fn apply_site(
     } else {
         Vec::new()
     };
+    let mut prime_thinking = if targets.contains(&TargetKind::Prime) {
+        state
+            .db
+            .with_conn(|c| repo::thinking::get_write(c, &site_id, TargetKind::Prime))?
+    } else {
+        crate::domain::ThinkingWrite::default()
+    };
+    crate::adapters::thinking::fill_extended_maps(&mut prime_thinking);
     let prime_opts = PrimeApplyOptions {
         write_all_models: prime_write_all,
         catalog_models: prime_catalog_models,
+        thinking: prime_thinking,
     };
 
     let applied_at = Utc::now().timestamp_millis();

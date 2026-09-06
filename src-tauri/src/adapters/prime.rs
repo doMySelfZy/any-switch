@@ -138,7 +138,11 @@ fn protocol(site: &SiteRow) -> (&'static str, AppResult<String>) {
     }
 }
 
-fn model_values(options: &PrimeApplyOptions, selected: &str) -> Vec<CstInputValue> {
+fn model_values(
+    options: &PrimeApplyOptions,
+    selected: &str,
+    protocol: SiteProtocol,
+) -> Vec<CstInputValue> {
     let source = if options.write_all_models {
         options.catalog_models.clone()
     } else {
@@ -171,6 +175,13 @@ fn model_values(options: &PrimeApplyOptions, selected: &str) -> Vec<CstInputValu
                 CstInputValue::String(display_name.to_string()),
             ));
         }
+        crate::adapters::thinking::push_model_thinking(
+            &mut fields,
+            &id,
+            &options.thinking,
+            protocol,
+            TargetKind::Prime,
+        );
         models.push(CstInputValue::Object(fields));
     }
     models
@@ -331,6 +342,7 @@ fn restore_baseline(settings: &mut Value, binding: &TargetBinding) -> AppResult<
             }
         }
     }
+    crate::adapters::thinking::restore_settings_thinking(object, binding);
     Ok(())
 }
 
@@ -521,13 +533,27 @@ pub fn apply(
     let mut touched = TouchedKeys::default();
     let backup_paths = backup_existing(&originals, backup_root, &mut touched)?;
 
+    let mut thinking = options.thinking.clone();
+    crate::adapters::thinking::fill_extended_maps(&mut thinking);
+    crate::domain::validate_write(&thinking, TargetKind::Prime, site.protocol, model_id)?;
+    let write_opts = PrimeApplyOptions {
+        thinking: thinking.clone(),
+        write_all_models: options.write_all_models,
+        catalog_models: options.catalog_models.clone(),
+    };
+
     let provider_id = provider_id_for_site(&site.id);
     let (api, base_url) = protocol(site);
     let base_url = base_url?;
     upsert_managed_provider(
         &models,
         &provider_id,
-        provider_value(&site.name, &base_url, api, model_values(options, model_id)),
+        provider_value(
+            &site.name,
+            &base_url,
+            api,
+            model_values(&write_opts, model_id, site.protocol),
+        ),
     )?;
 
     let auth_object = auth
@@ -545,6 +571,14 @@ pub fn apply(
     })?;
     settings_object.insert("defaultProvider".into(), Value::String(provider_id.clone()));
     settings_object.insert("defaultModel".into(), Value::String(model_id.into()));
+    let thinking_expected = crate::adapters::thinking::apply_settings_thinking(
+        settings_object,
+        &thinking,
+        &provider_id,
+        model_id,
+        TargetKind::Prime,
+        binding_before,
+    );
 
     write_three_files(
         &auth_path,
@@ -567,6 +601,7 @@ pub fn apply(
         "write_all_models".into(),
         options.write_all_models.to_string(),
     );
+    expected.extend(thinking_expected);
     let binding = TargetBinding {
         target: TargetKind::Prime,
         site_id: Some(site.id.clone()),
@@ -599,6 +634,17 @@ pub fn apply(
                 ),
             ));
         }
+        let models = models_value(&models_path)?;
+        let settings = read_json_object(&settings_path, "settings.json")?;
+        let provider = provider(&models, &provider_id)
+            .ok_or_else(|| AppError::new("invalid_config", "Prime provider missing after write"))?;
+        crate::adapters::thinking::verify_written_thinking(
+            provider,
+            &settings,
+            &thinking,
+            site.protocol,
+            TargetKind::Prime,
+        )?;
         Ok(summary)
     })();
     let summary = if let Ok(summary) = verified {
@@ -774,7 +820,7 @@ fn summary_from_paths(
                 .map(String::as_str)
         });
     let managed = provider_id.and_then(|id| provider(&models, id));
-    Ok(HashMap::from([
+    let mut out = HashMap::from([
         (
             "defaultProvider".into(),
             settings
@@ -816,7 +862,11 @@ fn summary_from_paths(
                 .and_then(Value::as_array)
                 .map(|models| models.len().to_string()),
         ),
-    ]))
+    ]);
+    for (key, value) in crate::adapters::thinking::thinking_live_fields(managed, &settings) {
+        out.insert(key, value);
+    }
+    Ok(out)
 }
 
 pub fn backup_summary(dir: &Path) -> HashMap<String, Option<String>> {
@@ -942,7 +992,8 @@ pub fn rewrite_base_url(
 mod tests {
     use super::*;
     use crate::capabilities::SiteCapabilities;
-    use crate::domain::ClaudeAuthKeyStyle;
+    use crate::domain::{ClaudeAuthKeyStyle, ModelThinkingConfig, ThinkingWrite};
+    use std::collections::BTreeMap;
     use tempfile::tempdir;
 
     fn site(protocol: SiteProtocol) -> SiteRow {
@@ -1139,6 +1190,7 @@ mod tests {
                 ("model-b".into(), "Model B".into()),
                 ("model-b".into(), "Duplicate".into()),
             ],
+            ..Default::default()
         };
         let outcome = apply_fixture(
             dir.path(),
@@ -1461,5 +1513,70 @@ mod tests {
                 & 0o777,
             0o600
         );
+    }
+
+    #[test]
+    fn writes_reasoning_on_openai_compatible() {
+        let dir = tempdir().unwrap();
+        let mut thinking = ThinkingWrite::default();
+        thinking.default_level = Some("high".into());
+        thinking.extended.max = Some("max".into());
+        thinking.models.insert(
+            "model-a".into(),
+            ModelThinkingConfig {
+                reasoning: true,
+                thinking_level_map: BTreeMap::from([("max".into(), "max".into())]),
+                ..Default::default()
+            },
+        );
+        let outcome = apply_fixture(
+            dir.path(),
+            &site(SiteProtocol::OpenaiCompatible),
+            "key",
+            &PrimeApplyOptions {
+                thinking,
+                ..Default::default()
+            },
+            None,
+        );
+        let models = models_value(&dir.path().join("models.json")).unwrap();
+        let model = &models["providers"][&outcome.provider_id]["models"][0];
+        assert_eq!(model["reasoning"], true);
+        assert_eq!(model["thinkingLevelMap"]["max"], "max");
+        let settings =
+            read_json_object(&dir.path().join("settings.json"), "settings.json").unwrap();
+        assert_eq!(settings["defaultThinkingLevel"], "high");
+    }
+
+    #[test]
+    fn anthropic_rejects_extended_default() {
+        let dir = tempdir().unwrap();
+        let mut thinking = ThinkingWrite::default();
+        thinking.default_level = Some("max".into());
+        thinking.extended.max = Some("max".into());
+        thinking.models.insert(
+            "model-a".into(),
+            ModelThinkingConfig {
+                reasoning: true,
+                thinking_level_map: BTreeMap::from([("max".into(), "max".into())]),
+                ..Default::default()
+            },
+        );
+        let backup = dir.path().join("backup");
+        fs::create_dir_all(&backup).unwrap();
+        let err = apply(
+            &site(SiteProtocol::Anthropic),
+            "key",
+            "model-a",
+            &PrimeApplyOptions {
+                thinking,
+                ..Default::default()
+            },
+            None,
+            dir.path().to_str(),
+            &backup,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("Prime Anthropic"));
     }
 }

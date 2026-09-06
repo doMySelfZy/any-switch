@@ -6,9 +6,12 @@ import { useApplyStore, useSiteStore } from "@/stores";
 import { ApplyFooter } from "./ApplyFooter";
 import { SiteSelect } from "./SiteSelect";
 import { TargetStatusCard, statusFor, toolFor } from "./TargetStatusCard";
+import { saveSiteThinkingPreset, thinkingValidationKey } from "@/lib/thinkingPreset";
 import { buildModelOptions, hydratePrimeForm } from "./hydrateApplyForm";
 import { showApplyException, showApplyOutcome } from "./showApplyOutcome";
+import { ThinkingPresetEditor } from "./ThinkingPresetEditor";
 import { useApplySiteSelection } from "./useApplySiteSelection";
+import { useThinkingPreset } from "./useThinkingPreset";
 
 const rowStyle: React.CSSProperties = { padding: "4px 0" };
 
@@ -37,6 +40,7 @@ export const PrimeApplyPanel = memo(function PrimeApplyPanel() {
   const [writeAllModels, setWriteAllModels] = useState(false);
   const models = siteId ? (modelsBySite[siteId] ?? []) : [];
   const modelsLoading = siteId ? Boolean(modelsLoadingBySite[siteId]) : false;
+  const { preset, setPreset, loading: presetLoading } = useThinkingPreset(siteId, "prime");
 
   useEffect(() => {
     if (siteId) void listModels(siteId, { force: true }).catch(() => null);
@@ -65,6 +69,7 @@ export const PrimeApplyPanel = memo(function PrimeApplyPanel() {
   }, [site, status]);
 
   const modelOptions = useMemo(() => buildModelOptions(models, [modelId]), [models, modelId]);
+  const thinkingError = thinkingValidationKey(preset, site?.protocol ?? "openai_compatible", modelId);
   const handleApply = async () => {
     if (!site) {
       message.warning(t("apply.noSite"));
@@ -74,10 +79,16 @@ export const PrimeApplyPanel = memo(function PrimeApplyPanel() {
       message.warning(t("sites.selectModel"));
       return;
     }
+    if (presetLoading) return;
+    if (thinkingError) {
+      message.warning(t(thinkingError));
+      return;
+    }
     try {
       if (site.selectedModelId !== modelId) {
         await updateSite(site.id, { selectedModelId: modelId });
       }
+      await saveSiteThinkingPreset({ ...preset, siteId: site.id, target: "prime" });
       const result = await apply({
         siteId: site.id,
         apiKeyId: site.activeApiKeyId ?? undefined,
@@ -166,12 +177,23 @@ export const PrimeApplyPanel = memo(function PrimeApplyPanel() {
             )}
           </SettingsGroup>
         )}
+
+        {site && (
+          <ThinkingPresetEditor
+            preset={preset}
+            protocol={site.protocol}
+            models={models}
+            defaultModelId={modelId}
+            loading={presetLoading}
+            onChange={setPreset}
+          />
+        )}
       </div>
 
       <ApplyFooter
         target="prime"
         loading={applying}
-        disabled={!modelId}
+        disabled={!modelId || presetLoading || Boolean(thinkingError)}
         onApply={() => void handleApply()}
         onRestoreOfficial={() => restoreOfficial("prime")}
       />
