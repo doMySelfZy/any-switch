@@ -1,0 +1,15 @@
+{
+  "mcp": {
+    "odd-flow": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "odd-flow@latest",
+        "mcp",
+        "start"
+      ],
+      "enabled": true
+    }
+  }
+}

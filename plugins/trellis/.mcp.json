@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "odd-flow": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "odd-flow@1.2.5",
+        "mcp",
+        "start"
+      ],
+      "env": {}
+    }
+  }
+}

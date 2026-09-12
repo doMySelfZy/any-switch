@@ -1,0 +1,41 @@
+{
+  "_managedBy": "trellis",
+  "version": "v1",
+  "app": {
+    "name": "xiaobai-switch",
+    "domain": "other",
+    "mode": "guided",
+    "jurisdiction": "international"
+  },
+  "data": {
+    "storesChildIdentifiableData": false,
+    "storageMode": null,
+    "retentionPolicies": []
+  },
+  "access": {
+    "roles": [],
+    "externalAccess": {
+      "parents": false,
+      "students": false
+    }
+  },
+  "controls": {
+    "highStakesDecisions": false,
+    "reviewGateTriggers": [],
+    "auditEnabled": true,
+    "deploymentRegion": null
+  },
+  "modules": [
+    "accessibility",
+    "approvals",
+    "audit",
+    "compliance-manifest",
+    "data-protection",
+    "governance",
+    "identity-access",
+    "inspection-pack",
+    "operations",
+    "verification"
+  ],
+  "domainPacks": []
+}

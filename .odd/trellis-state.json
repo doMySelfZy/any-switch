@@ -1,0 +1,130 @@
+{
+  "version": "0.1.0",
+  "metadata": {
+    "initialisedAt": "2026-09-10T14:26:21.681Z",
+    "lastSaved": null,
+    "sourceLegacyVersion": null,
+    "migratedFromLegacy": false
+  },
+  "project": {
+    "name": "xiaobai-switch",
+    "summary": null,
+    "schoolType": "other",
+    "jurisdiction": "international",
+    "trustContext": "single-school",
+    "technicalConfidence": "guided",
+    "primaryDomain": "other"
+  },
+  "governance": {
+    "serviceOwner": "zhangyang",
+    "operationalOwner": "zhangyang",
+    "approver": "zhangyang",
+    "dpoContact": null,
+    "safeguardingOwner": null,
+    "reviewCadence": "annual",
+    "handoverRequired": true
+  },
+  "personas": [],
+  "outcomes": [],
+  "contracts": {
+    "mapped": false,
+    "entities": [],
+    "systemBoundaries": [],
+    "integrationPoints": [],
+    "lifecycleTransitions": [],
+    "sensitiveActionOwners": []
+  },
+  "architecture": {
+    "tenancyDecision": null,
+    "storagePattern": null,
+    "roleAccessModel": null,
+    "auditBoundary": null,
+    "aggregationBoundary": null,
+    "recoveryAssumptions": []
+  },
+  "uiUx": {
+    "journeyMaps": [],
+    "keyScreens": [],
+    "mobileExpectations": [],
+    "accessibilityExpectations": [
+      "wcag-2.1-aa"
+    ],
+    "highStakesInteractionPatterns": []
+  },
+  "compliance": {
+    "regimeProfile": "baseline",
+    "childIdentifiableData": false,
+    "highStakesDecisions": false,
+    "externalAccess": {
+      "parents": false,
+      "students": false
+    },
+    "storageMode": null,
+    "deploymentRegion": null,
+    "retentionPolicies": [],
+    "reviewGateTriggers": [],
+    "manifestVersion": "v1"
+  },
+  "delivery": {
+    "framework": null,
+    "uiSystem": null,
+    "dataAccessMode": null,
+    "orm": null,
+    "testingLayers": [],
+    "hosting": null,
+    "emailProvider": null
+  },
+  "operations": {
+    "backupApproach": null,
+    "restoreApproach": null,
+    "handoverPlan": null,
+    "archiveRolloverRules": [],
+    "supportResponsibilities": []
+  },
+  "plan": {
+    "foundationPhaseReady": false,
+    "outcomeOrder": [],
+    "dependencies": [],
+    "verificationGates": [],
+    "deliveryMilestones": [],
+    "planApproved": false,
+    "sessionBriefCount": 0,
+    "sessionBriefExported": false
+  },
+  "verification": {
+    "browserChecks": [],
+    "contractChecks": [],
+    "acceptanceConditions": [],
+    "unresolvedRisks": [],
+    "briefConfirmed": false,
+    "verificationConfirmed": false,
+    "buildMode": "idle",
+    "debugSession": false,
+    "debugStrategy": null,
+    "debugTarget": null,
+    "debugSummary": null,
+    "currentBuildPhase": null,
+    "buildPhase": null,
+    "swarmActive": false
+  },
+  "inspection": {
+    "dataSummaryReady": false,
+    "accessSummaryReady": false,
+    "changeLogReady": false,
+    "safeguardsSummaryReady": false
+  },
+  "activatedModules": [
+    "accessibility",
+    "approvals",
+    "audit",
+    "compliance-manifest",
+    "data-protection",
+    "governance",
+    "identity-access",
+    "inspection-pack",
+    "operations",
+    "verification"
+  ],
+  "activatedDomainPacks": [],
+  "currentStage": "personas"
+}

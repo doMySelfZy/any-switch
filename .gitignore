@@ -17,3 +17,7 @@ coverage
 .updater-private.key
 .updater-private.key.pub
 .updater-signing.env
+
+# Mimosa 本地钩子状态（会话级，不入库）
+.mimosa/
+.claude/settings.local.json

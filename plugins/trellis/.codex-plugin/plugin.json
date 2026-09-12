@@ -1,0 +1,39 @@
+{
+  "name": "trellis",
+  "version": "3.7.9",
+  "description": "Trellis planning and build harness for domain experts building serious software with AI.",
+  "author": {
+    "name": "Trellis"
+  },
+  "homepage": "https://github.com/odd-studio/odd-studio",
+  "repository": "https://github.com/odd-studio/odd-studio",
+  "license": "MIT",
+  "keywords": [
+    "trellis",
+    "outcome-driven-development",
+    "codex",
+    "planning",
+    "build"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks.json",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Trellis",
+    "shortDescription": "Guide planning, build sequencing, and verification with Outcome-Driven Development",
+    "longDescription": "Use Trellis to plan around personas, outcomes, contracts, and phased delivery, then run a disciplined build and verification flow with odd-flow memory, safety gates, and Codex-native skill matching for prompts such as use Trellis, Trellis status, and Trellis build.",
+    "developerName": "Trellis",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/odd-studio/odd-studio",
+    "privacyPolicyURL": "https://github.com/odd-studio/odd-studio",
+    "termsOfServiceURL": "https://github.com/odd-studio/odd-studio",
+    "defaultPrompt": "Use Trellis to start or resume this Trellis project, or say Trellis status to inspect the current state",
+    "brandColor": "#111111",
+    "screenshots": []
+  }
+}
