@@ -3,6 +3,7 @@ use crate::error::AppResult;
 use crate::model_probe::sanitize_error;
 use crate::url_normalize::normalize_base_url;
 use chrono::{Datelike, NaiveDate, Utc};
+use serde::Serialize;
 use serde_json::Value;
 use std::time::{Duration, Instant};
 use url::Url;
@@ -960,6 +961,108 @@ fn finish_round(
 }
 
 const NEWAPI_QUOTA_PER_UNIT: f64 = 500_000.0;
+
+/// NewAPI 访问令牌连通性测试结果（供站点编辑里的「测试」按钮使用）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewApiAccessProbe {
+    pub ok: bool,
+    pub status: u16,
+    pub remaining_usd: Option<f64>,
+    pub used_usd: Option<f64>,
+    pub total_usd: Option<f64>,
+    pub endpoint: String,
+    pub message: Option<String>,
+}
+
+fn truncate_message(body: &str, token: &str) -> String {
+    let sanitized = sanitize_error(body, token);
+    let trimmed = sanitized.trim();
+    if trimmed.chars().count() > 200 {
+        trimmed.chars().take(200).collect::<String>() + "…"
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// 测试访问令牌：按候选 origin 逐个尝试 /api/user/self，返回首个非 404 的结果。
+pub async fn test_newapi_access(
+    base_url: &str,
+    token: &str,
+    user_id: &str,
+    settings: &AppSettings,
+) -> AppResult<NewApiAccessProbe> {
+    let preview = normalize_base_url(base_url)?;
+    let mut candidates = public_api_bases(&preview.codex_base_url);
+    if candidates.is_empty() {
+        candidates.push(strip_trailing_slash(&preview.codex_base_url).to_string());
+    }
+    let client = crate::http_client::build_client(settings, PROBE_TIMEOUT)?;
+    let mut last: Option<NewApiAccessProbe> = None;
+    for origin in candidates {
+        let url = format!("{}/api/user/self", strip_trailing_slash(&origin));
+        let resp = client
+            .get(&url)
+            .bearer_auth(token)
+            .header("New-Api-User", user_id)
+            .send()
+            .await?;
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        if status == 404 {
+            last = Some(NewApiAccessProbe {
+                ok: false,
+                status,
+                remaining_usd: None,
+                used_usd: None,
+                total_usd: None,
+                endpoint: url,
+                message: Some(truncate_message(&body, token)),
+            });
+            continue;
+        }
+        let parsed: Option<Value> = serde_json::from_str(&body).ok();
+        let data = parsed.as_ref().and_then(|value| {
+            if response_indicates_failure(value) {
+                None
+            } else {
+                value.get("data")
+            }
+        });
+        if let Some(data) = data {
+            if let Some(quota) = field_f64(data, "quota") {
+                let used = field_f64(data, "used_quota").unwrap_or(0.0);
+                return Ok(NewApiAccessProbe {
+                    ok: true,
+                    status,
+                    remaining_usd: Some(quota / NEWAPI_QUOTA_PER_UNIT),
+                    used_usd: Some(used / NEWAPI_QUOTA_PER_UNIT),
+                    total_usd: Some((quota + used) / NEWAPI_QUOTA_PER_UNIT),
+                    endpoint: url,
+                    message: None,
+                });
+            }
+        }
+        return Ok(NewApiAccessProbe {
+            ok: false,
+            status,
+            remaining_usd: None,
+            used_usd: None,
+            total_usd: None,
+            endpoint: url,
+            message: Some(truncate_message(&body, token)),
+        });
+    }
+    Ok(last.unwrap_or(NewApiAccessProbe {
+        ok: false,
+        status: 404,
+        remaining_usd: None,
+        used_usd: None,
+        total_usd: None,
+        endpoint: String::new(),
+        message: None,
+    }))
+}
 
 /// ccswitch 同款兜底：用 NewAPI 访问令牌查账户级钱包余额。
 /// 标准探测链（billing 三件套 / token usage / status）失败或未支持时使用。
@@ -2098,5 +2201,54 @@ mod tests {
         settings.proxy_mode = "none".into();
         let quota = probe_quota(&site, "sk-test", &settings, None).await.unwrap();
         assert_eq!(quota.status, QuotaProbeStatus::Unsupported);
+    }
+
+    async fn unauthorized_server() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buffer = [0_u8; 2048];
+                let _ = socket.read(&mut buffer).await;
+                let body = r#"{"code":"AUTH_UNAUTHORIZED","message":"Unauthorized, invalid access token","success":false}"#;
+                let response = format!(
+                    "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        format!("http://{address}")
+    }
+
+    #[tokio::test]
+    async fn newapi_access_test_reports_balance_and_rejections() {
+        let base = user_self_only_server().await;
+        let mut settings = AppSettings::default();
+        settings.proxy_mode = "none".into();
+        let ok = test_newapi_access(&base, "access-token", "42", &settings)
+            .await
+            .unwrap();
+        assert!(ok.ok);
+        assert_eq!(ok.status, 200);
+        assert_eq!(ok.remaining_usd, Some(2.0));
+        assert_eq!(ok.used_usd, Some(0.5));
+
+        let denied_base = unauthorized_server().await;
+        let denied = test_newapi_access(&denied_base, "bad-token", "42", &settings)
+            .await
+            .unwrap();
+        assert!(!denied.ok);
+        assert_eq!(denied.status, 401);
+        assert!(denied
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("invalid access token")));
+        // 令牌绝不能出现在返回的消息里
+        assert!(!denied
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("bad-token")));
     }
 }

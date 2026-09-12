@@ -425,6 +425,17 @@ export interface SyncOutcome {
   warning: string | null;
 }
 
+/** NewAPI 访问令牌连通性测试结果。 */
+export interface NewApiAccessProbe {
+  ok: boolean;
+  status: number;
+  remainingUsd: number | null;
+  usedUsd: number | null;
+  totalUsd: number | null;
+  endpoint: string;
+  message: string | null;
+}
+
 export interface RestoreStartupResult {
   status: "applied" | "failed";
   message: string;

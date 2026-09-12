@@ -192,7 +192,12 @@
     "newapiTokenLoadFailed": "访问令牌解密失败，本次保存不会改动它。",
     "newapiUserId": "NewAPI 用户 ID",
     "newapiUserIdHint": "配合访问令牌使用（个人设置-用户 ID）。",
-    "quotaConfigureToken": "配置访问令牌"
+    "quotaConfigureToken": "配置访问令牌",
+    "newapiTest": "测试",
+    "newapiTestOk": "连接成功，账户余额 {amount}",
+    "newapiTestFailed": "查询失败：{detail}",
+    "newapiTestMissingCredentials": "请先填写访问令牌和用户 ID",
+    "newapiTestMissingBaseUrl": "请先填写服务器地址"
   },
   "apply": {
     "title": "应用中心",

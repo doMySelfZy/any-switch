@@ -154,6 +154,7 @@ pub fn run() {
             commands::clear_site_models,
             commands::probe_site_model,
             commands::probe_site_quota,
+            commands::test_newapi_access,
             commands::list_target_status,
             commands::detect_cli_tools,
             commands::cleanup_orphan_target,

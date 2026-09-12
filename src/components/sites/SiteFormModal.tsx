@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { App, Collapse, Form, Input, Modal, Select } from "antd";
+import { App, Button, Collapse, Form, Input, Modal, Select, Typography } from "antd";
 import { useTranslation } from "react-i18next";
-import type { Site, SiteCapabilities, SiteProtocol } from "@/types/domain";
+import type { NewApiAccessProbe, Site, SiteCapabilities, SiteProtocol } from "@/types/domain";
 import { invoke, isAppError } from "@/lib/invoke";
 import { useSiteStore } from "@/stores";
 import { UrlWritePreviewIcon } from "./UrlWritePreview";
@@ -23,6 +23,8 @@ import { CodexCapabilitySwitchList } from "@/components/apply/CodexCapabilitySwi
 function toActiveKeys(keys: string | string[]): string[] {
   return Array.isArray(keys) ? keys.map(String) : [String(keys)];
 }
+
+const { Text } = Typography;
 
 function shouldOpenAdvanced(protocol?: SiteProtocol | null, notes?: string | null) {
   return protocol === "anthropic" || Boolean(notes?.trim());
@@ -60,6 +62,12 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
   const [advancedOpen, setAdvancedOpen] = useState<string[]>([]);
   const [capOpen, setCapOpen] = useState<string[]>([]);
   const [newapiTokenLoadFailed, setNewapiTokenLoadFailed] = useState(false);
+  const [newapiTesting, setNewapiTesting] = useState(false);
+  const [newapiTestResult, setNewapiTestResult] = useState<{
+    ok: boolean;
+    amount?: string;
+    detail?: string;
+  } | null>(null);
   const watchedUrls = Form.useWatch("baseUrls", form) as string[] | undefined;
   const previewUrl = watchedUrls?.find((u) => String(u ?? "").trim()) ?? "";
 
@@ -81,6 +89,7 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
       ];
       setKeyLoading(summaries.length > 0 || site.hasKey);
       setNewapiTokenLoadFailed(false);
+      setNewapiTestResult(null);
       setAdvancedOpen(
         shouldOpenAdvanced(protocol, notes) || site.newapiConfigured || forceAdvancedOpen
           ? ["advanced"]
@@ -149,8 +158,56 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
     };
   }, [open, site, form, initialValues, forceAdvancedOpen, getSiteApiKey, message, t]);
 
-  const handleOk = async () => {
+  const handleTestNewapi = async () => {
+    const values = form.getFieldsValue(["newapiAccessToken", "newapiUserId", "baseUrls"]);
+    const baseUrls = normalizeBaseUrls((values.baseUrls as string[] | undefined) ?? []);
+    const accessToken = ((values.newapiAccessToken as string | undefined) ?? "").trim();
+    const userId = ((values.newapiUserId as string | undefined) ?? "").trim();
+    if (!baseUrls[0]) {
+      message.error(t("sites.newapiTestMissingBaseUrl"));
+      return;
+    }
+    if (!userId) {
+      message.error(t("sites.newapiTestMissingCredentials"));
+      return;
+    }
+    if (!accessToken && !(site?.newapiConfigured && !newapiTokenLoadFailed)) {
+      message.error(t("sites.newapiTestMissingCredentials"));
+      return;
+    }
+    setNewapiTesting(true);
+    setNewapiTestResult(null);
     try {
+      const probe = await invoke<NewApiAccessProbe>("test_newapi_access", {
+        input: {
+          baseUrl: baseUrls[0],
+          accessToken: accessToken || null,
+          userId,
+          siteId: site?.id ?? null,
+        },
+      });
+      if (probe.ok) {
+        setNewapiTestResult({
+          ok: true,
+          amount: probe.remainingUsd != null ? `$${probe.remainingUsd.toFixed(2)}` : "-",
+        });
+      } else {
+        setNewapiTestResult({
+          ok: false,
+          detail: `HTTP ${probe.status}${probe.message ? ` · ${probe.message}` : ""}`,
+        });
+      }
+    } catch (error) {
+      setNewapiTestResult({
+        ok: false,
+        detail: isAppError(error) ? error.message : String(error),
+      });
+    } finally {
+      setNewapiTesting(false);
+    }
+  };
+
+  const handleOk = async () => {    try {
       const values = await form.validateFields();
       const baseUrls = normalizeBaseUrls(values.baseUrls as string[]);
       const capabilities = mergeCodexCapabilities(
@@ -299,6 +356,27 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
                     >
                       <Input allowClear placeholder="1" inputMode="numeric" />
                     </Form.Item>
+                    <div className="mt-3 flex items-center gap-3">
+                      <Button
+                        size="small"
+                        loading={newapiTesting}
+                        onClick={() => void handleTestNewapi()}
+                      >
+                        {t("sites.newapiTest")}
+                      </Button>
+                      {newapiTestResult && (
+                        <Text
+                          type={newapiTestResult.ok ? "success" : "danger"}
+                          style={{ fontSize: 12 }}
+                        >
+                          {newapiTestResult.ok
+                            ? t("sites.newapiTestOk", { amount: newapiTestResult.amount })
+                            : t("sites.newapiTestFailed", {
+                                detail: newapiTestResult.detail,
+                              })}
+                        </Text>
+                      )}
+                    </div>
                   </>
                 ),
               },

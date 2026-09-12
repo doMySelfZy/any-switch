@@ -1313,6 +1313,32 @@ export async function handleBrowserCommand<T>(
       }));
       return results as T;
     }
+    case "test_newapi_access": {
+      const input = (args?.input ?? {}) as {
+        accessToken?: string | null;
+        userId?: string | null;
+      };
+      if (!input.userId || !input.accessToken) {
+        return {
+          ok: false,
+          status: 401,
+          remainingUsd: null,
+          usedUsd: null,
+          totalUsd: null,
+          endpoint: "",
+          message: "Unauthorized, invalid access token",
+        } as T;
+      }
+      return {
+        ok: true,
+        status: 200,
+        remainingUsd: 12.5,
+        usedUsd: 3.5,
+        totalUsd: 16,
+        endpoint: "https://example.invalid/api/user/self",
+        message: null,
+      } as T;
+    }
     case "probe_site_quota": {
       quotaProbeCallCount += 1;
       const siteId = String(args?.siteId ?? "");

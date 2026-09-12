@@ -192,7 +192,12 @@
     "newapiTokenLoadFailed": "Failed to decrypt the access token; this save will not change it.",
     "newapiUserId": "NewAPI user ID",
     "newapiUserIdHint": "Used together with the access token (user ID in personal settings).",
-    "quotaConfigureToken": "Configure access token"
+    "quotaConfigureToken": "Configure access token",
+    "newapiTest": "Test",
+    "newapiTestOk": "Connected, account balance {amount}",
+    "newapiTestFailed": "Check failed: {detail}",
+    "newapiTestMissingCredentials": "Fill in the access token and user ID first",
+    "newapiTestMissingBaseUrl": "Fill in the base URL first"
   },
   "apply": {
     "title": "Apply Center",
