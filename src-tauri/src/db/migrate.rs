@@ -159,6 +159,26 @@ CREATE INDEX IF NOT EXISTS idx_site_api_keys_site ON site_api_keys(site_id);
 CREATE INDEX IF NOT EXISTS idx_site_models_key ON site_models(api_key_id);
 "#;
 
+/// 存量库升级时 CREATE TABLE IF NOT EXISTS 不会补新列，必须显式 ALTER。
+fn ensure_sites_newapi_columns(conn: &Connection) -> AppResult<()> {
+    if !table_exists(conn, "sites")? {
+        return Ok(());
+    }
+    ensure_column(
+        conn,
+        "sites",
+        "newapi_access_token_encrypted",
+        "ALTER TABLE sites ADD COLUMN newapi_access_token_encrypted TEXT",
+    )?;
+    ensure_column(
+        conn,
+        "sites",
+        "newapi_user_id",
+        "ALTER TABLE sites ADD COLUMN newapi_user_id TEXT",
+    )?;
+    Ok(())
+}
+
 pub fn apply_schema(
     conn: &Connection,
     crypto: Option<&Crypto>,
@@ -167,6 +187,8 @@ pub fn apply_schema(
     let version = user_version(conn)?;
     if version >= SCHEMA_VERSION {
         conn.execute_batch(V1_SCHEMA)?;
+        // 存量库不会因 CREATE TABLE IF NOT EXISTS 获得新列，必须显式补列。
+        ensure_sites_newapi_columns(conn)?;
         return Ok(());
     }
 
@@ -403,18 +425,7 @@ DROP TABLE site_model_exclusions_new;
     )?;
 
     if table_exists(conn, "sites")? {
-        ensure_column(
-            conn,
-            "sites",
-            "newapi_access_token_encrypted",
-            "ALTER TABLE sites ADD COLUMN newapi_access_token_encrypted TEXT",
-        )?;
-        ensure_column(
-            conn,
-            "sites",
-            "newapi_user_id",
-            "ALTER TABLE sites ADD COLUMN newapi_user_id TEXT",
-        )?;
+        ensure_sites_newapi_columns(conn)?;
     }
 
     if table_exists(conn, "target_bindings")? {
@@ -830,5 +841,39 @@ mod tests {
         assert!(err.to_string().contains("cannot be decrypted"));
         assert_eq!(user_version(&conn).unwrap(), 0);
         assert!(!table_exists(&conn, "site_api_keys").unwrap());
+    }
+
+    #[test]
+    fn existing_database_gains_newapi_columns_on_upgrade() {
+        // 回归：加列前的存量库（user_version 已达标）必须通过 ALTER 补上 newapi 列。
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sites (
+               id TEXT PRIMARY KEY,
+               name TEXT NOT NULL,
+               base_url TEXT NOT NULL,
+               protocol TEXT NOT NULL,
+               claude_auth_key_style TEXT NOT NULL,
+               notes TEXT,
+               enabled INTEGER NOT NULL,
+               sort_order INTEGER NOT NULL,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL,
+               base_urls_json TEXT,
+               capabilities_json TEXT
+             );
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+        apply_schema(&conn, None, BackupMode::Skip).unwrap();
+        let columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(sites)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(columns.contains(&"newapi_access_token_encrypted".into()));
+        assert!(columns.contains(&"newapi_user_id".into()));
     }
 }
