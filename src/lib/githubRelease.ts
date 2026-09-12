@@ -1,10 +1,10 @@
 export const GITHUB_API_LATEST =
-  "https://api.github.com/repos/Licoy/xiaobai-switch/releases/latest";
+  "https://api.github.com/repos/doMySelfZy/xiaobai-switch/releases/latest";
 
 export function githubReleaseApiUrl(tag?: string): string {
   const normalized = tag?.trim().replace(/^refs\/tags\//, "");
   if (!normalized) return GITHUB_API_LATEST;
-  return `https://api.github.com/repos/Licoy/xiaobai-switch/releases/tags/${encodeURIComponent(normalized)}`;
+  return `https://api.github.com/repos/doMySelfZy/xiaobai-switch/releases/tags/${encodeURIComponent(normalized)}`;
 }
 
 export type AssetKind =

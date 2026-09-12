@@ -108,7 +108,7 @@ describe("shipped GitHub workflows", () => {
     };
     expect(tauri.bundle.createUpdaterArtifacts).toBe(true);
     expect(tauri.plugins.updater?.endpoints).toEqual([
-      "https://github.com/Licoy/xiaobai-switch/releases/latest/download/latest.json",
+      "https://github.com/doMySelfZy/xiaobai-switch/releases/latest/download/latest.json",
     ]);
     expect(tauri.plugins.updater?.pubkey).toMatch(/^dW50cnVzdGVk/);
     // "-" makes Tauri codesign the .app bundle. Without it, only the linker

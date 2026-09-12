@@ -97,7 +97,7 @@ Putting an API key in a URL can leave it in browser history, extensions, or syst
 
 ## Download and install
 
-macOS (Apple Silicon / Intel) and Windows (x64 / ARM64) are supported; get the matching installer from [Releases](https://github.com/Licoy/xiaobai-switch/releases).
+macOS (Apple Silicon / Intel) and Windows (x64 / ARM64) are supported; get the matching installer from [Releases](https://github.com/doMySelfZy/xiaobai-switch/releases).
 
 The macOS build is ad-hoc signed (no Apple Developer ID, not notarized); after a browser download, macOS may say the app is “damaged” — that is the quarantine flag, not a broken file, and **Privacy & Security will not show “Open Anyway”**; drag the app to Applications, then run:
 
@@ -106,6 +106,10 @@ xattr -cr /Applications/XiaoBaiSwitch.app
 ```
 
 Then right-click the app → Open.
+
+## Credits
+
+This project is based on [Licoy/xiaobai-switch](https://github.com/Licoy/xiaobai-switch); thanks to the original author.
 
 ## Automatic updates
 

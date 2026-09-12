@@ -19,13 +19,13 @@ describe("githubReleaseApiUrl", () => {
 
   it("uses /releases/tags/{tag} so a post-release website build can pin the new version", () => {
     expect(githubReleaseApiUrl("v0.0.6")).toBe(
-      "https://api.github.com/repos/Licoy/xiaobai-switch/releases/tags/v0.0.6",
+      "https://api.github.com/repos/doMySelfZy/xiaobai-switch/releases/tags/v0.0.6",
     );
   });
 
   it("strips refs/tags/ from workflow_run head_branch", () => {
     expect(githubReleaseApiUrl("refs/tags/v0.0.6")).toBe(
-      "https://api.github.com/repos/Licoy/xiaobai-switch/releases/tags/v0.0.6",
+      "https://api.github.com/repos/doMySelfZy/xiaobai-switch/releases/tags/v0.0.6",
     );
   });
 });
@@ -41,7 +41,7 @@ describe("loadLatestRelease", () => {
           {
             name: "XiaoBaiSwitch_0.0.6_aarch64.dmg",
             browser_download_url:
-              "https://github.com/Licoy/xiaobai-switch/releases/download/v0.0.6/XiaoBaiSwitch_0.0.6_aarch64.dmg",
+              "https://github.com/doMySelfZy/xiaobai-switch/releases/download/v0.0.6/XiaoBaiSwitch_0.0.6_aarch64.dmg",
           },
         ],
       }),
@@ -51,7 +51,7 @@ describe("loadLatestRelease", () => {
     const latest = await loadLatestRelease("token", "v0.0.6");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.github.com/repos/Licoy/xiaobai-switch/releases/tags/v0.0.6",
+      "https://api.github.com/repos/doMySelfZy/xiaobai-switch/releases/tags/v0.0.6",
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer token",

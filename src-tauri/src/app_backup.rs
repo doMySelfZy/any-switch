@@ -422,11 +422,6 @@ fn resolve_local_backup_in(dir: &Path, file_name: &str) -> AppResult<PathBuf> {
     Ok(path)
 }
 
-/// 读取 bundle 内嵌 manifest（供同步引擎计算数据指纹）。
-pub fn read_bundle_manifest(path: &Path) -> AppResult<AppBackupManifest> {
-    read_manifest_from_bundle(path)
-}
-
 fn read_manifest_from_bundle(path: &Path) -> AppResult<AppBackupManifest> {
     let file = fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file).map_err(|error| {

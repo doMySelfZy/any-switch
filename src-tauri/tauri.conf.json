@@ -3,7 +3,7 @@
   "productName": "XiaoBaiSwitch",
   "mainBinaryName": "XiaoBaiSwitch",
   "version": "0.0.11",
-  "identifier": "com.github.licoy.xiaobai-switch.app",
+  "identifier": "com.domyselfzy.xiaobai-switch.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -63,9 +63,9 @@
       }
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcxRkYwQ0FEODY1QTU0QkIKUldTN1ZGcUdyUXovY1lNbVNPTFRNcXYvNHlpZ0dtNXRSNU5zM3paYU8vNW0xWkcyajM1a2I0T2QK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRGRTQ2MUMzMUVCNEZGMkUKUldRdS83UWV3MkhrVDJTRkVuaHlNZldtZnJIYmk2YitmYmZDaHJDQTJsQmpXcDNLWUhMTnV0R0gK",
       "endpoints": [
-        "https://github.com/Licoy/xiaobai-switch/releases/latest/download/latest.json"
+        "https://github.com/doMySelfZy/xiaobai-switch/releases/latest/download/latest.json"
       ]
     }
   }

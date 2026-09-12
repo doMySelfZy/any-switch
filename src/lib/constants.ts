@@ -5,6 +5,6 @@ export const LANG_OPTIONS = [
 
 export const APP_NAME = "XiaoBaiSwitch";
 
-export const GITHUB_REPO_URL = "https://github.com/Licoy/xiaobai-switch";
+export const GITHUB_REPO_URL = "https://github.com/doMySelfZy/xiaobai-switch";
 export const GITHUB_ISSUES_URL = `${GITHUB_REPO_URL}/issues`;
 export const GITHUB_RELEASES_URL = `${GITHUB_REPO_URL}/releases`;

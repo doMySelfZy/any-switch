@@ -4,7 +4,7 @@
 
 ## 产品规则
 
-- 产品名：**XiaoBaiSwitch**（`com.github.licoy.xiaobai-switch.app`）
+- 产品名：**XiaoBaiSwitch**（`com.domyselfzy.xiaobai-switch.app`）
 - 领域单一事实来源（SSOT）是 **站点优先**：Base URL + API key → 模型 → 目标私有能力预设 → 应用到目标
 - 目标：Claude Code（`~/.claude/settings.json`）、Codex（`~/.codex/` + 环境变量注入）、Pi（`~/.pi/agent/{models,auth,settings}.json`）与 Prime（`~/.prime/agent/{models,auth,settings}.json`）
 - 应用数据根目录：`~/.xiaobai-switch/`（不是 Tauri 的 `app_data_dir`）

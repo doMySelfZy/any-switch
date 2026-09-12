@@ -97,7 +97,7 @@ URL 中携带 API Key 可能被浏览器历史、扩展或系统日志记录，�
 
 ## 下载与安装
 
-支持 macOS（Apple Silicon / Intel）与 Windows（x64 / ARM64），请到 [Releases](https://github.com/Licoy/xiaobai-switch/releases) 下载对应安装包。
+支持 macOS（Apple Silicon / Intel）与 Windows（x64 / ARM64），请到 [Releases](https://github.com/doMySelfZy/xiaobai-switch/releases) 下载对应安装包。
 
 macOS 安装包是 ad-hoc 签名（未使用 Apple Developer ID，也未公证）；浏览器下载后，系统可能提示「已损坏」——这是隔离属性，不是文件坏了，**「隐私与安全性」不会出现「仍要打开」**；把应用拖到「应用程序」后执行：
 
@@ -106,6 +106,10 @@ xattr -cr /Applications/XiaoBaiSwitch.app
 ```
 
 然后右键点应用 → 打开。
+
+## 致谢
+
+本项目基于 [Licoy/xiaobai-switch](https://github.com/Licoy/xiaobai-switch) 开发，感谢原作者的工作。
 
 ## 自动更新
 

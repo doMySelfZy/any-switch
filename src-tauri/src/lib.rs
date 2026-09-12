@@ -190,6 +190,7 @@ pub fn run() {
             commands::list_webdav_backups,
             commands::delete_webdav_backup,
             commands::restore_webdav_backup,
+            commands::sync_now,
             commands::take_restore_result,
         ])
         .on_window_event(|window, event| {

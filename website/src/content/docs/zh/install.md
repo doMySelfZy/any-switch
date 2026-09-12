@@ -4,7 +4,7 @@ description: 从 GitHub Releases 下载 macOS 与 Windows 安装包，处理 mac
 order: 2
 ---
 
-支持 **macOS**（Apple Silicon / Intel）与 **Windows**（x64 / ARM64）。请到 [Releases](https://github.com/Licoy/xiaobai-switch/releases) 下载对应安装包，或打开官网 [下载页](/download/)。
+支持 **macOS**（Apple Silicon / Intel）与 **Windows**（x64 / ARM64）。请到 [Releases](https://github.com/doMySelfZy/xiaobai-switch/releases) 下载对应安装包，或打开官网 [下载页](/download/)。
 
 ## 安装包形态
 

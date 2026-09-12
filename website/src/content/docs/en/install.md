@@ -4,7 +4,7 @@ description: Download macOS and Windows installers from GitHub Releases, includi
 order: 2
 ---
 
-**macOS** (Apple Silicon / Intel) and **Windows** (x64 / ARM64) are supported. Get the matching installer from [Releases](https://github.com/Licoy/xiaobai-switch/releases), or use the site [download page](/en/download/).
+**macOS** (Apple Silicon / Intel) and **Windows** (x64 / ARM64) are supported. Get the matching installer from [Releases](https://github.com/doMySelfZy/xiaobai-switch/releases), or use the site [download page](/en/download/).
 
 ## Package types
 

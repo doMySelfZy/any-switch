@@ -75,7 +75,7 @@ describe("updater manifest generation", () => {
       version: "0.0.1",
       notes: "release notes",
       pubDate: "2026-08-19T15:00:00.000Z",
-      repository: "Licoy/xiaobai-switch",
+      repository: "doMySelfZy/xiaobai-switch",
       serverUrl: "https://github.com",
       tag: "v0.0.1",
       assets,
@@ -85,16 +85,16 @@ describe("updater manifest generation", () => {
     expect(manifest.version).toBe("0.0.1");
     expect(manifest.notes).toBe("release notes");
     expect(manifest.platforms["windows-aarch64"].url).toBe(
-      "https://github.com/Licoy/xiaobai-switch/releases/download/v0.0.1/XiaoBaiSwitch_0.0.1_arm64-setup.exe",
+      "https://github.com/doMySelfZy/xiaobai-switch/releases/download/v0.0.1/XiaoBaiSwitch_0.0.1_arm64-setup.exe",
     );
     expect(manifest.platforms["windows-aarch64-nsis"].signature).toBe(
       "signature:XiaoBaiSwitch_0.0.1_arm64-setup.exe.sig",
     );
     expect(manifest.platforms["darwin-x86_64-app"].url).toBe(
-      "https://github.com/Licoy/xiaobai-switch/releases/download/v0.0.1/XiaoBaiSwitch_x64.app.tar.gz",
+      "https://github.com/doMySelfZy/xiaobai-switch/releases/download/v0.0.1/XiaoBaiSwitch_x64.app.tar.gz",
     );
     expect(manifest.platforms["windows-x86_64"].url).toBe(
-      "https://github.com/Licoy/xiaobai-switch/releases/download/v0.0.1/XiaoBaiSwitch_0.0.1_x64_en-US.msi",
+      "https://github.com/doMySelfZy/xiaobai-switch/releases/download/v0.0.1/XiaoBaiSwitch_0.0.1_x64_en-US.msi",
     );
     expect(Object.keys(manifest.platforms)).toHaveLength(9);
   });
@@ -105,7 +105,7 @@ describe("updater manifest generation", () => {
         version: "0.0.1",
         notes: "",
         pubDate: "2026-08-19T15:00:00.000Z",
-        repository: "Licoy/xiaobai-switch",
+        repository: "doMySelfZy/xiaobai-switch",
         serverUrl: "https://github.com",
         tag: "v0.0.1",
         assets: assets.filter(({ name }) => !name.includes("XiaoBaiSwitch_x64.app.tar.gz")),

@@ -101,7 +101,7 @@ fn patch_handler_info_plist(info: &PathBuf) -> AppResult<()> {
         true,
     )?;
     run(
-        "Add :CFBundleURLTypes:0:CFBundleURLName string com.github.licoy.xiaobai-switch.url-handler",
+        "Add :CFBundleURLTypes:0:CFBundleURLName string com.domyselfzy.xiaobai-switch.url-handler",
         true,
     )?;
     run("Add :CFBundleURLTypes:0:CFBundleURLSchemes array", true)?;
@@ -110,11 +110,11 @@ fn patch_handler_info_plist(info: &PathBuf) -> AppResult<()> {
         true,
     )?;
     let _ = run(
-        "Set :CFBundleIdentifier com.github.licoy.xiaobai-switch.url-handler",
+        "Set :CFBundleIdentifier com.domyselfzy.xiaobai-switch.url-handler",
         false,
     );
     let _ = run(
-        "Add :CFBundleIdentifier string com.github.licoy.xiaobai-switch.url-handler",
+        "Add :CFBundleIdentifier string com.domyselfzy.xiaobai-switch.url-handler",
         false,
     );
     let _ = run("Set :CFBundleName XiaoBaiSwitch Dev", false);
