@@ -194,8 +194,8 @@
     "newapiUserIdHint": "Used together with the access token (user ID in personal settings).",
     "quotaConfigureToken": "Configure access token",
     "newapiTest": "Test",
-    "newapiTestOk": "Connected, account balance {amount}",
-    "newapiTestFailed": "Check failed: {detail}",
+    "newapiTestOk": "Connected, account balance {{amount}}",
+    "newapiTestFailed": "Check failed: {{detail}}",
     "newapiTestMissingCredentials": "Fill in the access token and user ID first",
     "newapiTestMissingBaseUrl": "Fill in the base URL first"
   },
@@ -544,7 +544,7 @@
         "failed": "Failed"
       },
       "restoreNow": "Restore a cloud bundle",
-      "syncUploadSuccess": "Latest local config synced to WebDAV (revision {revision})",
+      "syncUploadSuccess": "Latest local config synced to WebDAV (revision {{revision}})",
       "syncInSync": "Cloud and local data are already in sync",
       "syncConflictApplied": "Conflict detected: a local snapshot was kept and the latest cloud data was applied; roll back from local backups if needed",
       "syncFailed": "Sync failed",
