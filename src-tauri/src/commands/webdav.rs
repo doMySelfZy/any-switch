@@ -1,7 +1,7 @@
 use crate::app_backup;
 use crate::domain::{
     BackupOperationResult, BackupOverview, LocalBackupInfo, RemoteBackupInfo, RestoreStartupResult,
-    SaveWebDavConfigInput, TestWebDavConnectionInput, WebDavConfigView,
+    SaveWebDavConfigInput, SyncOutcome, TestWebDavConnectionInput, WebDavConfigView,
 };
 use crate::error::{AppError, AppResult};
 use crate::repo;
@@ -228,6 +228,17 @@ fn relaunch_after_restore(app: AppHandle) {
 }
 
 #[tauri::command]
+pub async fn sync_now(app: AppHandle, state: State<'_, AppState>) -> AppResult<SyncOutcome> {
+    let outcome = crate::sync::run_sync(&app, &state, "manual").await?;
+    if outcome.pending_restart {
+        drop(state);
+        relaunch_after_restore(app);
+    }
+    #[allow(unreachable_code)]
+    Ok(outcome)
+}
+
+#[tauri::command]
 pub fn take_restore_result() -> AppResult<Option<RestoreStartupResult>> {
     crate::pending_restore::take_restore_result(&crate::paths::app_dir()?)
 }
@@ -356,7 +367,7 @@ fn client_from_stored(state: &AppState, stored: &StoredWebDavConfig) -> AppResul
     WebDavClient::new(runtime_config(stored, &state.crypto)?, &settings)
 }
 
-fn runtime_config(
+pub(crate) fn runtime_config(
     stored: &StoredWebDavConfig,
     crypto: &crate::crypto::Crypto,
 ) -> AppResult<WebDavRuntimeConfig> {

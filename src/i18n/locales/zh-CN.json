@@ -531,7 +531,11 @@
         "warning": "部分成功",
         "failed": "失败"
       },
-      "restoreNow": "立即从 WebDAV 恢复"
+      "restoreNow": "立即从 WebDAV 恢复",
+      "syncUploadSuccess": "已把本机最新配置同步到 WebDAV（版本 {revision}）",
+      "syncInSync": "云端与本机数据已一致，无需同步",
+      "syncConflictApplied": "检测到多台机器同时修改：已先保留本机快照，并应用了云端最新数据，可在本地备份中回滚",
+      "syncFailed": "同步失败"
     }
   },
   "skills": {

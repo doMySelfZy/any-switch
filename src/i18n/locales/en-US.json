@@ -531,7 +531,11 @@
         "warning": "Partial success",
         "failed": "Failed"
       },
-      "restoreNow": "Restore from WebDAV now"
+      "restoreNow": "Restore from WebDAV now",
+      "syncUploadSuccess": "Latest local config synced to WebDAV (revision {revision})",
+      "syncInSync": "Cloud and local data are already in sync",
+      "syncConflictApplied": "Conflict detected: a local snapshot was kept and the latest cloud data was applied; roll back from local backups if needed",
+      "syncFailed": "Sync failed"
     }
   },
   "skills": {

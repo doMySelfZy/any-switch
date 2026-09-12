@@ -4,9 +4,9 @@ import { Cloud, CloudUpload, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { invoke, isAppError } from "@/lib/invoke";
 import type {
-  BackupOperationResult,
   BackupOverview,
   RemoteBackupInfo,
+  SyncOutcome,
   WebDavConfigView,
 } from "@/types/domain";
 import { WebDavBackupTable } from "./WebDavBackupTable";
@@ -90,17 +90,25 @@ export function WebDavBackupSettings() {
     void loadRemoteBackups();
   };
 
-  const handleBackupNow = async () => {
+  const handleSyncNow = async () => {
     setSyncing(true);
     try {
-      const result = await invoke<BackupOperationResult>("create_app_backup", {
-        destination: "webdav",
-      });
-      if (result.warning) message.warning(t("settings.webdav.cleanupWarning"));
-      else message.success(t("settings.webdav.backupSuccess"));
+      const outcome = await invoke<SyncOutcome>("sync_now");
+      if (outcome.pendingRestart) {
+        // 应用远端数据需要重启，命令端会在返回前重启应用。
+        return;
+      }
+      if (outcome.conflict) {
+        message.warning(t("settings.webdav.syncConflictApplied"));
+      }
+      if (outcome.action === "upload") {
+        message.success(t("settings.webdav.syncUploadSuccess", { revision: outcome.revision }));
+      } else {
+        message.info(t("settings.webdav.syncInSync"));
+      }
       await Promise.all([loadOverview(), loadRemoteBackups()]);
     } catch (error) {
-      message.error(isAppError(error) ? error.message : t("settings.webdav.backupFailed"));
+      message.error(isAppError(error) ? error.message : t("settings.webdav.syncFailed"));
     } finally {
       setSyncing(false);
     }
@@ -208,7 +216,7 @@ export function WebDavBackupSettings() {
                 type="primary"
                 icon={<CloudUpload size={16} />}
                 loading={syncing}
-                onClick={() => void handleBackupNow()}
+                onClick={() => void handleSyncNow()}
               >
                 {t("settings.webdav.syncNow")}
               </Button>

@@ -145,6 +145,12 @@ CREATE TABLE IF NOT EXISTS webdav_sync_state (
   error TEXT
 );
 
+CREATE TABLE IF NOT EXISTS sync_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_apply_records_target_time ON apply_records(target, applied_at DESC);
 CREATE INDEX IF NOT EXISTS idx_target_bindings_orphan ON target_bindings(orphan);
 CREATE INDEX IF NOT EXISTS idx_site_api_keys_site ON site_api_keys(site_id);

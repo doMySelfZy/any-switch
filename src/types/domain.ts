@@ -408,6 +408,15 @@ export interface BackupOperationResult {
   warning: string | null;
 }
 
+export interface SyncOutcome {
+  action: "upload" | "download" | "in_sync";
+  revision: number;
+  bundleFileName: string | null;
+  conflict: boolean;
+  pendingRestart: boolean;
+  warning: string | null;
+}
+
 export interface RestoreStartupResult {
   status: "applied" | "failed";
   message: string;

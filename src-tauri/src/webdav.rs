@@ -1,6 +1,7 @@
 use crate::app_backup::{self, BACKUP_PREFIX, BACKUP_SUFFIX};
 use crate::domain::{AppSettings, RemoteBackupInfo};
 use crate::error::{AppError, AppResult};
+use crate::sync::{parse_remote_manifest_bytes, SyncManifest, SYNC_MANIFEST_FILE_NAME};
 use futures_util::StreamExt;
 use quick_xml::events::Event;
 use quick_xml::Reader;
@@ -105,7 +106,7 @@ impl WebDavClient {
     }
 
     pub async fn upload_file(&self, file_name: &str, local_path: &Path) -> AppResult<()> {
-        validate_backup_file_name(file_name)?;
+        validate_remote_file_name(file_name)?;
         self.check_connection().await?;
         let url = append_segment(&self.directory_url, file_name)?;
         let file = tokio::fs::File::open(local_path).await?;
@@ -125,7 +126,7 @@ impl WebDavClient {
     }
 
     pub async fn download_file(&self, file_name: &str, destination: &Path) -> AppResult<()> {
-        validate_backup_file_name(file_name)?;
+        validate_remote_file_name(file_name)?;
         let url = append_segment(&self.directory_url, file_name)?;
         let response = self.request(Method::GET, url).send().await?;
         if !response.status().is_success() {
@@ -159,8 +160,53 @@ impl WebDavClient {
         Ok(())
     }
 
+    pub async fn upload_sync_manifest(&self, manifest: &SyncManifest) -> AppResult<()> {
+        validate_remote_file_name(SYNC_MANIFEST_FILE_NAME)?;
+        self.check_connection().await?;
+        let url = append_segment(&self.directory_url, SYNC_MANIFEST_FILE_NAME)?;
+        let body = serde_json::to_vec_pretty(manifest)?;
+        let response = self
+            .request(Method::PUT, url)
+            .header("Content-Type", "application/json")
+            .header(reqwest::header::CONTENT_LENGTH, body.len())
+            .body(body)
+            .send()
+            .await?;
+        match response.status() {
+            StatusCode::OK | StatusCode::CREATED | StatusCode::NO_CONTENT => Ok(()),
+            status => Err(http_status_error("WebDAV manifest upload", status)),
+        }
+    }
+
+    /// 读取远端版本指针；404 表示远端还没有任何同步数据。
+    pub async fn download_sync_manifest(&self) -> AppResult<Option<SyncManifest>> {
+        validate_remote_file_name(SYNC_MANIFEST_FILE_NAME)?;
+        let url = append_segment(&self.directory_url, SYNC_MANIFEST_FILE_NAME)?;
+        let response = self.request(Method::GET, url).send().await?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            return Err(http_status_error(
+                "WebDAV manifest download",
+                response.status(),
+            ));
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > crate::sync::MAX_MANIFEST_BYTES)
+        {
+            return Err(AppError::new(
+                "sync_manifest_invalid",
+                "sync manifest is too large",
+            ));
+        }
+        let bytes = response.bytes().await?;
+        parse_remote_manifest_bytes(&bytes).map(Some)
+    }
+
     pub async fn delete_file(&self, file_name: &str) -> AppResult<()> {
-        validate_backup_file_name(file_name)?;
+        validate_remote_file_name(file_name)?;
         let url = append_segment(&self.directory_url, file_name)?;
         let response = self.request(Method::DELETE, url).send().await?;
         match response.status() {
@@ -348,13 +394,18 @@ fn append_segment(base: &Url, segment: &str) -> AppResult<Url> {
         })?
         .pop_if_empty()
         .push(segment);
-    if !segment.ends_with(BACKUP_SUFFIX) {
+    if !is_file_segment(segment) {
         normalize_directory_url(&mut url);
     }
     Ok(url)
 }
 
-fn validate_backup_file_name(file_name: &str) -> AppResult<()> {
+/// 目录段需要以 `/` 结尾；已知的数据文件（备份 zip 与同步 manifest）不需要。
+fn is_file_segment(segment: &str) -> bool {
+    segment.ends_with(BACKUP_SUFFIX) || segment.ends_with(".json")
+}
+
+pub(crate) fn validate_backup_file_name(file_name: &str) -> AppResult<()> {
     if file_name.starts_with(BACKUP_PREFIX)
         && file_name.ends_with(BACKUP_SUFFIX)
         && !file_name.contains('/')
@@ -368,6 +419,14 @@ fn validate_backup_file_name(file_name: &str) -> AppResult<()> {
             "invalid remote backup file name",
         ))
     }
+}
+
+/// 远端文件名白名单：备份 zip 或同步版本指针 manifest。
+fn validate_remote_file_name(file_name: &str) -> AppResult<()> {
+    if file_name == SYNC_MANIFEST_FILE_NAME {
+        return Ok(());
+    }
+    validate_backup_file_name(file_name)
 }
 
 fn webdav_method(value: &[u8]) -> AppResult<Method> {

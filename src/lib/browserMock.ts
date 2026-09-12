@@ -28,6 +28,7 @@ import type {
   SwitchSiteApiKeyResult,
   AddSiteApiKeyInput,
   UpdateSiteApiKeyInput,
+  SyncOutcome,
   TargetKind,
   TargetLiveStatus,
   UpdateSiteInput,
@@ -149,6 +150,7 @@ let localBackups: LocalBackupInfo[] = [];
 let latestLocalBackupAt: number | null = null;
 let webdavLastAttemptAt: number | null = null;
 let webdavLastSuccessAt: number | null = null;
+let webdavSyncRevision = 0;
 const models = new Map<string, SiteModel[]>();
 const thinkingPresets = new Map<string, SiteThinkingPreset>();
 const keys = new Map<string, string>();
@@ -1192,6 +1194,24 @@ export async function handleBrowserCommand<T>(
         warning: null,
       };
       return result as T;
+    }
+    case "sync_now": {
+      if (!webdavConfig.baseUrl) {
+        throw { code: "webdav_not_configured", message: "WebDAV is not configured" };
+      }
+      const createdAt = now();
+      webdavLastAttemptAt = createdAt;
+      webdavLastSuccessAt = createdAt;
+      webdavSyncRevision += 1;
+      const outcome: SyncOutcome = {
+        action: "upload",
+        revision: webdavSyncRevision,
+        bundleFileName: "xiaobai-switch-backup-20260827_120000.browser.12345678.zip",
+        conflict: false,
+        pendingRestart: false,
+        warning: null,
+      };
+      return outcome as T;
     }
     case "get_backup_overview": {
       const overview: BackupOverview = {

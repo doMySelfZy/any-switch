@@ -660,6 +660,19 @@ pub struct RestoreStartupResult {
     pub message: String,
 }
 
+/// 一次同步引擎运行的结果。
+/// action: "upload"（本机数据发布到远端）/ "download"（应用远端数据，需重启生效）/ "in_sync"（两侧一致）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncOutcome {
+    pub action: String,
+    pub revision: u64,
+    pub bundle_file_name: Option<String>,
+    pub conflict: bool,
+    pub pending_restart: bool,
+    pub warning: Option<String>,
+}
+
 pub fn default_max_backup_copies() -> u32 {
     30
 }
