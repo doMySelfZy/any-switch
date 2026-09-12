@@ -18,6 +18,7 @@ impl Db {
         let path = db_path()?;
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
+        crate::sync::install_db_hook(&conn);
         let db = Self {
             conn: Mutex::new(conn),
         };

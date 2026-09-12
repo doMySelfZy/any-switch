@@ -5,7 +5,9 @@ use crate::repo;
 use crate::state::AppState;
 use crate::webdav::WebDavClient;
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+use tauri::{AppHandle, Manager};
 
 pub const SYNC_MANIFEST_FILE_NAME: &str = "xiaobai-switch-sync.json";
 pub const SYNC_FORMAT_VERSION: u32 = 1;
@@ -293,6 +295,95 @@ fn save_last_synced(state: &AppState, fingerprint: &DataFingerprint) -> AppResul
     })
 }
 
+// ---------------------------------------------------------------------------
+// Phase B：变更驱动触发
+// ---------------------------------------------------------------------------
+
+static SYNC_DIRTY: AtomicBool = AtomicBool::new(false);
+static SYNC_POLL_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// 引擎自身的记账表，写入它们不算"数据变更"。
+const NOISY_SYNC_TABLES: [&str; 2] = ["sync_meta", "webdav_sync_state"];
+
+pub(crate) fn is_noisy_sync_table(table: &str) -> bool {
+    NOISY_SYNC_TABLES.contains(&table)
+}
+
+/// SQLite update_hook 回调：任何业务数据写入都会标记脏。
+pub fn note_db_write(table: &str) {
+    if !is_noisy_sync_table(table) {
+        SYNC_DIRTY.store(true, Ordering::Relaxed);
+    }
+}
+
+/// 请求做一次完整同步决策（启动、窗口聚焦时调用）。
+pub fn request_sync_poll() {
+    SYNC_POLL_REQUESTED.store(true, Ordering::Relaxed);
+}
+
+/// 给应用数据库挂上变更钩子（Db::open 时调用一次）。
+pub fn install_db_hook(conn: &rusqlite::Connection) {
+    // 用具名函数而非闭包：闭包在这里会触发 HRTB 生命周期推断失败。
+    conn.update_hook(Some(sync_update_hook));
+}
+
+fn sync_update_hook(_action: rusqlite::hooks::Action, _db: &str, table: &str, _rowid: i64) {
+    note_db_write(table);
+}
+
+/// 同步守护任务：5 秒一轮，处理三类触发——
+/// 1) 启动后首轮决策（换机打开即拉取）；2) 数据变更（防抖后上传）；
+/// 3) 窗口聚焦（切回窗口时决策一次）。定时器只作为兜底留在调度器里。
+pub fn spawn_sync_daemon(app: AppHandle) {
+    request_sync_poll();
+    tauri::async_runtime::spawn(async move {
+        let mut first_poll_done = false;
+        loop {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            let dirty = SYNC_DIRTY.swap(false, Ordering::Relaxed);
+            let poll = SYNC_POLL_REQUESTED.swap(false, Ordering::Relaxed);
+            if !dirty && !poll {
+                continue;
+            }
+            // 防抖：等连续写突发平息后再打包。
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            let state = app.state::<AppState>();
+            let enabled = state.db.with_conn(|conn| {
+                Ok(repo::webdav::get_config(conn)?.is_some_and(|config| config.auto_sync_enabled))
+            });
+            let enabled = match enabled {
+                Ok(enabled) => enabled,
+                Err(error) => {
+                    tracing::warn!(error = %error, "sync daemon config check failed");
+                    continue;
+                }
+            };
+            if !enabled {
+                continue;
+            }
+            let reason = if dirty && !poll {
+                "auto"
+            } else if !first_poll_done {
+                first_poll_done = true;
+                "startup"
+            } else {
+                "poll"
+            };
+            match run_sync(&app, &state, reason).await {
+                Ok(outcome) => {
+                    if outcome.pending_restart {
+                        drop(state);
+                        crate::commands::webdav::relaunch_after_restore(app.clone());
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(error = %error, reason, "background sync failed");
+                }
+            }
+        }
+    });
+}
+
 /// 把远端 bundle 复制到 staging 并解析出它的指纹（供引擎与测试复用）。
 pub fn parse_remote_manifest_bytes(bytes: &[u8]) -> AppResult<SyncManifest> {
     if bytes.len() as u64 > MAX_MANIFEST_BYTES {
@@ -404,7 +495,7 @@ mod tests {
         let bytes = serde_json::to_vec(&remote).unwrap();
         assert!(parse_remote_manifest_bytes(&bytes).is_err());
 
-        let mut remote = manifest("a", "f", 0);
+        let remote = manifest("a", "f", 0);
         let bytes = serde_json::to_vec(&remote).unwrap();
         assert!(parse_remote_manifest_bytes(&bytes).is_err());
 
@@ -421,6 +512,37 @@ mod tests {
     #[test]
     fn fingerprint_equality_uses_both_hashes() {
         assert_eq!(fingerprint("a", "f"), fingerprint("a", "f"));
-        assert_ne!(fingerprint("a", "f"), fingerprint("a", "k2"));
+        assert_ne!(fingerprint("a", "f"), fingerprint("a", "f2"));
+    }
+
+    #[test]
+    fn only_business_tables_mark_dirty() {
+        assert!(is_noisy_sync_table("sync_meta"));
+        assert!(is_noisy_sync_table("webdav_sync_state"));
+        assert!(!is_noisy_sync_table("sites"));
+        assert!(!is_noisy_sync_table("settings"));
+    }
+
+    #[test]
+    fn db_writes_mark_dirty_except_sync_tables() {
+        SYNC_DIRTY.store(false, Ordering::Relaxed);
+        SYNC_POLL_REQUESTED.store(false, Ordering::Relaxed);
+
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        install_db_hook(&conn);
+
+        // 引擎记账表写入：不标记脏。
+        repo::sync_meta::set_meta(&conn, "probe", "1").unwrap();
+        assert!(!SYNC_DIRTY.load(Ordering::Relaxed));
+
+        // 业务数据写入：标记脏。
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (id, json) VALUES (1, '{}')",
+            [],
+        )
+        .unwrap();
+        assert!(SYNC_DIRTY.swap(false, Ordering::Relaxed));
+        assert!(SYNC_POLL_REQUESTED.swap(false, Ordering::Relaxed) == false);
     }
 }

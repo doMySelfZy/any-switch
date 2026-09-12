@@ -88,15 +88,13 @@ _"模拟双机同时修改、断网、远端坏包三个场景，本地数据在
 
 | Phase | Status |
 |-------|--------|
-| Phase A — 同步基础设施 | ⬜ Not started |
-| Phase B — 变更即同步 | ⬜ Not started |
-| Phase C — 安全与 UX | ⬜ Not started |
+| Phase A — 同步基础设施 | ✅ Done（609c9cf，295 测试全绿） |
+| Phase B — 变更即同步 | ✅ Done（update_hook 脏标记 + 5s 守护决策：启动/聚焦/变更，调度器降级兜底） |
+| Phase C — 安全与 UX | ⬜ Not started（冲突确认 UI、同步状态卡片） |
 
-**前置事项：** 重启 ZCode 使 `MIMOSA_NO_GIT_GATE=1` 生效 → 提交 Trellis 脚手架（dev 分支已就绪，211 文件已暂存）→ 推送 main/tags 完成三方对齐。
+**Last session:** 2026-09-12 — 本机恢复 MSVC 工具链后 cargo test 全量通过（297/297，含上游 Windows TOML 路径修复）；Phase A/B 实现并验证。
 
-**Last session:** 2026-09-12 — 与上游 v0.0.11 对齐；Trellis 升级 1.0.1 并完成规划（persona ×1、outcome ×3、契约/架构/交付/运维已录入）。
-
-**Next session:** Git 门放行后提交推送，然后进入 Phase A 编码。
+**Next session:** Phase C——冲突确认交互与设置页同步状态区；真机双端到端验证（两台机器同 WebDAV 账号）。
 
 ---
 

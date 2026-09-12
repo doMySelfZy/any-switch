@@ -212,7 +212,7 @@ pub async fn restore_webdav_backup(
     Ok(())
 }
 
-fn relaunch_after_restore(app: AppHandle) {
+pub(crate) fn relaunch_after_restore(app: AppHandle) {
     app.state::<AppState>()
         .is_quitting
         .store(true, Ordering::Relaxed);
@@ -268,8 +268,11 @@ pub async fn restart_webdav_scheduler(app: AppHandle) -> AppResult<()> {
         loop {
             let delay_ms = (next_run - chrono::Utc::now().timestamp_millis()).max(0) as u64;
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-            if let Err(error) = run_webdav_backup(&task_app, "scheduled").await {
-                tracing::warn!(error = %error, "scheduled WebDAV backup failed");
+            // 兜底触发：交给同步引擎统一决策（变更即推、打开即拉）。
+            if let Err(error) =
+                crate::sync::run_sync(&task_app, &task_app.state::<AppState>(), "scheduled").await
+            {
+                tracing::warn!(error = %error, "scheduled WebDAV sync failed");
             }
             next_run = chrono::Utc::now().timestamp_millis() + interval_ms;
             task_app

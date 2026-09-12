@@ -57,6 +57,12 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .on_window_event(|_window, event| {
+            if matches!(event, tauri::WindowEvent::Focused(true)) {
+                // 切回窗口时做一次同步决策（换机后打开即最新）。
+                crate::sync::request_sync_poll();
+            }
+        })
         .setup(|app| {
             let state = AppState::init()
                 .map_err(|e| {
@@ -71,6 +77,8 @@ pub fn run() {
                 .unwrap_or_else(|_| "zh-CN".into());
             let start_in_tray = state.start_in_tray.load(Ordering::Relaxed);
             app.manage(state);
+            let sync_daemon_app = app.handle().clone();
+            crate::sync::spawn_sync_daemon(sync_daemon_app);
             let scheduler_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = commands::webdav::restart_webdav_scheduler(scheduler_app).await
