@@ -1224,6 +1224,7 @@ export async function handleBrowserCommand<T>(
           status: webdavLastSuccessAt ? "success" : "never",
           error: null,
         },
+        syncRevision: webdavSyncRevision > 0 ? webdavSyncRevision : null,
         nextScheduledAt:
           webdavConfig.autoSyncEnabled && webdavLastAttemptAt
             ? webdavLastAttemptAt + webdavConfig.syncIntervalMinutes * 60_000

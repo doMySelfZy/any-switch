@@ -289,6 +289,15 @@ async fn run_sync_inner(
                 app_version: env!("CARGO_PKG_VERSION").into(),
             };
             client.upload_sync_manifest(&manifest).await?;
+            // 按保留数清理本设备在云端的旧数据包，防止无限堆积。
+            let device = app_backup::parse_device_from_filename(&local_bundle.file_name);
+            let warning = client
+                .cleanup_device_backups(&device, stored.max_remote_backups)
+                .await
+                .err()
+                .map(|error| {
+                    format!("synced, but old remote bundles could not be pruned: {error}")
+                });
             save_last_synced(state, &local_fp)?;
             state.db.with_conn(|conn| {
                 repo::sync_meta::set_meta(
@@ -303,7 +312,7 @@ async fn run_sync_inner(
                 bundle_file_name: Some(local_bundle.file_name),
                 conflict: false,
                 pending_restart: false,
-                warning: None,
+                warning,
             })
         }
         SyncAction::Download => {

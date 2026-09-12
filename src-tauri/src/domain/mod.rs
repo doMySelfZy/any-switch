@@ -642,6 +642,7 @@ pub struct BackupOverview {
     pub webdav_auto_sync_enabled: bool,
     pub webdav_sync: WebDavSyncStatus,
     pub next_scheduled_at: Option<i64>,
+    pub sync_revision: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

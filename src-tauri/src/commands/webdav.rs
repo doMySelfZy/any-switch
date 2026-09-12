@@ -120,10 +120,11 @@ pub async fn create_app_backup(
 
 #[tauri::command]
 pub fn get_backup_overview(state: State<'_, AppState>) -> AppResult<BackupOverview> {
-    let (config, sync) = state.db.with_conn(|conn| {
+    let (config, sync, last_published) = state.db.with_conn(|conn| {
         Ok((
             repo::webdav::get_config(conn)?,
             repo::webdav::get_sync_status(conn)?,
+            repo::sync_meta::get_meta(conn, "last_published_revision")?,
         ))
     })?;
     let next = state.next_webdav_sync_at.load(Ordering::Relaxed);
@@ -135,6 +136,7 @@ pub fn get_backup_overview(state: State<'_, AppState>) -> AppResult<BackupOvervi
             .is_some_and(|config| config.auto_sync_enabled),
         webdav_sync: sync,
         next_scheduled_at: (next > 0).then_some(next),
+        sync_revision: last_published.and_then(|value| value.parse::<u64>().ok()),
     })
 }
 

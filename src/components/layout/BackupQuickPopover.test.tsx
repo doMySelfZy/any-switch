@@ -35,11 +35,11 @@ describe("BackupQuickPopover", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "应用数据备份" }));
-    expect(await screen.findByText("备份包含数据库和解密主密钥，请仅保存到可信位置")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /立即备份到 WebDAV/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /立即从 WebDAV 恢复/ })).toBeDisabled();
+    expect(await screen.findByText("数据包含解密主密钥，请仅使用可信的 WebDAV 账户。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /立即同步/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /恢复云端历史数据包/ })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: /立即创建本地备份/ }));
+    fireEvent.click(screen.getByRole("button", { name: /创建本地快照/ }));
     expect(await screen.findByText("本地应用备份已创建")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /前往备份设置配置 WebDAV/ }));
@@ -82,7 +82,7 @@ describe("BackupQuickPopover", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "应用数据备份" }));
-    const restoreBtn = await screen.findByRole("button", { name: /立即从 WebDAV 恢复/ });
+    const restoreBtn = await screen.findByRole("button", { name: /恢复云端历史数据包/ });
     await waitFor(() => {
       expect(restoreBtn).toBeEnabled();
     });

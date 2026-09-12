@@ -190,12 +190,17 @@ export function WebDavBackupSettings() {
           >
             {t("settings.backupCenter.batchDelete", { count: selectedFileNames.length })}
           </Button>
-          {isConfigured && lastSuccess && (
+          {isConfigured && (
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {t("settings.webdav.lastSuccess")}: {lastSuccess}{" "}
-              <Tag color={statusColor} style={{ marginLeft: 4 }}>
-                {t(`settings.webdav.status.${status}`)}
-              </Tag>
+              {t("settings.webdav.cloudRevision")}: {overview?.syncRevision ?? "-"}
+              {lastSuccess && (
+                <>
+                  {" "}· {t("settings.webdav.lastSuccess")}: {lastSuccess}{" "}
+                  <Tag color={statusColor} style={{ marginLeft: 4 }}>
+                    {t(`settings.webdav.status.${status}`)}
+                  </Tag>
+                </>
+              )}
             </Text>
           )}
         </Space>
@@ -224,6 +229,10 @@ export function WebDavBackupSettings() {
           )}
         </Space>
       </div>
+
+      <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
+        {t("settings.webdav.syncNote")}
+      </Typography.Paragraph>
 
       {loading && !isConfigured ? (
         <div className="flex justify-center py-16">

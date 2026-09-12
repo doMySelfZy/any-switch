@@ -4,7 +4,7 @@ import { CloudDownload, CloudUpload, DatabaseBackup, HardDriveDownload, Settings
 import { useTranslation } from "react-i18next";
 import { invoke, isAppError } from "@/lib/invoke";
 import { useUIStore } from "@/stores";
-import type { BackupOperationResult, BackupOverview, RemoteBackupInfo } from "@/types/domain";
+import type { BackupOperationResult, BackupOverview, RemoteBackupInfo, SyncOutcome } from "@/types/domain";
 
 function formatTimestamp(value: number | null): string {
   if (value == null) return "-";
@@ -34,7 +34,8 @@ export function BackupQuickPopover() {
   const { message, modal } = App.useApp();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [destination, setDestination] = useState<"local" | "webdav" | null>(null);
+  const [destination, setDestination] = useState<"local" | null>(null);
+  const [syncing, setSyncing] = useState(false);
   const [overview, setOverview] = useState<BackupOverview | null>(null);
   const [remoteBackups, setRemoteBackups] = useState<RemoteBackupInfo[]>([]);
 
@@ -64,26 +65,46 @@ export function BackupQuickPopover() {
     if (open) void loadOverview();
   }, [loadOverview, open]);
 
-  const createBackup = async (nextDestination: "local" | "webdav") => {
-    setDestination(nextDestination);
+  const createLocalSnapshot = async () => {
+    setDestination("local");
     try {
       const result = await invoke<BackupOperationResult>("create_app_backup", {
-        destination: nextDestination,
+        destination: "local",
       });
       message[result.warning ? "warning" : "success"](
         result.warning
           ? t("settings.webdav.cleanupWarning")
-          : t(
-              nextDestination === "local"
-                ? "settings.webdav.localBackupSuccess"
-                : "settings.webdav.backupSuccess",
-            ),
+          : t("settings.webdav.localBackupSuccess"),
       );
       await loadOverview();
     } catch (error) {
       message.error(isAppError(error) ? error.message : t("settings.webdav.backupFailed"));
     } finally {
       setDestination(null);
+    }
+  };
+
+  const runSyncNow = async () => {
+    setSyncing(true);
+    try {
+      const outcome = await invoke<SyncOutcome>("sync_now");
+      if (outcome.pendingRestart) {
+        // 应用云端数据需要重启，命令端会在返回前重启应用。
+        return;
+      }
+      if (outcome.conflict) {
+        message.warning(t("settings.webdav.syncConflictApplied"));
+      }
+      if (outcome.action === "upload") {
+        message.success(t("settings.webdav.syncUploadSuccess", { revision: outcome.revision }));
+      } else if (outcome.action === "in_sync") {
+        message.info(t("settings.webdav.syncInSync"));
+      }
+      await loadOverview();
+    } catch (error) {
+      message.error(isAppError(error) ? error.message : t("settings.webdav.syncFailed"));
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -146,6 +167,10 @@ export function BackupQuickPopover() {
             </Tag>
           </div>
           <div className="flex justify-between gap-4 text-xs">
+            <span style={{ color: token.colorTextSecondary }}>{t("settings.webdav.cloudRevision")}</span>
+            <span>{overview?.syncRevision ?? "-"}</span>
+          </div>
+          <div className="flex justify-between gap-4 text-xs">
             <span style={{ color: token.colorTextSecondary }}>{t("settings.webdav.lastSuccess")}</span>
             <span>{formatTimestamp(overview?.webdavSync.lastSuccessAt ?? null)}</span>
           </div>
@@ -161,7 +186,7 @@ export function BackupQuickPopover() {
           icon={<HardDriveDownload size={14} />}
           loading={destination === "local"}
           disabled={destination !== null}
-          onClick={() => void createBackup("local")}
+          onClick={() => void createLocalSnapshot()}
         >
           {t("settings.webdav.localBackupNow")}
         </Button>
@@ -169,11 +194,11 @@ export function BackupQuickPopover() {
           block
           type="primary"
           icon={<CloudUpload size={14} />}
-          loading={destination === "webdav"}
+          loading={syncing}
           disabled={destination !== null || !overview?.webdavConfigured}
-          onClick={() => void createBackup("webdav")}
+          onClick={() => void runSyncNow()}
         >
-          {t("settings.webdav.backupNow")}
+          {t("settings.webdav.syncNow")}
         </Button>
         <Button
           block

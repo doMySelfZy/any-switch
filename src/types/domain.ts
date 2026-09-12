@@ -399,6 +399,7 @@ export interface BackupOverview {
   webdavAutoSyncEnabled: boolean;
   webdavSync: WebDavSyncStatus;
   nextScheduledAt: number | null;
+  syncRevision: number | null;
 }
 
 export interface BackupOperationResult {

@@ -209,7 +209,12 @@ export function WebDavConfigModal({
           <Switch />
         </Form.Item>
         <div className="flex gap-4">
-          <Form.Item name="syncIntervalMinutes" label={t("settings.webdav.interval")}>
+          <Form.Item
+            name="syncIntervalMinutes"
+            label={t("settings.webdav.interval")}
+            className="flex-1"
+            extra={t("settings.webdav.intervalExtra")}
+          >
             <Select
               style={{ width: 200 }}
               options={[15, 30, 60, 120, 360, 720, 1440].map((value) => ({
@@ -218,7 +223,12 @@ export function WebDavConfigModal({
               }))}
             />
           </Form.Item>
-          <Form.Item name="maxRemoteBackups" label={t("settings.webdav.retention")}>
+          <Form.Item
+            name="maxRemoteBackups"
+            label={t("settings.webdav.retention")}
+            className="flex-1"
+            extra={t("settings.webdav.retentionExtra")}
+          >
             <InputNumber
               min={1}
               max={100}
