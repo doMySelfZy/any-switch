@@ -33,6 +33,13 @@ pub fn get_site_api_key(
 }
 
 #[tauri::command]
+pub fn get_site_newapi_token(state: State<'_, AppState>, id: String) -> AppResult<String> {
+    state
+        .db
+        .with_conn(|c| repo::site::get_site_newapi_token(c, &state.crypto, &id))
+}
+
+#[tauri::command]
 pub fn create_site(
     app: tauri::AppHandle,
     state: State<'_, AppState>,

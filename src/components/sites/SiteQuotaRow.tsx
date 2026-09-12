@@ -16,6 +16,9 @@ interface Props {
   loading: boolean;
   refreshing?: boolean;
   onRefresh: () => void;
+  /** 标准额度探测失败且未配置访问令牌时，显示"配置访问令牌"入口。 */
+  showConfigureHint?: boolean;
+  onConfigureQuota?: () => void;
 }
 
 const quotaStatusMessageKeys: Record<string, string> = {
@@ -36,7 +39,15 @@ function quotaStatusMessageKey(quota: SiteQuota | null): string | null {
   return quotaStatusMessageKeys[quota.status] ?? null;
 }
 
-export function SiteQuotaRow({ quota, attempt, loading, refreshing, onRefresh }: Props) {
+export function SiteQuotaRow({
+  quota,
+  attempt,
+  loading,
+  refreshing,
+  onRefresh,
+  showConfigureHint,
+  onConfigureQuota,
+}: Props) {
   const { t, i18n } = useTranslation();
   const { token } = theme.useToken();
   const latestAttempt = attempt ?? quota;
@@ -74,6 +85,11 @@ export function SiteQuotaRow({ quota, attempt, loading, refreshing, onRefresh }:
               aria-label={t("sites.quotaRefresh")}
             />
           </Tooltip>
+          {showConfigureHint && onConfigureQuota && quota != null && quota.status !== "invalid_data" && (
+            <Button type="link" size="small" className="!px-1" onClick={onConfigureQuota}>
+              {t("sites.quotaConfigureToken")}
+            </Button>
+          )}
         </div>
       </div>
     );

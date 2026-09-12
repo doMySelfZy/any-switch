@@ -184,6 +184,8 @@ pub fn import_site_from_deep_link_conn(
                 .capabilities
                 .as_ref()
                 .map(|incoming| merge_codex_capabilities(&Default::default(), incoming)),
+            newapi_access_token: None,
+            newapi_user_id: None,
         },
     )?;
 

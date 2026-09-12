@@ -960,6 +960,8 @@ wire_api = "responses"
             updated_at: 1,
             capabilities: Default::default(),
             keys: Default::default(),
+            newapi_access_token_encrypted: None,
+            newapi_user_id: None,
         };
         let bak = dir.path().join("bak");
         fs::create_dir_all(&bak).unwrap();
@@ -1038,6 +1040,8 @@ image_generation = false
             updated_at: 1,
             capabilities: Default::default(),
             keys: Default::default(),
+            newapi_access_token_encrypted: None,
+            newapi_user_id: None,
         };
         let bak = dir.path().join("bak");
         fs::create_dir_all(&bak).unwrap();

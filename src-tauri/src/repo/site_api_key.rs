@@ -474,6 +474,8 @@ mod tests {
             &conn,
             &crypto,
             CreateSiteInput {
+                newapi_access_token: None,
+                newapi_user_id: None,
                 name: "Relay".into(),
                 base_url: "https://a.example.com".into(),
                 base_urls: None,
@@ -518,6 +520,8 @@ mod tests {
             &conn,
             &crypto,
             CreateSiteInput {
+                newapi_access_token: None,
+                newapi_user_id: None,
                 name: "Other".into(),
                 base_url: "https://b.example.com".into(),
                 base_urls: None,

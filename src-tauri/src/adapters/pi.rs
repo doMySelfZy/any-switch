@@ -1000,6 +1000,8 @@ mod tests {
             updated_at: 0,
             capabilities: SiteCapabilities::default(),
             keys: Default::default(),
+            newapi_access_token_encrypted: None,
+            newapi_user_id: None,
         }
     }
 

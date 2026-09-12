@@ -107,6 +107,9 @@ export interface Site {
   capabilities?: SiteCapabilities;
   activeApiKeyId?: string | null;
   apiKeys?: SiteApiKeySummary[];
+  /** NewAPI 访问令牌是否已配置（令牌本身不回传前端）。 */
+  newapiConfigured?: boolean;
+  newapiUserId?: string | null;
 }
 
 export interface SiteModel {
@@ -149,6 +152,8 @@ export interface CreateSiteInput {
   claudeAuthKeyStyle?: ClaudeAuthKeyStyle;
   notes?: string | null;
   capabilities?: SiteCapabilities;
+  newapiAccessToken?: string | null;
+  newapiUserId?: string | null;
 }
 
 export interface UpsertSiteApiKeyInput {
@@ -170,6 +175,8 @@ export interface UpdateSiteInput {
   selectedModelId?: string | null;
   sortOrder?: number;
   capabilities?: SiteCapabilities;
+  newapiAccessToken?: string | null;
+  newapiUserId?: string | null;
 }
 
 export interface FetchModelsResult {
@@ -457,7 +464,8 @@ export type QuotaSource =
   | "subscription_usage"
   | "subscription_only"
   | "usage_only"
-  | "token_usage";
+  | "token_usage"
+  | "user_self";
 
 export interface SiteQuota {
   status: QuotaProbeStatus;

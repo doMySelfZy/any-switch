@@ -185,7 +185,14 @@
     "codexPrivateCapabilities": "Codex私有能力",
     "deepLinkCapabilitiesOff": "全部关闭",
     "dragHandle": "拖拽排序",
-    "reorderFailed": "调整顺序失败"
+    "reorderFailed": "调整顺序失败",
+    "newapiAccessToken": "NewAPI 访问令牌",
+    "newapiTokenHint": "选填。new-api 类中转在标准额度接口不可用时，用它查询账户余额（个人设置-生成访问令牌）。",
+    "newapiTokenSavedHint": "已加密保存；留空并保存则清除令牌。",
+    "newapiTokenLoadFailed": "访问令牌解密失败，本次保存不会改动它。",
+    "newapiUserId": "NewAPI 用户 ID",
+    "newapiUserIdHint": "配合访问令牌使用（个人设置-用户 ID）。",
+    "quotaConfigureToken": "配置访问令牌"
   },
   "apply": {
     "title": "应用中心",

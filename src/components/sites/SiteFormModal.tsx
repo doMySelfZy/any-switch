@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { App, Collapse, Form, Input, Modal, Select } from "antd";
 import { useTranslation } from "react-i18next";
 import type { Site, SiteCapabilities, SiteProtocol } from "@/types/domain";
+import { invoke, isAppError } from "@/lib/invoke";
 import { useSiteStore } from "@/stores";
 import { UrlWritePreviewIcon } from "./UrlWritePreview";
 import { ApiKeyListInput, loadSiteKeyDrafts, normalizeApiKeyDrafts } from "./ApiKeyListInput";
 import { BaseUrlListInput } from "./BaseUrlListInput";
-import { isAppError } from "@/lib/invoke";
 import { invalidateSiteIconCache } from "@/lib/siteIcon";
 import { siteApiKeys } from "@/lib/siteApiKey";
 import { normalizeBaseUrls, siteBaseUrls } from "@/lib/urlNormalize";
@@ -41,11 +41,13 @@ interface Props {
   open: boolean;
   site?: Site | null;
   initialValues?: SiteFormInitialValues | null;
+  /** 打开时强制展开高级配置（如从额度提示跳入）。 */
+  forceAdvancedOpen?: boolean;
   onClose: () => void;
-  onSaved?: (site: Site, isCreate: boolean) => void;
+  onSaved?: (site: Site, isCreate: boolean) => void | Promise<void>;
 }
 
-export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: Props) {
+export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, onClose, onSaved }: Props) {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const getSiteApiKey = useSiteStore((s) => s.getSiteApiKey);
@@ -57,6 +59,7 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
   const [codexFlags, setCodexFlags] = useState<CodexCapabilityFlags>(EMPTY_CODEX_FLAGS);
   const [advancedOpen, setAdvancedOpen] = useState<string[]>([]);
   const [capOpen, setCapOpen] = useState<string[]>([]);
+  const [newapiTokenLoadFailed, setNewapiTokenLoadFailed] = useState(false);
   const watchedUrls = Form.useWatch("baseUrls", form) as string[] | undefined;
   const previewUrl = watchedUrls?.find((u) => String(u ?? "").trim()) ?? "";
 
@@ -77,11 +80,19 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
         ...currentKeys.filter((key) => !key.isActive),
       ];
       setKeyLoading(summaries.length > 0 || site.hasKey);
+      setNewapiTokenLoadFailed(false);
+      setAdvancedOpen(
+        shouldOpenAdvanced(protocol, notes) || site.newapiConfigured || forceAdvancedOpen
+          ? ["advanced"]
+          : [],
+      );
       form.setFieldsValue({
         name: site.name,
         baseUrls: siteBaseUrls(site),
         protocol: site.protocol,
         notes: site.notes ?? "",
+        newapiAccessToken: "",
+        newapiUserId: site.newapiUserId ?? "",
         apiKeys: summaries.length
           ? summaries.map((key) => ({ id: key.id, label: key.label, apiKey: "" }))
           : [{ label: "", apiKey: "" }],
@@ -97,8 +108,31 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
         .finally(() => {
           if (!cancelled) setKeyLoading(false);
         });
+      if (site.newapiConfigured) {
+        void invoke<string>("get_site_newapi_token", { id: site.id })
+          .then((token) => {
+            if (!cancelled) form.setFieldValue("newapiAccessToken", token);
+          })
+          .catch((error: unknown) => {
+            if (cancelled) {
+              return;
+            }
+            setNewapiTokenLoadFailed(true);
+            message.error(isAppError(error) ? error.message : t("sites.newapiTokenLoadFailed"));
+          });
+      }
     } else {
       setKeyLoading(false);
+      setNewapiTokenLoadFailed(false);
+      setAdvancedOpen(
+        forceAdvancedOpen ||
+        shouldOpenAdvanced(
+          initialValues?.protocol ?? "openai_compatible",
+          initialValues?.notes ?? "",
+        )
+          ? ["advanced"]
+          : [],
+      );
       form.resetFields();
       form.setFieldsValue({
         protocol: initialValues?.protocol ?? "openai_compatible",
@@ -106,12 +140,14 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
         name: initialValues?.name,
         apiKeys: [{ label: "", apiKey: initialValues?.apiKey ?? "" }],
         notes: initialValues?.notes ?? "",
+        newapiAccessToken: "",
+        newapiUserId: "",
       });
     }
     return () => {
       cancelled = true;
     };
-  }, [open, site, form, initialValues, getSiteApiKey, message, t]);
+  }, [open, site, form, initialValues, forceAdvancedOpen, getSiteApiKey, message, t]);
 
   const handleOk = async () => {
     try {
@@ -126,6 +162,11 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
         message.error(t("sites.apiKey"));
         return;
       }
+      // 已配置令牌但解密回填失败时省略字段，避免把令牌意外清空。
+      const omitNewapiToken = site?.newapiConfigured === true && newapiTokenLoadFailed;
+      const newapiAccessToken = omitNewapiToken
+        ? undefined
+        : (values.newapiAccessToken?.trim() || "");
       setSaving(true);
       let saved: Site;
       const isCreate = !site;
@@ -138,6 +179,8 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
           protocol: values.protocol as SiteProtocol,
           notes: values.notes || null,
           capabilities,
+          newapiAccessToken,
+          newapiUserId: values.newapiUserId?.trim() || "",
         });
         invalidateSiteIconCache(site.id);
       } else {
@@ -154,6 +197,8 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
           protocol: values.protocol,
           notes: values.notes || null,
           capabilities,
+          newapiAccessToken: values.newapiAccessToken?.trim() || null,
+          newapiUserId: values.newapiUserId?.trim() || null,
         });
       }
       message.success(isCreate ? t("sites.createSuccess") : t("sites.updateSuccess"));
@@ -232,8 +277,27 @@ export function SiteFormModal({ open, site, initialValues, onClose, onSaved }: P
                         ]}
                       />
                     </Form.Item>
-                    <Form.Item name="notes" label={t("sites.notes")} className="!mb-0">
+                    <Form.Item name="notes" label={t("sites.notes")}>
                       <Input.TextArea rows={2} allowClear />
+                    </Form.Item>
+                    <Form.Item
+                      name="newapiAccessToken"
+                      label={t("sites.newapiAccessToken")}
+                      extra={
+                        site?.newapiConfigured && !newapiTokenLoadFailed
+                          ? t("sites.newapiTokenSavedHint")
+                          : t("sites.newapiTokenHint")
+                      }
+                    >
+                      <Input.Password autoComplete="new-password" placeholder="Access Token" />
+                    </Form.Item>
+                    <Form.Item
+                      name="newapiUserId"
+                      label={t("sites.newapiUserId")}
+                      className="!mb-0"
+                      extra={t("sites.newapiUserIdHint")}
+                    >
+                      <Input allowClear placeholder="1" inputMode="numeric" />
                     </Form.Item>
                   </>
                 ),

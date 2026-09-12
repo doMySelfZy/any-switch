@@ -700,6 +700,8 @@ mod context_1m_tests {
             updated_at: 1,
             capabilities: Default::default(),
             keys: Default::default(),
+            newapi_access_token_encrypted: None,
+            newapi_user_id: None,
         }
     }
 
@@ -1065,6 +1067,8 @@ mod rewrite_tests {
             updated_at: 1,
             capabilities: Default::default(),
             keys: Default::default(),
+            newapi_access_token_encrypted: None,
+            newapi_user_id: None,
         }
     }
 

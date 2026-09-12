@@ -34,7 +34,9 @@ CREATE TABLE IF NOT EXISTS sites (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   base_urls_json TEXT,
-  capabilities_json TEXT
+  capabilities_json TEXT,
+  newapi_access_token_encrypted TEXT,
+  newapi_user_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS site_api_keys (
@@ -399,6 +401,21 @@ INSERT INTO site_model_exclusions SELECT * FROM site_model_exclusions_new;
 DROP TABLE site_model_exclusions_new;
 "#,
     )?;
+
+    if table_exists(conn, "sites")? {
+        ensure_column(
+            conn,
+            "sites",
+            "newapi_access_token_encrypted",
+            "ALTER TABLE sites ADD COLUMN newapi_access_token_encrypted TEXT",
+        )?;
+        ensure_column(
+            conn,
+            "sites",
+            "newapi_user_id",
+            "ALTER TABLE sites ADD COLUMN newapi_user_id TEXT",
+        )?;
+    }
 
     if table_exists(conn, "target_bindings")? {
         ensure_column(

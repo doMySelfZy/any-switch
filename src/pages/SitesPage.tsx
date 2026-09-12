@@ -72,6 +72,7 @@ export function SitesPage() {
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Site | null>(null);
+  const [forceAdvancedOpen, setForceAdvancedOpen] = useState(false);
   const [formInitial, setFormInitial] = useState<SiteFormInitialValues | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const pendingSiteForm = useUIStore((s) => s.pendingSiteForm);
@@ -101,6 +102,7 @@ export function SitesPage() {
     setEditing(null);
     setFormInitial(null);
     setFormOpen(true);
+    setForceAdvancedOpen(false);
   };
 
   const selected = sites.find((s) => s.id === selectedSiteId) ?? sites[0] ?? null;
@@ -357,9 +359,11 @@ export function SitesPage() {
           open={formOpen}
           site={editing}
           initialValues={editing ? null : formInitial}
+          forceAdvancedOpen={forceAdvancedOpen}
           onClose={() => {
             setFormOpen(false);
             setFormInitial(null);
+            setForceAdvancedOpen(false);
           }}
           onSaved={handleSiteSaved}
         />
@@ -407,6 +411,7 @@ export function SitesPage() {
                   onSelect={() => setSelectedSiteId(site.id)}
                   onEdit={() => {
                     setEditing(site);
+                    setForceAdvancedOpen(false);
                     setFormOpen(true);
                   }}
                   onDelete={() => handleDelete(site)}
@@ -517,6 +522,13 @@ export function SitesPage() {
                     quotaBySite[selected.id]?.status === "available"
                   }
                   onRefresh={() => void handleRefreshQuota()}
+                  showConfigureHint={!selected.newapiConfigured}
+                  onConfigureQuota={() => {
+                    setEditing(selected);
+                    setFormInitial(null);
+                    setFormOpen(true);
+                    setForceAdvancedOpen(true);
+                  }}
                 />
                 <div className="flex gap-2">
                   <span className="w-28 shrink-0 opacity-50">{t("sites.protocol")}</span>
@@ -547,8 +559,10 @@ export function SitesPage() {
         open={formOpen}
         site={editing}
         initialValues={editing ? null : formInitial}
+        forceAdvancedOpen={forceAdvancedOpen}
         onClose={() => {
           setFormOpen(false);
+          setForceAdvancedOpen(false);
           setFormInitial(null);
         }}
         onSaved={handleSiteSaved}

@@ -45,6 +45,8 @@ fn map_site(row: &rusqlite::Row<'_>) -> rusqlite::Result<SiteRow> {
             active_api_key_id,
             api_keys: Vec::new(),
         },
+        newapi_access_token_encrypted: row.get(19).ok().flatten(),
+        newapi_user_id: row.get(20).ok().flatten(),
     })
 }
 
@@ -52,7 +54,7 @@ fn urls_json(urls: &[String]) -> AppResult<String> {
     Ok(serde_json::to_string(urls)?)
 }
 
-const SITE_SELECT: &str = "s.id, s.name, s.base_url, k.api_key_encrypted, k.key_prefix, s.protocol, s.claude_auth_key_style, s.notes, s.enabled, s.sort_order, k.selected_model_id, k.last_model_fetch_at, k.last_model_fetch_latency_ms, k.last_model_fetch_error, s.created_at, s.updated_at, s.base_urls_json, s.capabilities_json, k.id";
+const SITE_SELECT: &str = "s.id, s.name, s.base_url, k.api_key_encrypted, k.key_prefix, s.protocol, s.claude_auth_key_style, s.notes, s.enabled, s.sort_order, k.selected_model_id, k.last_model_fetch_at, k.last_model_fetch_latency_ms, k.last_model_fetch_error, s.created_at, s.updated_at, s.base_urls_json, s.capabilities_json, k.id, s.newapi_access_token_encrypted, s.newapi_user_id";
 const SITE_FROM: &str = "sites s LEFT JOIN site_api_keys k ON k.site_id = s.id AND k.is_active = 1";
 
 fn attach_keys(conn: &Connection, sites: &mut [SiteRow]) -> AppResult<()> {
@@ -138,9 +140,18 @@ pub fn create_site(
     let caps_json = capabilities_json(&capabilities)?;
 
     let tx = conn.unchecked_transaction()?;
+    let newapi_token_encrypted = match input
+        .newapi_access_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(token) => Some(crypto.encrypt(token)?),
+        None => None,
+    };
     tx.execute(
-        "INSERT INTO sites (id, name, base_url, protocol, claude_auth_key_style, notes, enabled, sort_order, created_at, updated_at, base_urls_json, capabilities_json)
-         VALUES (?1,?2,?3,?4,?5,?6,1,?7,?8,?8,?9,?10)",
+        "INSERT INTO sites (id, name, base_url, protocol, claude_auth_key_style, notes, enabled, sort_order, created_at, updated_at, base_urls_json, capabilities_json, newapi_access_token_encrypted, newapi_user_id)
+         VALUES (?1,?2,?3,?4,?5,?6,1,?7,?8,?8,?9,?10,?11,?12)",
         params![
             id,
             input.name,
@@ -151,7 +162,13 @@ pub fn create_site(
             count,
             now,
             urls_json,
-            caps_json
+            caps_json,
+            newapi_token_encrypted,
+            input
+                .newapi_user_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
         ],
     )?;
     let first_label = match input
@@ -245,6 +262,22 @@ fn apply_site_update(
     if let Some(capabilities) = input.capabilities {
         site.capabilities = capabilities;
     }
+    if let Some(token) = input.newapi_access_token {
+        let trimmed = token.trim();
+        site.newapi_access_token_encrypted = if trimmed.is_empty() {
+            None
+        } else {
+            Some(crypto.encrypt(trimmed)?)
+        };
+    }
+    if let Some(user_id) = input.newapi_user_id {
+        let trimmed = user_id.trim();
+        site.newapi_user_id = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+    }
     site.updated_at = Utc::now().timestamp_millis();
 
     persist_site(conn, &site)?;
@@ -253,7 +286,7 @@ fn apply_site_update(
 
 fn persist_site(conn: &Connection, site: &SiteRow) -> AppResult<()> {
     conn.execute(
-        "UPDATE sites SET name=?2, base_url=?3, protocol=?4, claude_auth_key_style=?5, notes=?6, enabled=?7, sort_order=?8, updated_at=?9, base_urls_json=?10, capabilities_json=?11 WHERE id=?1",
+        "UPDATE sites SET name=?2, base_url=?3, protocol=?4, claude_auth_key_style=?5, notes=?6, enabled=?7, sort_order=?8, updated_at=?9, base_urls_json=?10, capabilities_json=?11, newapi_access_token_encrypted=?12, newapi_user_id=?13 WHERE id=?1",
         params![
             site.id,
             site.name,
@@ -265,10 +298,25 @@ fn persist_site(conn: &Connection, site: &SiteRow) -> AppResult<()> {
             site.sort_order,
             site.updated_at,
             urls_json(&site.base_urls)?,
-            capabilities_json(&site.capabilities)?
+            capabilities_json(&site.capabilities)?,
+            site.newapi_access_token_encrypted,
+            site.newapi_user_id
         ],
     )?;
     Ok(())
+}
+
+pub fn get_site_newapi_token(
+    conn: &Connection,
+    crypto: &Crypto,
+    id: &str,
+) -> AppResult<String> {
+    let site = get_site(conn, id)?;
+    let encrypted = site
+        .newapi_access_token_encrypted
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| AppError::new("not_found", "newapi access token not configured"))?;
+    crypto.decrypt(&encrypted)
 }
 
 pub fn switch_site_route(conn: &Connection, id: &str, base_url: &str) -> AppResult<SiteRow> {
@@ -696,11 +744,23 @@ mod tests {
                 claude_auth_key_style: None,
                 notes: None,
                 capabilities: Some(caps),
+                newapi_access_token: Some("sk-newapi-token".into()),
+                newapi_user_id: Some("42".into()),
             },
         )
         .unwrap();
         assert_eq!(created.capabilities.get("codex-vision"), Some(&true));
         assert_eq!(created.capabilities.get("claude-foo"), Some(&true));
+        // 访问令牌必须加密存储，且可按需解密。
+        assert_ne!(
+            created.newapi_access_token_encrypted.as_deref(),
+            Some("sk-newapi-token")
+        );
+        assert_eq!(created.newapi_user_id.as_deref(), Some("42"));
+        assert_eq!(
+            get_site_newapi_token(&conn, &crypto, &created.id).unwrap(),
+            "sk-newapi-token"
+        );
 
         let mut next = std::collections::HashMap::new();
         next.insert("codex-search".into(), true);
@@ -741,6 +801,8 @@ mod tests {
                 api_key: "sk-full-secret".into(),
                 api_key_label: None,
                 extra_api_keys: Vec::new(),
+                newapi_access_token: None,
+                newapi_user_id: None,
                 protocol: None,
                 claude_auth_key_style: None,
                 notes: None,
@@ -764,6 +826,8 @@ mod tests {
             &conn,
             &crypto,
             CreateSiteInput {
+                newapi_access_token: None,
+                newapi_user_id: None,
                 name: "Relay".into(),
                 base_url: "https://a.example.com".into(),
                 base_urls: None,
@@ -811,6 +875,8 @@ mod tests {
             &conn,
             &crypto,
             CreateSiteInput {
+                newapi_access_token: None,
+                newapi_user_id: None,
                 name: "Relay".into(),
                 base_url: "https://a.example.com".into(),
                 base_urls: None,
@@ -853,6 +919,8 @@ mod tests {
                 api_key: "sk-one".into(),
                 api_key_label: Some("prod".into()),
                 extra_api_keys: Vec::new(),
+                newapi_access_token: None,
+                newapi_user_id: None,
                 protocol: None,
                 claude_auth_key_style: None,
                 notes: None,

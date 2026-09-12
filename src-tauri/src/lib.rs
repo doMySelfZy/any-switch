@@ -133,6 +133,7 @@ pub fn run() {
             commands::list_sites,
             commands::get_site,
             commands::get_site_api_key,
+            commands::get_site_newapi_token,
             commands::add_site_api_key,
             commands::update_site_api_key,
             commands::delete_site_api_key,

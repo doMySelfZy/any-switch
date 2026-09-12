@@ -185,7 +185,14 @@
     "codexPrivateCapabilities": "Codex-specific capabilities",
     "deepLinkCapabilitiesOff": "All off",
     "dragHandle": "Drag to reorder",
-    "reorderFailed": "Could not reorder sites"
+    "reorderFailed": "Could not reorder sites",
+    "newapiAccessToken": "NewAPI access token",
+    "newapiTokenHint": "Optional. For new-api style relays when standard quota endpoints are unavailable; fetches account balance (generate in personal settings).",
+    "newapiTokenSavedHint": "Stored encrypted; leave empty and save to clear it.",
+    "newapiTokenLoadFailed": "Failed to decrypt the access token; this save will not change it.",
+    "newapiUserId": "NewAPI user ID",
+    "newapiUserIdHint": "Used together with the access token (user ID in personal settings).",
+    "quotaConfigureToken": "Configure access token"
   },
   "apply": {
     "title": "Apply Center",

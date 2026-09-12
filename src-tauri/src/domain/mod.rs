@@ -144,6 +144,10 @@ pub struct SiteDto {
     pub active_api_key_id: Option<String>,
     #[serde(default)]
     pub api_keys: Vec<SiteApiKeySummary>,
+    #[serde(default)]
+    pub newapi_configured: bool,
+    #[serde(default)]
+    pub newapi_user_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +189,10 @@ pub struct CreateSiteInput {
     pub notes: Option<String>,
     #[serde(default)]
     pub capabilities: Option<SiteCapabilities>,
+    #[serde(default)]
+    pub newapi_access_token: Option<String>,
+    #[serde(default)]
+    pub newapi_user_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,6 +253,10 @@ pub struct UpdateSiteInput {
     pub sort_order: Option<i64>,
     #[serde(default)]
     pub capabilities: Option<SiteCapabilities>,
+    #[serde(default)]
+    pub newapi_access_token: Option<String>,
+    #[serde(default)]
+    pub newapi_user_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -307,6 +319,7 @@ pub enum QuotaSource {
     SubscriptionOnly,
     UsageOnly,
     TokenUsage,
+    UserSelf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -907,6 +920,8 @@ pub struct SiteRow {
     pub updated_at: i64,
     pub capabilities: SiteCapabilities,
     pub keys: SiteKeyState,
+    pub newapi_access_token_encrypted: Option<String>,
+    pub newapi_user_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -969,6 +984,11 @@ impl SiteRow {
             capabilities: self.capabilities.clone(),
             active_api_key_id: self.keys.active_api_key_id.clone(),
             api_keys: self.keys.api_keys.clone(),
+            newapi_configured: self
+                .newapi_access_token_encrypted
+                .as_deref()
+                .is_some_and(|token| !token.is_empty()),
+            newapi_user_id: self.newapi_user_id.clone(),
         }
     }
 

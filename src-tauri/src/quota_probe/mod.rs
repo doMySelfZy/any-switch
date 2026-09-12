@@ -762,6 +762,7 @@ pub fn interpret_round(
 fn quota_source_rank(source: Option<QuotaSource>) -> u8 {
     match source {
         Some(QuotaSource::TokenUsage) => 5,
+        Some(QuotaSource::UserSelf) => 5,
         Some(QuotaSource::CreditGrants) => 4,
         Some(QuotaSource::SubscriptionUsage) => 3,
         Some(QuotaSource::SubscriptionOnly) => 2,
@@ -958,10 +959,57 @@ fn finish_round(
     }
 }
 
+const NEWAPI_QUOTA_PER_UNIT: f64 = 500_000.0;
+
+/// ccswitch 同款兜底：用 NewAPI 访问令牌查账户级钱包余额。
+/// 标准探测链（billing 三件套 / token usage / status）失败或未支持时使用。
+async fn fetch_user_self_quota(
+    client: &reqwest::Client,
+    origin: &str,
+    token: &str,
+    user_id: &str,
+    start: Instant,
+    fetched_at: i64,
+) -> Option<SiteQuota> {
+    let url = format!("{}/api/user/self", strip_trailing_slash(origin));
+    let resp = client
+        .get(&url)
+        .bearer_auth(token)
+        .header("New-Api-User", user_id)
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let value: Value = serde_json::from_str(&resp.text().await.ok()?).ok()?;
+    if response_indicates_failure(&value) {
+        return None;
+    }
+    let data = value.get("data")?;
+    let quota = field_f64(data, "quota")?;
+    let used = field_f64(data, "used_quota").unwrap_or(0.0);
+    Some(SiteQuota {
+        status: QuotaProbeStatus::Available,
+        remaining_usd: Some(quota / NEWAPI_QUOTA_PER_UNIT),
+        used_usd: Some(used / NEWAPI_QUOTA_PER_UNIT),
+        total_usd: Some((quota + used) / NEWAPI_QUOTA_PER_UNIT),
+        unlimited: false,
+        unit: Some("USD".into()),
+        expires_at: None,
+        source: Some(QuotaSource::UserSelf),
+        endpoint: Some(url),
+        fetched_at,
+        latency_ms: start.elapsed().as_millis() as u64,
+        error: None,
+    })
+}
+
 pub async fn probe_quota(
     site: &SiteRow,
     api_key: &str,
     settings: &AppSettings,
+    newapi_creds: Option<(&str, &str)>,
 ) -> AppResult<SiteQuota> {
     let start = Instant::now();
     let fetched_at = Utc::now().timestamp_millis();
@@ -995,7 +1043,7 @@ pub async fn probe_quota(
     } else {
         first
     };
-    Ok(match combined {
+    let mut quota = match combined {
         RoundOutcome::Available(quota) | RoundOutcome::Quiet(quota) => quota,
         RoundOutcome::Fallback => quiet(
             QuotaProbeStatus::Unsupported,
@@ -1003,7 +1051,19 @@ pub async fn probe_quota(
             start.elapsed().as_millis() as u64,
             None,
         ),
-    })
+    };
+    if !matches!(quota.status, QuotaProbeStatus::Available) {
+        if let Some((token, user_id)) = newapi_creds {
+            let origin = origin_without_v1(&preview.codex_base_url)
+                .unwrap_or_else(|| preview.codex_base_url.clone());
+            if let Some(fallback) =
+                fetch_user_self_quota(&client, &origin, token, user_id, start, fetched_at).await
+            {
+                quota = fallback;
+            }
+        }
+    }
+    Ok(quota)
 }
 
 #[cfg(test)]
@@ -1944,5 +2004,99 @@ mod tests {
             }
             _ => panic!("expected error hit"),
         }
+    }
+
+    /// 标准探测全部 404，仅 /api/user/self 放行——验证访问令牌兜底。
+    async fn user_self_only_server() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                let mut buffer = [0_u8; 2048];
+                loop {
+                    let read = socket.read(&mut buffer).await.unwrap();
+                    if read == 0 {
+                        break;
+                    }
+                    bytes.extend_from_slice(&buffer[..read]);
+                    if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let request = String::from_utf8_lossy(&bytes).to_string();
+                let (status, body) = if request.starts_with("GET /api/user/self ") {
+                    (
+                        "200 OK",
+                        r#"{"success":true,"data":{"quota":1000000,"used_quota":250000,"group":"default"}}"#,
+                    )
+                } else {
+                    ("404 Not Found", "")
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        format!("http://{address}")
+    }
+
+    fn newapi_site(base_url: &str) -> SiteRow {
+        SiteRow {
+            id: "s1".into(),
+            name: "R".into(),
+            base_url: base_url.into(),
+            base_urls: vec![base_url.into()],
+            api_key_encrypted: "x".into(),
+            key_prefix: "sk-xx".into(),
+            protocol: crate::domain::SiteProtocol::OpenaiCompatible,
+            claude_auth_key_style: crate::domain::ClaudeAuthKeyStyle::AnthropicAuthToken,
+            notes: None,
+            enabled: true,
+            sort_order: 0,
+            selected_model_id: None,
+            last_model_fetch_at: None,
+            last_model_fetch_latency_ms: None,
+            last_model_fetch_error: None,
+            created_at: 1,
+            updated_at: 1,
+            capabilities: Default::default(),
+            keys: crate::domain::SiteKeyState {
+                active_api_key_id: None,
+                api_keys: Vec::new(),
+            },
+            newapi_access_token_encrypted: Some("encrypted".into()),
+            newapi_user_id: Some("42".into()),
+        }
+    }
+
+    #[tokio::test]
+    async fn user_self_fallback_reports_account_balance() {
+        let base = user_self_only_server().await;
+        let site = newapi_site(&base);
+        let mut settings = AppSettings::default();
+        settings.proxy_mode = "none".into();
+        let quota = probe_quota(&site, "sk-test", &settings, Some(("access-token", "42")))
+            .await
+            .unwrap();
+        assert_eq!(quota.status, QuotaProbeStatus::Available);
+        assert_eq!(quota.source, Some(QuotaSource::UserSelf));
+        assert_eq!(quota.remaining_usd, Some(2.0));
+        assert_eq!(quota.used_usd, Some(0.5));
+        assert_eq!(quota.total_usd, Some(2.5));
+        assert_eq!(quota.unit.as_deref(), Some("USD"));
+    }
+
+    #[tokio::test]
+    async fn user_self_fallback_is_skipped_without_credentials() {
+        let base = user_self_only_server().await;
+        let site = newapi_site(&base);
+        let mut settings = AppSettings::default();
+        settings.proxy_mode = "none".into();
+        let quota = probe_quota(&site, "sk-test", &settings, None).await.unwrap();
+        assert_eq!(quota.status, QuotaProbeStatus::Unsupported);
     }
 }
