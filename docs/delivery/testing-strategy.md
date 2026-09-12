@@ -2,4 +2,6 @@
 # Testing Strategy
 
 ## Test layers
-- Pending
+- unit
+- contract
+- ui

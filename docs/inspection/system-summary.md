@@ -2,5 +2,5 @@
 # System Summary
 
 - Project: xiaobai-switch
-- Activated modules: accessibility, approvals, audit, compliance-manifest, data-protection, governance, identity-access, inspection-pack, operations, verification
+- Activated modules: academic-year-lifecycle, accessibility, approvals, audit, chronology, compliance-manifest, data-protection, decision-provenance, governance, high-stakes-ux, identity-access, inspection-pack, mobile-quick-actions, operations, reporting, restricted-visibility, review-gates, scheduled-sync, small-cohort-suppression, verification
 - Activated domain packs: None

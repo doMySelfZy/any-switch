@@ -2,4 +2,4 @@
 # Review Gates
 
 ## Review gate triggers
-- Pending
+- 同步冲突需要用户确认时

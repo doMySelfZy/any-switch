@@ -9,7 +9,7 @@
   },
   "data": {
     "storesChildIdentifiableData": false,
-    "storageMode": null,
+    "storageMode": "local-plus-user-webdav",
     "retentionPolicies": []
   },
   "access": {
@@ -21,20 +21,32 @@
   },
   "controls": {
     "highStakesDecisions": false,
-    "reviewGateTriggers": [],
+    "reviewGateTriggers": [
+      "同步冲突需要用户确认时"
+    ],
     "auditEnabled": true,
-    "deploymentRegion": null
+    "deploymentRegion": "user-device"
   },
   "modules": [
+    "academic-year-lifecycle",
     "accessibility",
     "approvals",
     "audit",
+    "chronology",
     "compliance-manifest",
     "data-protection",
+    "decision-provenance",
     "governance",
+    "high-stakes-ux",
     "identity-access",
     "inspection-pack",
+    "mobile-quick-actions",
     "operations",
+    "reporting",
+    "restricted-visibility",
+    "review-gates",
+    "scheduled-sync",
+    "small-cohort-suppression",
     "verification"
   ],
   "domainPacks": []
