@@ -4,7 +4,9 @@ use crate::error::{AppError, AppResult};
 use crate::repo;
 use crate::state::AppState;
 use crate::webdav::WebDavClient;
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
@@ -25,12 +27,80 @@ pub struct DataFingerprint {
 }
 
 impl DataFingerprint {
-    fn from_bundle_manifest(manifest: &app_backup::AppBackupManifest) -> Self {
+    fn from_parts(database_sha256: String, master_key_sha256: String) -> Self {
         Self {
-            database_sha256: manifest.database_sha256.clone(),
-            master_key_sha256: manifest.master_key_sha256.clone(),
+            database_sha256,
+            master_key_sha256,
         }
     }
+}
+
+/// 参与内容指纹的业务表（引擎记账表与 WebDAV 配置不参与）。
+const FINGERPRINT_TABLES: [&str; 7] = [
+    "settings",
+    "sites",
+    "site_api_keys",
+    "site_models",
+    "site_thinking_presets",
+    "target_bindings",
+    "apply_records",
+];
+
+/// 逻辑内容指纹：按表遍历全部业务行做稳定哈希。
+/// 不使用数据库文件字节 hash——SQLite 文件头部（change counter 等）每次
+/// VACUUM 都会变化，会让"内容没变指纹却变了"，导致同步误判反复应用。
+pub fn compute_logical_fingerprint(
+    conn: &Connection,
+    master_key: &[u8],
+) -> AppResult<DataFingerprint> {
+    use rusqlite::types::Value;
+    let mut hasher = Sha256::new();
+    for table in FINGERPRINT_TABLES {
+        hasher.update(table.as_bytes());
+        hasher.update([0]);
+        let mut statement = conn.prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))?;
+        let column_count = statement.column_count();
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            for index in 0..column_count {
+                let value: Value = row.get(index)?;
+                match value {
+                    Value::Null => hasher.update([0_u8]),
+                    Value::Integer(number) => {
+                        hasher.update([1_u8]);
+                        hasher.update(number.to_le_bytes());
+                    }
+                    Value::Real(number) => {
+                        hasher.update([2_u8]);
+                        hasher.update(number.to_le_bytes());
+                    }
+                    Value::Text(ref text) => {
+                        hasher.update([3_u8]);
+                        hasher.update((text.len() as u64).to_le_bytes());
+                        hasher.update(text.as_bytes());
+                    }
+                    Value::Blob(ref bytes) => {
+                        hasher.update([4_u8]);
+                        hasher.update((bytes.len() as u64).to_le_bytes());
+                        hasher.update(bytes);
+                    }
+                }
+            }
+            hasher.update([255_u8]);
+        }
+        hasher.update([254_u8]);
+    }
+    Ok(DataFingerprint::from_parts(
+        hex::encode(hasher.finalize()),
+        hex::encode(Sha256::digest(master_key)),
+    ))
+}
+
+/// 对一个数据库文件计算逻辑指纹（校验下载 bundle 的内容时使用）。
+pub fn fingerprint_database_file(database_path: &std::path::Path, master_key: &[u8]) -> AppResult<DataFingerprint> {
+    let conn = Connection::open(database_path)
+        .map_err(|e| AppError::new("sync_manifest_invalid", format!("cannot open extracted database: {e}")))?;
+    compute_logical_fingerprint(&conn, master_key)
 }
 
 /// 远端"版本指针"：谁在何时上传了哪个数据包。
@@ -166,6 +236,14 @@ async fn run_sync_inner(
     )?;
 
     let app_dir = crate::paths::app_dir()?;
+    let key_bytes = std::fs::read(&crate::paths::master_key_path()?)
+        .map_err(|e| AppError::new("sync_failed", format!("cannot read master.key: {e}")))?;
+    if key_bytes.len() != 32 {
+        return Err(AppError::new("sync_failed", "master.key must contain exactly 32 bytes"));
+    }
+    let local_fp = state
+        .db
+        .with_conn(|conn| compute_logical_fingerprint(conn, &key_bytes))?;
     let temp_dir = tempfile::Builder::new()
         .prefix(".sync-")
         .tempdir_in(&app_dir)?;
@@ -177,8 +255,7 @@ async fn run_sync_inner(
             reason,
         )
     })?;
-    let local_manifest = app_backup::read_bundle_manifest(&local_bundle.path)?;
-    let local_fp = DataFingerprint::from_bundle_manifest(&local_manifest);
+    let device_name = app_backup::parse_device_from_filename(&local_bundle.file_name);
 
     let remote = client.download_sync_manifest().await?;
     let last_synced = load_last_synced(state)?;
@@ -204,11 +281,11 @@ async fn run_sync_inner(
             let manifest = SyncManifest {
                 format_version: SYNC_FORMAT_VERSION,
                 revision: next_revision,
-                device_name: local_manifest.device_name.clone(),
+                device_name: device_name.clone(),
                 updated_at: chrono::Utc::now().timestamp_millis(),
                 bundle_file_name: local_bundle.file_name.clone(),
-                database_sha256: local_manifest.database_sha256.clone(),
-                master_key_sha256: local_manifest.master_key_sha256.clone(),
+                database_sha256: local_fp.database_sha256.clone(),
+                master_key_sha256: local_fp.master_key_sha256.clone(),
                 app_version: env!("CARGO_PKG_VERSION").into(),
             };
             client.upload_sync_manifest(&manifest).await?;
@@ -240,9 +317,12 @@ async fn run_sync_inner(
                 .tempdir_in(&app_dir)?;
             let validated =
                 app_backup::validate_and_extract_bundle(&archive, extract_dir.path())?;
-            if validated.manifest.database_sha256 != remote.database_sha256
-                || validated.manifest.master_key_sha256 != remote.master_key_sha256
-            {
+            // 内容校验：解包后的数据库逻辑指纹必须与远端版本指针一致
+            // （zip 内部的文件级 sha256 校验已在 validate_and_extract_bundle 完成）。
+            let extracted_key = std::fs::read(&validated.master_key_path)?;
+            let extracted_fp =
+                fingerprint_database_file(&validated.database_path, &extracted_key)?;
+            if extracted_fp != remote.fingerprint() {
                 return Err(AppError::new(
                     "sync_manifest_invalid",
                     "downloaded bundle does not match the remote sync manifest",
@@ -513,6 +593,38 @@ mod tests {
     fn fingerprint_equality_uses_both_hashes() {
         assert_eq!(fingerprint("a", "f"), fingerprint("a", "f"));
         assert_ne!(fingerprint("a", "f"), fingerprint("a", "f2"));
+    }
+
+    #[test]
+    fn logical_fingerprint_is_stable_across_vacuum_and_detects_changes() {
+        let source = tempfile::tempdir().unwrap();
+        let db_path = source.path().join("data.db");
+        let conn = Connection::open(&db_path).unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (id, json) VALUES (1, '{\"a\":1}')",
+            [],
+        )
+        .unwrap();
+        let key = [7_u8; 32];
+        let fingerprint = compute_logical_fingerprint(&conn, &key).unwrap();
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").unwrap();
+
+        // VACUUM 出字节布局不同的副本，逻辑指纹必须保持一致。
+        let copy_path = source.path().join("copy.db");
+        let copy_arg = copy_path.to_string_lossy().to_string();
+        conn.execute("VACUUM INTO ?", [&copy_arg]).unwrap();
+        let copy_fp = fingerprint_database_file(&copy_path, &key).unwrap();
+        assert_eq!(fingerprint, copy_fp);
+
+        // 逻辑内容变化必须改变指纹。
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (id, json) VALUES (1, '{\"a\":2}')",
+            [],
+        )
+        .unwrap();
+        let changed = compute_logical_fingerprint(&conn, &key).unwrap();
+        assert_ne!(fingerprint, changed);
     }
 
     #[test]

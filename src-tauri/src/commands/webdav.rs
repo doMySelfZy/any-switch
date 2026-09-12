@@ -51,6 +51,8 @@ pub async fn save_webdav_config(
         .with_conn(|conn| repo::webdav::save_config(conn, &stored))?;
     let view = config_view(stored);
     restart_webdav_scheduler(app).await?;
+    // 配置完成立即做一次同步决策：新机器配置后马上拉取云端数据（或首次上传）。
+    crate::sync::request_sync_poll();
     Ok(view)
 }
 

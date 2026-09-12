@@ -20,6 +20,13 @@ pub fn home_dir() -> AppResult<PathBuf> {
 }
 
 pub fn app_dir() -> AppResult<PathBuf> {
+    // 测试/多实例隔离用：显式设置 XIAOBAI_SWITCH_DATA_DIR 时优先。
+    if let Ok(dir) = std::env::var("XIAOBAI_SWITCH_DATA_DIR") {
+        let trimmed = dir.trim();
+        if !trimmed.is_empty() {
+            return Ok(PathBuf::from(trimmed));
+        }
+    }
     Ok(home_dir()?.join(".xiaobai-switch"))
 }
 
