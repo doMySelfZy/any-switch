@@ -101,11 +101,13 @@ fn decide_action(
     if remote_fp == *local {
         return (SyncAction::InSync, false);
     }
-    let conflict = match last_synced {
-        None => false,
-        Some(last) => *last != *local && *last != remote_fp,
-    };
-    (SyncAction::Download, conflict)
+    match last_synced {
+        // 首次接触：以云端为准（本地未同步的改动已被快照兜底）。
+        None => (SyncAction::Download, false),
+        Some(last) if remote_fp == *last => (SyncAction::Upload, false),
+        Some(last) if *last == *local => (SyncAction::Download, false),
+        Some(_) => (SyncAction::Download, true),
+    }
 }
 
 pub async fn run_sync(
@@ -311,9 +313,13 @@ mod tests {
 
     fn fingerprint(db: &str, key: &str) -> DataFingerprint {
         DataFingerprint {
-            database_sha256: db.into(),
-            master_key_sha256: key.into(),
+            database_sha256: sha64(db),
+            master_key_sha256: sha64(key),
         }
+    }
+
+    fn sha64(seed: &str) -> String {
+        format!("{:0>64}", seed)
     }
 
     fn manifest(db: &str, key: &str, revision: u64) -> SyncManifest {
@@ -323,15 +329,15 @@ mod tests {
             device_name: "work-pc".into(),
             updated_at: 1_000,
             bundle_file_name: "xiaobai-switch-backup-20260912_000000.work-pc.abcdef01.zip".into(),
-            database_sha256: db.into(),
-            master_key_sha256: key.into(),
+            database_sha256: sha64(db),
+            master_key_sha256: sha64(key),
             app_version: "0.0.0".into(),
         }
     }
 
     #[test]
     fn uploads_when_remote_is_empty() {
-        let local = fingerprint("a", "k");
+        let local = fingerprint("a", "f");
         let (action, conflict) = decide_action(&local, None, None);
         assert_eq!(action, SyncAction::Upload);
         assert!(!conflict);
@@ -339,8 +345,8 @@ mod tests {
 
     #[test]
     fn in_sync_when_fingerprints_match() {
-        let local = fingerprint("a", "k");
-        let remote = manifest("a", "k", 3);
+        let local = fingerprint("a", "f");
+        let remote = manifest("a", "f", 3);
         let (action, conflict) = decide_action(&local, Some(&remote), Some(&local));
         assert_eq!(action, SyncAction::InSync);
         assert!(!conflict);
@@ -348,8 +354,8 @@ mod tests {
 
     #[test]
     fn downloads_when_only_remote_changed() {
-        let local = fingerprint("a", "k");
-        let remote = manifest("b", "k", 4);
+        let local = fingerprint("a", "f");
+        let remote = manifest("b", "f", 4);
         let (action, conflict) = decide_action(&local, Some(&remote), Some(&local));
         assert_eq!(action, SyncAction::Download);
         assert!(!conflict);
@@ -357,9 +363,9 @@ mod tests {
 
     #[test]
     fn uploads_when_only_local_changed() {
-        let local = fingerprint("b", "k");
-        let remote = manifest("a", "k", 4);
-        let synced = fingerprint("a", "k");
+        let local = fingerprint("b", "f");
+        let remote = manifest("a", "f", 4);
+        let synced = fingerprint("a", "f");
         let (action, conflict) = decide_action(&local, Some(&remote), Some(&synced));
         assert_eq!(action, SyncAction::Upload);
         assert!(!conflict);
@@ -367,9 +373,9 @@ mod tests {
 
     #[test]
     fn flags_conflict_when_both_sides_changed() {
-        let local = fingerprint("c", "k");
-        let remote = manifest("b", "k", 4);
-        let synced = fingerprint("a", "k");
+        let local = fingerprint("c", "f");
+        let remote = manifest("b", "f", 4);
+        let synced = fingerprint("a", "f");
         let (action, conflict) = decide_action(&local, Some(&remote), Some(&synced));
         assert_eq!(action, SyncAction::Download);
         assert!(conflict);
@@ -377,8 +383,8 @@ mod tests {
 
     #[test]
     fn downloads_on_first_contact_without_conflict() {
-        let local = fingerprint("a", "k");
-        let remote = manifest("b", "k", 7);
+        let local = fingerprint("a", "f");
+        let remote = manifest("b", "f", 7);
         let (action, conflict) = decide_action(&local, Some(&remote), None);
         assert_eq!(action, SyncAction::Download);
         assert!(!conflict);
@@ -386,19 +392,19 @@ mod tests {
 
     #[test]
     fn manifest_round_trips_and_validates() {
-        let remote = manifest("a", "k", 2);
+        let remote = manifest("a", "f", 2);
         let bytes = serde_json::to_vec(&remote).unwrap();
         assert_eq!(parse_remote_manifest_bytes(&bytes).unwrap(), remote);
     }
 
     #[test]
     fn rejects_tampered_manifests() {
-        let mut remote = manifest("a", "k", 2);
+        let mut remote = manifest("a", "f", 2);
         remote.format_version = 99;
         let bytes = serde_json::to_vec(&remote).unwrap();
         assert!(parse_remote_manifest_bytes(&bytes).is_err());
 
-        let mut remote = manifest("a", "k", 0);
+        let mut remote = manifest("a", "f", 0);
         let bytes = serde_json::to_vec(&remote).unwrap();
         assert!(parse_remote_manifest_bytes(&bytes).is_err());
 
@@ -406,7 +412,7 @@ mod tests {
         let bytes = serde_json::to_vec(&remote).unwrap();
         assert!(parse_remote_manifest_bytes(&bytes).is_err());
 
-        let mut remote = manifest("a", "k", 2);
+        let mut remote = manifest("a", "f", 2);
         remote.bundle_file_name = "../escape.zip".into();
         let bytes = serde_json::to_vec(&remote).unwrap();
         assert!(parse_remote_manifest_bytes(&bytes).is_err());
@@ -414,7 +420,7 @@ mod tests {
 
     #[test]
     fn fingerprint_equality_uses_both_hashes() {
-        assert_eq!(fingerprint("a", "k"), fingerprint("a", "k"));
-        assert_ne!(fingerprint("a", "k"), fingerprint("a", "k2"));
+        assert_eq!(fingerprint("a", "f"), fingerprint("a", "f"));
+        assert_ne!(fingerprint("a", "f"), fingerprint("a", "k2"));
     }
 }

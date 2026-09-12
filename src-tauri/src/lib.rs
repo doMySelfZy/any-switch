@@ -24,6 +24,7 @@ mod redact;
 mod repo;
 mod route_switch;
 mod state;
+mod sync;
 mod tray;
 mod tray_apply;
 mod url_normalize;
