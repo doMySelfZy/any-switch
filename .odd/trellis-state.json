@@ -24,32 +24,145 @@
     "reviewCadence": "annual",
     "handoverRequired": true
   },
-  "personas": [],
-  "outcomes": [],
+  "personas": [
+    {
+      "id": "persona-1",
+      "name": "多机个人用户",
+      "role": "XiaoBaiSwitch 使用者（家庭与公司多台电脑）",
+      "goals": [
+        "在任何一台机器打开 XiaoBaiSwitch 都直接是最新配置",
+        "配置改动后无需任何手动备份或恢复操作"
+      ],
+      "constraints": [
+        "经常在两台以上机器之间切换",
+        "不愿手动干预同步过程"
+      ],
+      "environment": "Windows / macOS 桌面客户端，通过同一个 WebDAV 账户互通",
+      "dataSensitivityExposure": "high",
+      "decisionAuthority": "decides",
+      "painPoints": [
+        "换机器必须手动去 WebDAV 里做恢复",
+        "60 分钟定时备份不是真同步，切机后数据可能是旧的"
+      ]
+    }
+  ],
+  "outcomes": [
+    {
+      "id": "outcome-1",
+      "name": "配置变更自动上传同步",
+      "actor": "多机个人用户",
+      "trigger": "用户在本机修改了任意配置（站点、目标、应用设置）",
+      "flow": [
+        "用户正常保存配置（无感知）",
+        "应用检测到数据版本变化，短暂防抖合并多次改动",
+        "生成新的数据包上传 WebDAV 并更新远端版本指针"
+      ],
+      "successState": "远端 WebDAV 上始终是最近一次变更的数据，无需手动备份",
+      "failureState": "上传失败时本地数据不变，标记待重试并在 UI 提示，绝不静默丢包",
+      "verificationSteps": [
+        "改一个站点后不做任何操作，WebDAV 上出现新版本",
+        "断网时改配置本地正常，恢复网络后自动补传"
+      ],
+      "sensitivityLevel": "high",
+      "highStakes": false
+    },
+    {
+      "id": "outcome-2",
+      "name": "切机自动拉取最新数据",
+      "actor": "多机个人用户",
+      "trigger": "在另一台机器上打开或唤醒 XiaoBaiSwitch",
+      "flow": [
+        "应用启动/窗口聚焦时读取远端版本指针",
+        "远端版本比本地新时自动下载并校验数据包",
+        "应用前先做本地快照，再原子替换本地数据并刷新界面"
+      ],
+      "successState": "打开即最新，全程无需手动 WebDAV 恢复",
+      "failureState": "拉取或校验失败时保持本地数据原样并明确报错，不出现半套数据",
+      "verificationSteps": [
+        "A 机改配置后 B 机启动即见最新",
+        "远端数据包损坏时 B 机本地数据不受影响且给出提示"
+      ],
+      "sensitivityLevel": "high",
+      "highStakes": false
+    },
+    {
+      "id": "outcome-3",
+      "name": "同步不丢数据",
+      "actor": "多机个人用户",
+      "trigger": "两台机器同时修改配置，或同步过程中途失败",
+      "flow": [
+        "每次应用远端数据前自动生成本地快照",
+        "检测到冲突时按设备名+时间戳保留双方版本供追溯",
+        "任何时刻可从快照一键回滚"
+      ],
+      "successState": "任何同步操作可追溯、可回滚，最坏情况回到应用前快照",
+      "failureState": "冲突未确认前不覆盖本地未同步的变更",
+      "verificationSteps": [
+        "模拟双机同时修改，双方变更均可追溯",
+        "回滚快照后本地数据恢复到同步前状态"
+      ],
+      "sensitivityLevel": "high",
+      "highStakes": true
+    }
+  ],
   "contracts": {
-    "mapped": false,
-    "entities": [],
-    "systemBoundaries": [],
-    "integrationPoints": [],
-    "lifecycleTransitions": [],
-    "sensitiveActionOwners": []
+    "mapped": true,
+    "entities": [
+      "站点 Site（含多个 API Key，加密存储）",
+      "目标配置（Claude Code / Codex / Pi / Prime 预设）",
+      "应用设置",
+      "同步版本记录 SyncRevision",
+      "本地同步快照"
+    ],
+    "systemBoundaries": [
+      "本机数据目录 ~/.xiaobai-switch（SQLite + master.key）",
+      "WebDAV 远端存储（版本指针 + 数据包）",
+      "目标 CLI 配置目录（~/.claude 等，仅由 Apply 写入，不参与同步）"
+    ],
+    "integrationPoints": [
+      "WebDAV HTTP 协议（列目录/上传/下载）",
+      "Apply 流程写目标 CLI 配置"
+    ],
+    "lifecycleTransitions": [
+      "本地变更 -> 防抖打包 -> 已上传（远端版本指针前移）",
+      "远端更新 -> 下载校验 -> 本地快照 -> 原子应用",
+      "冲突 -> 保留双方版本 -> 用户确认解决"
+    ],
+    "sensitiveActionOwners": [
+      "zhangyang"
+    ]
   },
   "architecture": {
-    "tenancyDecision": null,
-    "storagePattern": null,
-    "roleAccessModel": null,
-    "auditBoundary": null,
-    "aggregationBoundary": null,
-    "recoveryAssumptions": []
+    "tenancyDecision": "single-user-local",
+    "storagePattern": "sqlite-local-plus-webdav-versioned-bundles",
+    "roleAccessModel": "single-user-desktop",
+    "auditBoundary": "所有同步与快照操作写入本地可追溯历史",
+    "aggregationBoundary": "仅设备级，无服务端聚合",
+    "recoveryAssumptions": [
+      "每次应用远端数据前自动生成本地快照",
+      "远端数据包损坏或校验失败时回退本地现状",
+      "快照保留数量可配置并自动清理"
+    ]
   },
   "uiUx": {
-    "journeyMaps": [],
-    "keyScreens": [],
-    "mobileExpectations": [],
+    "journeyMaps": [
+      "换机打开即用：启动/唤醒时自动检测并拉取远端最新数据，无需手动恢复",
+      "改完即走：保存配置后自动同步，成功与失败都在状态区可见"
+    ],
+    "keyScreens": [
+      "设置 - WebDAV 同步（状态、最近同步结果、冲突提示）",
+      "站点列表 / 应用中心（数据被同步替换后的刷新展示）"
+    ],
+    "mobileExpectations": [
+      "无移动端，桌面客户端 only"
+    ],
     "accessibilityExpectations": [
       "wcag-2.1-aa"
     ],
-    "highStakesInteractionPatterns": []
+    "highStakesInteractionPatterns": [
+      "同步冲突需用户显式确认后覆盖",
+      "回滚快照前展示影响范围并二次确认"
+    ]
   },
   "compliance": {
     "regimeProfile": "baseline",
@@ -59,36 +172,64 @@
       "parents": false,
       "students": false
     },
-    "storageMode": null,
-    "deploymentRegion": null,
-    "retentionPolicies": [],
-    "reviewGateTriggers": [],
+    "storageMode": "local-plus-user-webdav",
+    "deploymentRegion": "user-device",
+    "retentionPolicies": [
+      "本地同步快照按保留数量自动清理",
+      "WebDAV 上旧数据包按设备保留上限自动清理"
+    ],
+    "reviewGateTriggers": [
+      "同步冲突需要用户确认时"
+    ],
     "manifestVersion": "v1"
   },
   "delivery": {
-    "framework": null,
-    "uiSystem": null,
-    "dataAccessMode": null,
-    "orm": null,
-    "testingLayers": [],
-    "hosting": null,
-    "emailProvider": null
+    "framework": "tauri2-react-typescript-vite",
+    "uiSystem": "antd-plus-tailwind4",
+    "dataAccessMode": "tauri-command-adapter",
+    "orm": "rusqlite-bundled",
+    "testingLayers": [
+      "unit",
+      "contract",
+      "ui"
+    ],
+    "hosting": "desktop-app-tauri",
+    "emailProvider": "none"
   },
   "operations": {
-    "backupApproach": null,
-    "restoreApproach": null,
-    "handoverPlan": null,
-    "archiveRolloverRules": [],
-    "supportResponsibilities": []
+    "backupApproach": "同步前自动本地快照 + WebDAV 版本化数据包（变更触发，定时仅兜底）",
+    "restoreApproach": "快照一键回滚；远端数据包校验后原子应用",
+    "handoverPlan": "个人项目，无需交接；配置与数据均在用户自己掌控的 WebDAV 与本机",
+    "archiveRolloverRules": [
+      "本地快照按保留数量自动清理",
+      "远端按设备保留上限自动清理"
+    ],
+    "supportResponsibilities": [
+      "zhangyang 自持全部流程"
+    ]
   },
   "plan": {
-    "foundationPhaseReady": false,
-    "outcomeOrder": [],
-    "dependencies": [],
-    "verificationGates": [],
-    "deliveryMilestones": [],
-    "planApproved": false,
-    "sessionBriefCount": 0,
+    "foundationPhaseReady": true,
+    "outcomeOrder": [
+      "同步不丢数据",
+      "配置变更自动上传同步",
+      "切机自动拉取最新数据"
+    ],
+    "dependencies": [
+      "上传与拉取都依赖本地快照与回滚能力（安全网先行）",
+      "切机自动拉取依赖远端版本指针与数据包格式（由自动上传建立）"
+    ],
+    "verificationGates": [
+      "双机端到端：A 机改配置，B 机打开即最新，全程零手动",
+      "故障场景：断网、远端坏包、双机同时修改，本地数据无损可回滚"
+    ],
+    "deliveryMilestones": [
+      "Phase A 同步基础设施：远端版本指针、同步引擎、快照与回滚",
+      "Phase B 变更即上传 + 切机自动拉取",
+      "Phase C 冲突处理与同步状态 UX 完善"
+    ],
+    "planApproved": true,
+    "sessionBriefCount": 1,
     "sessionBriefExported": false
   },
   "verification": {
@@ -114,17 +255,27 @@
     "safeguardsSummaryReady": false
   },
   "activatedModules": [
+    "academic-year-lifecycle",
     "accessibility",
     "approvals",
     "audit",
+    "chronology",
     "compliance-manifest",
     "data-protection",
+    "decision-provenance",
     "governance",
+    "high-stakes-ux",
     "identity-access",
     "inspection-pack",
+    "mobile-quick-actions",
     "operations",
+    "reporting",
+    "restricted-visibility",
+    "review-gates",
+    "scheduled-sync",
+    "small-cohort-suppression",
     "verification"
   ],
   "activatedDomainPacks": [],
-  "currentStage": "personas"
+  "currentStage": "verify"
 }

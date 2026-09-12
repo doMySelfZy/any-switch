@@ -5,19 +5,37 @@
   "lastSaved": null,
   "lastCommit": null,
   "lastCommitAt": null,
-  "currentPhase": "planning",
-  "planningPhase": "personas",
-  "currentStep": "personas",
-  "personas": [],
-  "outcomes": [],
-  "contractsMapped": false,
-  "planApproved": false,
-  "techStackDecided": false,
-  "designApproachDecided": false,
-  "architectureDocGenerated": false,
-  "servicesConfigured": false,
+  "currentPhase": "build",
+  "planningPhase": "verify",
+  "currentStep": "verify",
+  "personas": [
+    "多机个人用户"
+  ],
+  "outcomes": [
+    {
+      "name": "配置变更自动上传同步",
+      "status": "draft",
+      "approved": true
+    },
+    {
+      "name": "切机自动拉取最新数据",
+      "status": "draft",
+      "approved": true
+    },
+    {
+      "name": "同步不丢数据",
+      "status": "reviewed",
+      "approved": true
+    }
+  ],
+  "contractsMapped": true,
+  "planApproved": true,
+  "techStackDecided": true,
+  "designApproachDecided": true,
+  "architectureDocGenerated": true,
+  "servicesConfigured": true,
   "sessionBriefExported": false,
-  "sessionBriefCount": 0,
+  "sessionBriefCount": 1,
   "briefConfirmed": false,
   "verificationConfirmed": false,
   "debugSession": false,
