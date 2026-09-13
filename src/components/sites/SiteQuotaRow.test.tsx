@@ -320,9 +320,11 @@ describe("SiteQuotaRow", () => {
     expect(screen.getByText("5 小时")).toBeInTheDocument();
     expect(screen.getByText("本周")).toBeInTheDocument();
     expect(screen.getByText("本月")).toBeInTheDocument();
-    expect(screen.getByText("13%")).toBeInTheDocument();
-    expect(screen.getByText("46%")).toBeInTheDocument();
-    expect(screen.getByText("8%")).toBeInTheDocument();
+    // 统一为「剩余」口径：已用 12.5% / 46.2% / 8.4% → 剩余 88% / 54% / 92%
+    expect(screen.getByText("剩余 88%")).toBeInTheDocument();
+    expect(screen.getByText("剩余 54%")).toBeInTheDocument();
+    expect(screen.getByText("剩余 92%")).toBeInTheDocument();
+    expect(screen.queryByText("13%")).not.toBeInTheDocument();
     expect(screen.getByText(/上限 \$12\.00/)).toBeInTheDocument();
     expect(screen.getAllByText(/后重置/).length).toBe(3);
   });

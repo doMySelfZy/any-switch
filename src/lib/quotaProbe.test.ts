@@ -10,14 +10,15 @@ import {
   formatUsd,
   isBalanceQuotaSummary,
   isQuotaCacheFresh,
-  primaryQuotaWindow,
   QUOTA_TTL_MS,
   quotaCacheKey,
   quotaRemainingPercent,
+  quotaRemainingTone,
   quotaTone,
-  quotaUsageTone,
   quotaWindowLabelKey,
+  quotaWindowShortLabelKey,
   shouldShowExpiry,
+  windowRemainingPercent,
 } from "./quotaProbe";
 
 function quota(partial: Partial<SiteQuota>): SiteQuota {
@@ -88,9 +89,13 @@ describe("quotaProbe helpers", () => {
   it("computes remaining percent and tone", () => {
     expect(quotaRemainingPercent(quota({ remainingUsd: 87.5, totalUsd: 100 }))).toBe(87.5);
     expect(quotaTone(quota({ remainingUsd: 87.5, totalUsd: 100 }))).toBe("ok");
-    expect(quotaTone(quota({ remainingUsd: 5, totalUsd: 100 }))).toBe("warn");
-    expect(quotaTone(quota({ remainingUsd: 0.4, totalUsd: 100 }))).toBe("warn");
+    // 余额与窗口共用同一套剩余阈值：剩 25% 中性、剩 15% 告警、剩 5% 危险。
+    expect(quotaTone(quota({ remainingUsd: 25, totalUsd: 100 }))).toBe("ok");
+    expect(quotaTone(quota({ remainingUsd: 15, totalUsd: 100 }))).toBe("warn");
+    expect(quotaTone(quota({ remainingUsd: 5, totalUsd: 100 }))).toBe("danger");
     expect(quotaTone(quota({ remainingUsd: 0, totalUsd: 100 }))).toBe("danger");
+    // 无总额（无限额度哨兵值）时退化为绝对金额：不足 1 美元仍提醒。
+    expect(quotaTone(quota({ remainingUsd: 0.4, totalUsd: null }))).toBe("warn");
     expect(quotaRemainingPercent(quota({ unlimited: true, totalUsd: null }))).toBeNull();
   });
 
@@ -107,35 +112,29 @@ describe("quotaProbe helpers", () => {
     expect(clampQuotaPercent(120)).toBe(100);
   });
 
-  it("picks the rolling window as the summary window, else the first one", () => {
-    expect(primaryQuotaWindow(quota({ windows: [] }))).toBeNull();
-    expect(
-      primaryQuotaWindow(
-        quota({
-          windows: [
-            { kind: "weekly", usagePercent: 10, resetAt: null, limitUsd: null },
-            { kind: "rolling", usagePercent: 83, resetAt: null, limitUsd: null },
-          ],
-        }),
-      )?.kind,
-    ).toBe("rolling");
-    expect(
-      primaryQuotaWindow(
-        quota({
-          windows: [
-            { kind: "weekly", usagePercent: 10, resetAt: null, limitUsd: null },
-            { kind: "monthly", usagePercent: 20, resetAt: null, limitUsd: null },
-          ],
-        }),
-      )?.kind,
-    ).toBe("weekly");
+  it("maps window kinds to short list labels", () => {
+    expect(quotaWindowShortLabelKey("rolling")).toBe("sites.quotaWindowShortRolling");
+    expect(quotaWindowShortLabelKey("weekly")).toBe("sites.quotaWindowShortWeekly");
+    expect(quotaWindowShortLabelKey("monthly")).toBe("sites.quotaWindowShortMonthly");
+    expect(quotaWindowShortLabelKey("daily")).toBeNull();
   });
 
-  it("tones window usage at 80% and 90% thresholds", () => {
-    expect(quotaUsageTone(79.9)).toBe("neutral");
-    expect(quotaUsageTone(80)).toBe("warn");
-    expect(quotaUsageTone(89.9)).toBe("warn");
-    expect(quotaUsageTone(90)).toBe("danger");
+  it("converts usage percent into remaining percent, clamped", () => {
+    expect(windowRemainingPercent(0)).toBe(100);
+    expect(windowRemainingPercent(83)).toBe(17);
+    expect(windowRemainingPercent(100)).toBe(0);
+    // 上游偶尔会报 >100 或负数，仍要落在 0-100 内。
+    expect(windowRemainingPercent(140)).toBe(0);
+    expect(windowRemainingPercent(-10)).toBe(100);
+  });
+
+  it("tones remaining percent at 20% and 10% thresholds", () => {
+    expect(quotaRemainingTone(100)).toBe("neutral");
+    expect(quotaRemainingTone(20.1)).toBe("neutral");
+    expect(quotaRemainingTone(20)).toBe("warn");
+    expect(quotaRemainingTone(10.1)).toBe("warn");
+    expect(quotaRemainingTone(10)).toBe("danger");
+    expect(quotaRemainingTone(0)).toBe("danger");
   });
 
   it("recognizes balance-style summaries only", () => {

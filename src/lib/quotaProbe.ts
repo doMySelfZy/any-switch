@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 import { invoke } from "@/lib/invoke";
-import type { QuotaWindow, Site, SiteQuota } from "@/types/domain";
+import type { Site, SiteQuota } from "@/types/domain";
 
 export const QUOTA_TTL_MS = 5 * 60 * 1000;
 
@@ -123,14 +123,21 @@ export function quotaRemainingPercent(quota: SiteQuota): number | null {
 
 export type QuotaTone = "ok" | "warn" | "danger";
 
+/**
+ * 余额站点的告警色。能算出剩余百分比时走统一的 [`quotaRemainingTone`]
+ * （与窗口型站点同一套阈值）；拿到总额是「无限额度」哨兵值时退化为绝对金额判断。
+ */
 export function quotaTone(quota: SiteQuota): QuotaTone {
   const remaining = quota.remainingUsd;
   if (remaining == null) return "ok";
   if (remaining <= 0) return "danger";
-  if (remaining < 1) return "warn";
-  if (quota.totalUsd != null && quota.totalUsd > 0 && remaining / quota.totalUsd < 0.1) {
-    return "warn";
+  const percent = quotaRemainingPercent(quota);
+  if (percent != null) {
+    const tone = quotaRemainingTone(percent);
+    if (tone === "danger") return "danger";
+    if (tone === "warn") return "warn";
   }
+  if (remaining < 1) return "warn";
   return "ok";
 }
 
@@ -163,23 +170,38 @@ export function quotaWindowLabelKey(kind: string): string | null {
   return quotaWindowLabelKeys[kind] ?? null;
 }
 
+const quotaWindowShortLabelKeys: Record<string, string> = {
+  rolling: "sites.quotaWindowShortRolling",
+  weekly: "sites.quotaWindowShortWeekly",
+  monthly: "sites.quotaWindowShortMonthly",
+};
+
+/** 列表等窄容器用的窗口短标签 ("5h" / "周" / "月")。 */
+export function quotaWindowShortLabelKey(kind: string): string | null {
+  return quotaWindowShortLabelKeys[kind] ?? null;
+}
+
 export function clampQuotaPercent(percent: number): number {
   return Math.max(0, Math.min(100, percent));
 }
 
-/** Primary summary window: rolling (5-hour) first, else the first reported window. */
-export function primaryQuotaWindow(quota: SiteQuota): QuotaWindow | null {
-  const windows = quota.windows ?? [];
-  if (windows.length === 0) return null;
-  return windows.find((window) => window.kind === "rolling") ?? windows[0];
+/**
+ * 上游只报「已用百分比」，界面统一展示「剩余百分比」——口径与余额型站点
+ * （只显示剩余金额）一致，避免同一列表里两种相反的百分比语义。
+ */
+export function windowRemainingPercent(usagePercent: number): number {
+  return clampQuotaPercent(100 - usagePercent);
 }
 
-export type QuotaUsageTone = "neutral" | "warn" | "danger";
+export type QuotaRemainingTone = "neutral" | "warn" | "danger";
 
-/** Summary colorization for window usage; no reliable total exists for balances. */
-export function quotaUsageTone(percent: number): QuotaUsageTone {
-  if (percent >= 90) return "danger";
-  if (percent >= 80) return "warn";
+/**
+ * 剩余百分比告警阈值（全应用唯一一处）：剩不到两成提醒、不到一成告警。
+ * 等价于「已用达到 80% / 90%」，与列表改造前的告警时机保持一致。
+ */
+export function quotaRemainingTone(remainingPercent: number): QuotaRemainingTone {
+  if (remainingPercent <= 10) return "danger";
+  if (remainingPercent <= 20) return "warn";
   return "neutral";
 }
 

@@ -94,10 +94,10 @@ function toRgb(color: string): string {
   return value;
 }
 
-async function waitForSummaryColor(tokenColor: string) {
+async function waitForWindowSummaryColor(kind: string, tokenColor: string) {
   await waitFor(() => {
-    const summary = screen.getByTestId("site-quota-summary");
-    expect(toRgb(summary.style.color)).toBe(toRgb(tokenColor));
+    const span = screen.getByTestId(`site-quota-window-summary-${kind}`);
+    expect(toRgb(span.style.color)).toBe(toRgb(tokenColor));
   });
 }
 
@@ -159,7 +159,7 @@ describe("SiteListItem quota summary", () => {
     unmount();
   });
 
-  it("shows the rolling window percent and colorizes by usage thresholds", async () => {
+  it("shows every window as a remaining percent and colorizes by remaining thresholds", async () => {
     const site = await seedSite();
     seedQuota(
       site,
@@ -171,30 +171,43 @@ describe("SiteListItem quota summary", () => {
     );
     const { unmount } = renderListItem(site);
 
+    // 三个窗口全部展示，且都是「剩余 = 100 - 已用」口径。
     const summary = await screen.findByTestId("site-quota-summary");
-    expect(summary).toHaveTextContent("83%");
-    expect(toRgb(summary.style.color)).toBe(toRgb(token.colorWarning));
+    expect(summary).toHaveTextContent("5h 17%");
+    expect(summary).toHaveTextContent("周 54%");
+    expect(summary).toHaveTextContent("月 92%");
 
-    // Tooltip lists every window plus the update time.
+    // 已用 83% → 剩余 17%，落在 ≤20% 的告警档。
+    const rolling = screen.getByTestId("site-quota-window-summary-rolling");
+    expect(toRgb(rolling.style.color)).toBe(toRgb(token.colorWarning));
+    // 其余两档剩余充足，保持中性灰。
+    expect(toRgb(screen.getByTestId("site-quota-window-summary-weekly").style.color)).toBe(
+      toRgb(token.colorTextTertiary),
+    );
+    expect(toRgb(screen.getByTestId("site-quota-window-summary-monthly").style.color)).toBe(
+      toRgb(token.colorTextTertiary),
+    );
+
+    // Tooltip 同样是剩余口径，并列出所有窗口与更新时间。
     fireEvent.mouseEnter(summary);
-    expect(await screen.findByText("5 小时 83%")).toBeInTheDocument();
-    expect(screen.getByText("本周 46%")).toBeInTheDocument();
-    expect(screen.getByText("本月 8%")).toBeInTheDocument();
+    expect(await screen.findByText("5 小时 剩余 17%")).toBeInTheDocument();
+    expect(screen.getByText("本周 剩余 54%")).toBeInTheDocument();
+    expect(screen.getByText("本月 剩余 92%")).toBeInTheDocument();
     expect(screen.getByText("刚刚更新")).toBeInTheDocument();
     fireEvent.mouseLeave(summary);
 
-    // >= 90% turns danger red.
+    // 已用 95% → 剩余 5%，进入告警红。
     seedQuota(
       site,
       quota({
         remainingUsd: null,
         source: "opencode_go",
-        windows: [window("rolling", 91), window("weekly", 46), window("monthly", 8)],
+        windows: [window("rolling", 95), window("weekly", 46), window("monthly", 8)],
       }),
     );
-    await waitForSummaryColor(token.colorError);
+    await waitForWindowSummaryColor("rolling", token.colorError);
 
-    // < 80% stays neutral.
+    // 已用 50% → 剩余 50%，保持中性灰。
     seedQuota(
       site,
       quota({
@@ -203,7 +216,7 @@ describe("SiteListItem quota summary", () => {
         windows: [window("rolling", 50), window("weekly", 46), window("monthly", 8)],
       }),
     );
-    await waitForSummaryColor(token.colorTextTertiary);
+    await waitForWindowSummaryColor("rolling", token.colorTextTertiary);
     unmount();
   });
 

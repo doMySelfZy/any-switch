@@ -10,13 +10,13 @@ import { StatusDot } from "@/components/StatusDot";
 import { SiteAvatar } from "@/components/sites/SiteAvatar";
 import { useSiteStore } from "@/stores";
 import {
-  clampQuotaPercent,
   formatQuotaAmountLocalized,
   formatQuotaUpdatedText,
   isBalanceQuotaSummary,
-  primaryQuotaWindow,
-  quotaUsageTone,
+  quotaRemainingTone,
   quotaWindowLabelKey,
+  quotaWindowShortLabelKey,
+  windowRemainingPercent,
 } from "@/lib/quotaProbe";
 
 interface Props {
@@ -58,50 +58,75 @@ export function SiteListItem({ site, active, onSelect, onEdit, onDelete }: Props
     },
   };
 
-  // 列表额度摘要：余额型显示剩余金额（中性灰），窗口型显示 rolling 用量
-  // 百分比（≥80% 橙 / ≥90% 红）。其余状态安静不显示，避免一列表灰字。
+  // 列表额度摘要：余额型显示剩余金额，窗口型显示每个窗口的剩余百分比
+  // （5 小时 / 周 / 月全列，窄容器用短标签）。两类都是「剩余」口径，颜色阈值
+  // 走同一个 quotaRemainingTone。不支持的站点安静不显示，避免一列表灰字。
   let quotaSummary: ReactNode = null;
   if (quota?.status === "available") {
     const windows = quota.windows ?? [];
     if (windows.length > 0) {
-      const primary = primaryQuotaWindow(quota);
-      if (
-        primary &&
-        primary.usagePercent != null &&
-        Number.isFinite(primary.usagePercent)
-      ) {
-        const percent = clampQuotaPercent(primary.usagePercent);
-        const tone = quotaUsageTone(percent);
+      const updatedText = formatQuotaUpdatedText(quota.fetchedAt, t);
+      const parts = windows.map((window) => {
+        const usable =
+          window.usagePercent != null && Number.isFinite(window.usagePercent);
+        const remainingPercent = usable
+          ? windowRemainingPercent(window.usagePercent as number)
+          : null;
+        const tone =
+          remainingPercent == null ? "neutral" : quotaRemainingTone(remainingPercent);
         const color =
           tone === "danger"
             ? token.colorError
             : tone === "warn"
               ? token.colorWarning
               : token.colorTextTertiary;
-        const updatedText = formatQuotaUpdatedText(quota.fetchedAt, t);
+        const shortKey = quotaWindowShortLabelKey(window.kind);
+        const fullKey = quotaWindowLabelKey(window.kind);
+        return {
+          kind: window.kind,
+          shortLabel: shortKey ? t(shortKey) : window.kind,
+          fullLabel: fullKey ? t(fullKey) : window.kind,
+          remainingPercent,
+          color,
+        };
+      });
+      if (parts.some((part) => part.remainingPercent != null)) {
         quotaSummary = (
           <Tooltip
             title={
               <div className="text-xs">
-                {windows.map((window) => {
-                  const labelKey = quotaWindowLabelKey(window.kind);
-                  const label = labelKey ? t(labelKey) : window.kind;
-                  const pct =
-                    window.usagePercent != null && Number.isFinite(window.usagePercent)
-                      ? `${Math.round(clampQuotaPercent(window.usagePercent))}%`
-                      : "—";
-                  return <div key={window.kind}>{`${label} ${pct}`}</div>;
-                })}
+                {parts.map((part) => (
+                  <div key={part.kind}>
+                    {`${part.fullLabel} ${
+                      part.remainingPercent == null
+                        ? "—"
+                        : t("sites.quotaRemaining", {
+                            amount: `${Math.round(part.remainingPercent)}%`,
+                          })
+                    }`}
+                  </div>
+                ))}
                 <div>{updatedText}</div>
               </div>
             }
           >
             <span
-              className="block truncate text-xs tabular-nums"
-              style={{ color }}
+              className="flex min-w-0 items-center gap-2 text-xs tabular-nums"
               data-testid="site-quota-summary"
             >
-              {Math.round(percent)}%
+              {parts.map((part) => (
+                <span
+                  key={part.kind}
+                  className="min-w-0 truncate"
+                  style={{ color: part.color }}
+                  data-testid={`site-quota-window-summary-${part.kind}`}
+                >
+                  <span className="opacity-50">{part.shortLabel}</span>{" "}
+                  {part.remainingPercent == null
+                    ? "—"
+                    : `${Math.round(part.remainingPercent)}%`}
+                </span>
+              ))}
             </span>
           </Tooltip>
         );

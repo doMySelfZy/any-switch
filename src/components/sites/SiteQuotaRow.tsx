@@ -7,9 +7,11 @@ import {
   formatQuotaAmountLocalized,
   formatQuotaUpdatedText,
   quotaRemainingPercent,
+  quotaRemainingTone,
   quotaTone,
   quotaWindowLabelKey,
   shouldShowExpiry,
+  windowRemainingPercent,
 } from "@/lib/quotaProbe";
 
 interface Props {
@@ -145,18 +147,18 @@ export function SiteQuotaRow({
         {windows.map((window) => {
           const labelKey = quotaWindowLabelKey(window.kind);
           const label = labelKey ? t(labelKey) : window.kind;
+          // 进度条与文字同为「剩余」口径：条越短表示剩得越少，与余额行一致。
           const percent =
             window.usagePercent == null
               ? null
-              : Math.max(0, Math.min(100, window.usagePercent));
+              : windowRemainingPercent(window.usagePercent);
+          const tone = percent == null ? "neutral" : quotaRemainingTone(percent);
           const stroke =
-            percent == null
-              ? token.colorPrimary
-              : percent >= 90
-                ? token.colorError
-                : percent >= 70
-                  ? token.colorWarning
-                  : token.colorPrimary;
+            tone === "danger"
+              ? token.colorError
+              : tone === "warn"
+                ? token.colorWarning
+                : token.colorPrimary;
           const details: string[] = [];
           const resetText = formatReset(window.resetAt);
           if (resetText) details.push(resetText);
@@ -187,9 +189,14 @@ export function SiteQuotaRow({
                   )}
                   <span
                     className="shrink-0 text-xs"
-                    style={{ color: token.colorTextSecondary }}
+                    style={{
+                      color:
+                        stroke === token.colorPrimary ? token.colorTextSecondary : stroke,
+                    }}
                   >
-                    {percent != null ? `${Math.round(percent)}%` : ""}
+                    {percent != null
+                      ? t("sites.quotaRemaining", { amount: `${Math.round(percent)}%` })
+                      : ""}
                   </span>
                 </div>
                 {details.length > 0 && (
