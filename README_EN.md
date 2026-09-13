@@ -22,7 +22,7 @@
 - Site-first: Base URL + API key → models → target presets → apply to targets.
 - Targets: Claude Code, Codex, Pi, and Prime, each with its own form.
 - Local backups + real WebDAV sync: one dataset across machines, synced on change, pulled on open.
-- `xiaobaiswitchplus://` deep links import a site in one click; legacy `anyswitch://` and `xiaobaiswitch://` links still work.
+- `xiaobaiswitchplus://` deep links import a site in one click (older share links still work).
 - API keys are encrypted at rest, configs are backed up before apply, and official configs can be restored.
 
 See the [upstream project](https://github.com/Licoy/xiaobai-switch) for full documentation.
@@ -30,8 +30,7 @@ See the [upstream project](https://github.com/Licoy/xiaobai-switch) for full doc
 ## Data directory
 
 - Current directory: `~/.xiaobai-switch/` (`xiaobai-switch.db`, `master.key`, `backups/`).
-- When upgrading from an AnySwitch build, the first launch **automatically takes over** the data in `~/.any-switch/`: it compares database modification times, copies the newer dataset, verifies it, then uses the new directory.
-- The old `~/.any-switch/` directory is **kept as-is** as a rollback point and is never deleted; remove it yourself once you are confident.
+- When upgrading from an earlier build, the first launch **automatically takes over** the newer dataset in `~/.any-switch/`: it compares database modification times, copies and verifies it, then uses the new directory. The old directory is **kept as-is** and never deleted.
 
 ## Development
 

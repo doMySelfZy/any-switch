@@ -22,7 +22,7 @@
 - 站点优先：Base URL + API Key → 模型 → 目标预设 → 应用到目标。
 - 目标：Claude Code、Codex、Pi、Prime，各有独立表单。
 - 本地备份 + WebDAV 真同步：多台机器共享一份数据，改完即同步、换机即拉取。
-- `xiaobaiswitchplus://` 深链一键导入站点；旧的 `anyswitch://`、`xiaobaiswitch://` 链接仍可识别。
+- `xiaobaiswitchplus://` 深链一键导入站点（同时兼容更早版本的分享链接）。
 - API Key 在应用内加密存储，应用前后自动备份，可恢复官方配置。
 
 更完整的说明与细节请见 [上游项目](https://github.com/Licoy/xiaobai-switch)。
@@ -30,8 +30,7 @@
 ## 数据目录
 
 - 当前目录：`~/.xiaobai-switch/`（`xiaobai-switch.db`、`master.key`、`backups/`）。
-- 从 AnySwitch 版本升级时，首次启动会**自动接管** `~/.any-switch/` 中的数据：按数据库修改时间判断哪份更新，复制迁移并做校验，然后使用新目录。
-- 旧目录 `~/.any-switch/` **原样保留**作为回滚点，不会删除；确认稳定后可自行清理。
+- 从更早的版本升级时，首次启动会**自动接管** `~/.any-switch/` 中较新的那份数据：按数据库修改时间判断，复制并校验后使用新目录；旧目录**原样保留**，不会删除。
 
 ## 开发
 

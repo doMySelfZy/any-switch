@@ -185,7 +185,7 @@ jobs:
           Write-Host "PWD=$(Get-Location) releaseDir=$releaseDir"
           $exe = $null
           # Legacy names stay as fallbacks for builds produced before the rename.
-          foreach ($name in @("XiaoBaiSwitchPlus.exe", "AnySwitch.exe", "XiaoBaiSwitch.exe", "xiaobai-switch.exe")) {
+          foreach ($name in @("XiaoBaiSwitchPlus.exe", "XiaoBaiSwitch.exe", "xiaobai-switch.exe")) {
             $candidate = Join-Path $releaseDir $name
             if (Test-Path -LiteralPath $candidate) {
               $exe = $candidate
