@@ -146,3 +146,27 @@ WebDAV 真同步全链路落地：逻辑内容指纹引擎+变更驱动守护任
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: 额度口径统一为剩余 + 有进度条即显示已用
+<!-- trellis-session: v=2 fp=64c20ad026de2ecb -->
+
+**Date**: 2026-09-13
+**Task**: 额度口径统一为剩余 + 有进度条即显示已用
+**Branch**: `main`
+
+### Summary
+
+用户反馈 OpenCode 列表只显示 5 小时一个窗口、且显示的是「已用」而余额型显示「剩余」，同一列表两种相反语义。三项改动：①列表展示全部三个窗口（短标签 5h/周/月，Tooltip 用完整标签）；②统一为「剩余」口径，窗口数值与进度条都改为 100−已用（详情面板同步）；③告警阈值收敛到唯一的 quotaRemainingTone（剩余 ≤20% 橙、≤10% 红，等价于已用 ≥80%/≥90%，与改造前时机一致），余额站点也走这套，删除已被取代的 primaryQuotaWindow/quotaUsageTone。随后用户追问 new-api 进度条的分母来源，查清两条链路：/api/user/self 只返回 quota + used_quota，总额是本地相加推算（AgentRouter 实测恒为 300,000,000 = $600）；/api/usage/token/ 的 display 对象由站点自报 total（SHUAI 报 200.318454 且与 remaining+used 自洽）。据此在推算来源补显「已用」。最后一轮用户质疑「SHUAI 拿不到已用？」——核实其 display 明确含 used=172.75，上一版按 source 排除是错的：规则改为「只要有进度条就显示已用」（不管总额来源），删除 isDerivedBalanceTotal，判定依据从「来源」改为「是否画条」；无总额的 Sub2API 钱包仍不显示（没有条时孤立已用金额是噪音）。验证：pnpm typecheck 绿、320 前端测试绿（2 个既有 updater 用例失败）；浏览器实测三场景（站点自报/本地推算/无总额）；真机 UIA 确认 SHUAI 显示「剩余 ￥27.57 已用 ￥172.75」、AiHub 仅剩余、OpenCode 三窗口剩余口径。三次打包安装（0.1.3→0.1.4），每次均从干净提交建临时 worktree 构建以隔离并行会话的未提交改动，并将签名密码变量一并设置（此前只设密钥路径会挂起等 stdin）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f6882d4` | feat(sites): 额度统一为「剩余」口径，列表展示全部用量窗口 |
+| `7cce472` | feat(sites): 推算总额的站点补显「已用」金额，消除进度条歧义 |
+| `e58bba3` | fix(sites): 有进度条就显示已用，不再只限推算总额的来源 |
+
+### Status
+
+[OK] **Completed**

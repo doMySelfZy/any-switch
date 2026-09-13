@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
+- **Total Sessions**: 7
 - **Last Active**: 2026-09-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~148 | Active |
+| `journal-1.md` | ~172 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-09-13 | 额度口径统一为剩余 + 有进度条即显示已用 | `f6882d4`, `7cce472`, `e58bba3` | `main` |
 | 6 | 2026-09-13 | 站点列表侧栏加宽 + v0.1.4 打包安装 | `b0a45fc`, `f593b1e` | `main` |
 | 5 | 2026-09-13 | 额度探测读站点自报倍率 + Sub2API /v1/usage 支持 | `9218d45` | `main` |
 | 4 | 2026-09-13 | 站点列表额度摘要与余额自动刷新 | `eb236c6` | `main` |
