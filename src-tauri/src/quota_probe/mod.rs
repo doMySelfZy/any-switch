@@ -47,6 +47,17 @@ pub struct TokenUsage {
     pub has_display: bool,
 }
 
+/// Sub2API `/v1/usage` 的钱包余额结果。钱包模式下 `used` / `total` 无可靠语义，
+/// 解析时刻意留空（不能用 `balance` 冒充 `total`）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sub2ApiUsage {
+    pub remaining: Option<f64>,
+    pub used: Option<f64>,
+    pub total: Option<f64>,
+    pub unit: String,
+    pub unlimited: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QuotaDisplayType {
     Usd,
@@ -72,6 +83,7 @@ pub enum Hit {
     Usage(Usage),
     Token(TokenUsage),
     Status(QuotaStatus),
+    Sub2ApiUsage(Sub2ApiUsage),
     InvalidData(String),
     NotFound,
     Unauthorized,
@@ -157,6 +169,11 @@ pub fn token_usage_url(origin: &str) -> String {
 
 pub fn quota_status_url(origin: &str) -> String {
     format!("{}/api/status", strip_trailing_slash(origin))
+}
+
+/// Sub2API 的用量/钱包端点：`{origin}/v1/usage`。
+pub fn sub2api_usage_url(origin: &str) -> String {
+    format!("{}/v1/usage", strip_trailing_slash(origin))
 }
 
 /// `/zen/go` must match on path-segment boundaries, so `/zen/gopher` and
@@ -393,6 +410,56 @@ pub fn parse_quota_status(value: &Value) -> Option<QuotaStatus> {
     })
 }
 
+/// 解析 Sub2API `/v1/usage` 的钱包余额。
+///
+/// 规则（按现网实测字段，只覆盖钱包模式）：
+/// - `isValid: false` 或上游失败/`error` 结构 → `None`（不得当作可用余额）；
+/// - `remaining` 缺失时回退 `balance`（实测同值），都为非数 → `None`；
+/// - `unit` 缺省 `"USD"`；
+/// - 钱包模式没有可靠的 `used` / `total` 语义，一律留空——**不要**把 `balance`
+///   冒充 `total`，否则前端会算出 0% 进度条或误导性的「已用 0」；
+/// - `mode == "unrestricted"` 下 `remaining < 0` 是「不限额」哨兵，不是欠费。
+pub fn parse_sub2api_usage(value: &Value) -> Option<Sub2ApiUsage> {
+    if !value.is_object() {
+        return None;
+    }
+    if value.get("isValid").and_then(Value::as_bool) == Some(false)
+        || value.get("is_valid").and_then(Value::as_bool) == Some(false)
+    {
+        return None;
+    }
+    if response_indicates_failure(value) {
+        return None;
+    }
+    let unit = value
+        .get("unit")
+        .and_then(Value::as_str)
+        .map(normalize_quota_unit)
+        .unwrap_or_else(|| "USD".into());
+    let remaining = field_f64(value, "remaining").or_else(|| field_f64(value, "balance"));
+    let unrestricted = value
+        .get("mode")
+        .and_then(Value::as_str)
+        .is_some_and(|mode| mode.trim().eq_ignore_ascii_case("unrestricted"));
+    if unrestricted && remaining.is_some_and(|remaining| remaining < 0.0) {
+        return Some(Sub2ApiUsage {
+            remaining: None,
+            used: None,
+            total: None,
+            unit,
+            unlimited: true,
+        });
+    }
+    let remaining = remaining?;
+    Some(Sub2ApiUsage {
+        remaining: Some(remaining),
+        used: None,
+        total: None,
+        unit,
+        unlimited: false,
+    })
+}
+
 const OPENCODE_GO_WINDOW_KINDS: [&str; 3] = ["rolling", "weekly", "monthly"];
 
 fn opencode_go_window_keys(kind: &str) -> [&'static str; 3] {
@@ -536,7 +603,11 @@ pub fn parse_opencode_go_windows(value: &Value, fetched_at: i64) -> Option<Vec<Q
     }
 }
 
-fn raw_quota_scale(status: &QuotaStatus) -> Option<(f64, String)> {
+/// 把 `/api/status` 的展示类型映射为 **token 额度** 的乘数 `(scale, unit)`：
+/// 调用方执行 `quota * scale`（乘法）。
+///
+/// 账户余额不是这个语义，必须用 [`account_balance_scale`]（除数）。
+fn token_quota_scale(status: &QuotaStatus) -> Option<(f64, String)> {
     match status.display_type {
         QuotaDisplayType::Tokens => Some((1.0, "TOKENS".into())),
         QuotaDisplayType::Usd => status
@@ -560,6 +631,36 @@ fn raw_quota_scale(status: &QuotaStatus) -> Option<(f64, String)> {
             }),
         QuotaDisplayType::Raw => None,
     }
+}
+
+/// 默认换算倍率：new-api 的 `quota` 字段以 500000 个 quota 记 1 单位货币。
+const NEWAPI_QUOTA_PER_UNIT: f64 = 500_000.0;
+
+/// 把 `/api/status` 的展示类型映射为 **账户余额** 的除数 `(divisor, unit)`：
+/// 调用方执行 `quota / divisor`（除法），与 [`token_quota_scale`] 的乘法语义相反。
+///
+/// `/api/status` 缺失或字段不完整从来不是错误：`None` 表示用默认
+/// 500000 / USD 兜底，账户余额必须照常显示（`/api/status` 是锦上添花）。
+fn account_balance_scale(status: Option<&QuotaStatus>) -> (f64, String) {
+    let Some(status) = status else {
+        return (NEWAPI_QUOTA_PER_UNIT, "USD".into());
+    };
+    let divisor = status
+        .quota_per_unit
+        .filter(|value| *value > 0.0)
+        .unwrap_or(NEWAPI_QUOTA_PER_UNIT);
+    let unit = match status.display_type {
+        QuotaDisplayType::Cny => "CNY",
+        QuotaDisplayType::Custom => status
+            .custom_currency_symbol
+            .as_deref()
+            .map(str::trim)
+            .filter(|symbol| !symbol.is_empty())
+            .unwrap_or("USD"),
+        // AgentRouter 无 quota_display_type（解析成 Raw）时保持 USD 现状。
+        QuotaDisplayType::Usd | QuotaDisplayType::Raw | QuotaDisplayType::Tokens => "USD",
+    };
+    (divisor, unit.to_string())
 }
 
 fn quota_values_are_consistent(
@@ -596,7 +697,7 @@ pub fn normalize_token_usage(
 ) -> Result<TokenUsage, String> {
     if !token.has_display {
         let (scale, unit) = status
-            .and_then(raw_quota_scale)
+            .and_then(token_quota_scale)
             .unwrap_or_else(|| (1.0, "RAW_QUOTA".into()));
         token.remaining = token.remaining.map(|value| value * scale);
         token.used = token.used.map(|value| value * scale);
@@ -714,6 +815,9 @@ pub fn classify_status(status: u16, body: &str, expected: Expected) -> Hit {
             Expected::Status => parse_quota_status(&value)
                 .map(Hit::Status)
                 .unwrap_or(Hit::Unsupported),
+            Expected::Sub2ApiUsage => parse_sub2api_usage(&value)
+                .map(Hit::Sub2ApiUsage)
+                .unwrap_or(Hit::Unsupported),
         };
     }
     Hit::Error(format!("HTTP {status}"))
@@ -726,6 +830,8 @@ pub enum Expected {
     Usage,
     Token,
     Status,
+    /// Sub2API `/v1/usage` 钱包余额；不可用时静默降级为 `Unsupported`。
+    Sub2ApiUsage,
 }
 
 fn clamp_remaining(value: Option<f64>) -> Option<f64> {
@@ -956,6 +1062,9 @@ fn quota_source_rank(source: Option<QuotaSource>) -> u8 {
         Some(QuotaSource::TokenUsage) => 5,
         Some(QuotaSource::UserSelf) => 5,
         Some(QuotaSource::CreditGrants) => 4,
+        // Sub2API 钱包余额与 credit grants 同级；它只在标准链判定「不支持」后才会
+        // 产生，因此这里的排序永远不会抢走既有来源。
+        Some(QuotaSource::Sub2Api) => 4,
         Some(QuotaSource::SubscriptionUsage) => 3,
         Some(QuotaSource::SubscriptionOnly) => 2,
         Some(QuotaSource::UsageOnly) => 1,
@@ -1151,8 +1260,6 @@ fn finish_round(
     }
 }
 
-const NEWAPI_QUOTA_PER_UNIT: f64 = 500_000.0;
-
 /// NewAPI 访问令牌连通性测试结果（供站点编辑里的「测试」按钮使用）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1162,6 +1269,9 @@ pub struct NewApiAccessProbe {
     pub remaining_usd: Option<f64>,
     pub used_usd: Option<f64>,
     pub total_usd: Option<f64>,
+    /// 账户余额的货币单位，与主界面额度行同源（站点自报 `quota_display_type`）；
+    /// 失败或拿不到换算参数时为 `None`。
+    pub unit: Option<String>,
     pub endpoint: String,
     pub message: Option<String>,
 }
@@ -1176,6 +1286,24 @@ fn truncate_message(body: &str, token: &str) -> String {
     }
 }
 
+/// 尽力而为地取同一 origin 的 `/api/status` 换算参数。任何失败（网络/超时/非 2xx/
+/// 非法 JSON/字段缺失）都只返回 `None`，由 [`account_balance_scale`] 回退默认倍率；
+/// `/api/status` 是锦上添花，绝不能因为拿不到它而让账户余额整体失败。
+async fn request_quota_status(client: &reqwest::Client, origin: &str) -> Option<QuotaStatus> {
+    match fetch_hit(
+        client,
+        &quota_status_url(origin),
+        "",
+        Expected::Status,
+        false,
+    )
+    .await
+    {
+        Hit::Status(status) => Some(status),
+        _ => None,
+    }
+}
+
 /// `/api/user/self` 的单次请求结果。站点编辑里的「测试」按钮与主界面额度行
 /// 共用这一条请求/解析链路，保证两处显示的账户余额来源完全一致。
 struct UserSelfResponse {
@@ -1184,8 +1312,12 @@ struct UserSelfResponse {
     endpoint: String,
     /// 成功且未被上游标记为失败时的 `data` 对象。
     data: Option<Value>,
+    /// 同一 origin 自报的换算参数；拿不到即 `None`（回退 500000/USD）。
+    quota_status: Option<QuotaStatus>,
 }
 
+/// 请求 `/api/user/self` 的同时**并发**取同一 origin 的 `/api/status`（换算参数），
+/// 避免串行翻倍延迟。status 为 `Option` 语义：失败只是回退默认倍率。
 async fn request_user_self(
     client: &reqwest::Client,
     origin: &str,
@@ -1193,29 +1325,38 @@ async fn request_user_self(
     user_id: &str,
 ) -> reqwest::Result<UserSelfResponse> {
     let endpoint = format!("{}/api/user/self", strip_trailing_slash(origin));
-    let resp = client
-        .get(&endpoint)
-        .bearer_auth(token)
-        .header("New-Api-User", user_id)
-        .send()
-        .await?;
-    let status = resp.status().as_u16();
-    let body = resp.text().await.unwrap_or_default();
-    let data = serde_json::from_str::<Value>(&body)
-        .ok()
-        .and_then(|value| {
-            if response_indicates_failure(&value) {
-                None
-            } else {
-                value.get("data").filter(|data| data.is_object()).cloned()
-            }
-        });
-    Ok(UserSelfResponse {
-        status,
-        body,
-        endpoint,
-        data,
-    })
+    let (response, quota_status) = tokio::join!(
+        async {
+            let resp = client
+                .get(&endpoint)
+                .bearer_auth(token)
+                .header("New-Api-User", user_id)
+                .send()
+                .await?;
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            let data = serde_json::from_str::<Value>(&body)
+                .ok()
+                .and_then(|value| {
+                    if response_indicates_failure(&value) {
+                        None
+                    } else {
+                        value.get("data").filter(|data| data.is_object()).cloned()
+                    }
+                });
+            Ok::<_, reqwest::Error>(UserSelfResponse {
+                status,
+                body,
+                endpoint: endpoint.clone(),
+                data,
+                quota_status: None,
+            })
+        },
+        request_quota_status(client, origin),
+    );
+    let mut response = response?;
+    response.quota_status = quota_status;
+    Ok(response)
 }
 
 /// `/api/user/self` 的候选 origin：与标准探测链共用同一套候选（先去 `/v1`
@@ -1230,15 +1371,17 @@ fn user_self_candidates(base_url: &str) -> Vec<String> {
     candidates
 }
 
-/// 由 `/api/user/self` 的 `data` 换算（剩余, 已用, 总额）美元金额。账户余额的
-/// 换算口径只此一处，两处展示共用，避免除数或口径分叉。
-fn user_self_amounts(data: &Value) -> Option<(f64, f64, f64)> {
+/// 由 `/api/user/self` 的 `data` 换算（剩余, 已用, 总额）金额：以站点 `/api/status`
+/// 自报的 `quota_per_unit` 作**除数**（见 [`account_balance_scale`]），缺失或非正数
+/// 时回退 500000。账户余额的换算口径只此一处，两处展示共用，避免除数或口径分叉。
+fn user_self_amounts(data: &Value, status: Option<&QuotaStatus>) -> Option<(f64, f64, f64)> {
     let quota = field_f64(data, "quota")?;
     let used = field_f64(data, "used_quota").unwrap_or(0.0);
+    let (divisor, _unit) = account_balance_scale(status);
     Some((
-        quota / NEWAPI_QUOTA_PER_UNIT,
-        used / NEWAPI_QUOTA_PER_UNIT,
-        (quota + used) / NEWAPI_QUOTA_PER_UNIT,
+        quota / divisor,
+        used / divisor,
+        (quota + used) / divisor,
     ))
 }
 
@@ -1249,7 +1392,10 @@ fn user_self_success(response: &UserSelfResponse) -> Option<(f64, f64, f64)> {
     if !(200..300).contains(&response.status) {
         return None;
     }
-    response.data.as_ref().and_then(user_self_amounts)
+    response
+        .data
+        .as_ref()
+        .and_then(|data| user_self_amounts(data, response.quota_status.as_ref()))
 }
 
 /// 测试访问令牌：按候选 origin 逐个尝试 /api/user/self，返回首个非 404 的结果。
@@ -1275,18 +1421,22 @@ pub async fn test_newapi_access(
                 remaining_usd: None,
                 used_usd: None,
                 total_usd: None,
+                unit: None,
                 endpoint: url,
                 message: Some(truncate_message(&response.body, token)),
             });
             continue;
         }
         if let Some((remaining, used, total)) = balance {
+            // 单位与主界面额度行同源：站点自报的展示类型决定 USD/CNY。
+            let (_divisor, unit) = account_balance_scale(response.quota_status.as_ref());
             return Ok(NewApiAccessProbe {
                 ok: true,
                 status,
                 remaining_usd: Some(remaining),
                 used_usd: Some(used),
                 total_usd: Some(total),
+                unit: Some(unit),
                 endpoint: url,
                 message: None,
             });
@@ -1297,6 +1447,7 @@ pub async fn test_newapi_access(
             remaining_usd: None,
             used_usd: None,
             total_usd: None,
+            unit: None,
             endpoint: url,
             message: Some(truncate_message(&response.body, token)),
         });
@@ -1307,6 +1458,7 @@ pub async fn test_newapi_access(
         remaining_usd: None,
         used_usd: None,
         total_usd: None,
+        unit: None,
         endpoint: String::new(),
         message: None,
     }))
@@ -1331,13 +1483,16 @@ async fn fetch_user_self_quota(
         let Some((remaining, used, total)) = user_self_success(&response) else {
             continue;
         };
+        // 货币单位与除数同源：站点自报的 `quota_display_type` 决定 USD/CNY，
+        // 缺失时保持 USD（AgentRouter 现状）。
+        let (_divisor, unit) = account_balance_scale(response.quota_status.as_ref());
         return Some(SiteQuota {
             status: QuotaProbeStatus::Available,
             remaining_usd: Some(remaining),
             used_usd: Some(used),
             total_usd: Some(total),
             unlimited: false,
-            unit: Some("USD".into()),
+            unit: Some(unit),
             expires_at: None,
             source: Some(QuotaSource::UserSelf),
             endpoint: Some(response.endpoint),
@@ -1483,6 +1638,60 @@ async fn probe_opencode_go_usage(
     opencode_go_quota(status, &body, fetched_at, latency(), &url)
 }
 
+/// Sub2API 钱包余额探测：按候选 origin 依次尝试 `GET {origin}/v1/usage`。
+///
+/// 只在标准链最终判定「不支持」之后调用，保证 new-api 站点零额外请求
+/// （见 `probe_quota`）。`classify_status` 已把 404/405/501/HTML/非法 JSON 归为
+/// `NotFound` / `Unsupported`；连同网络/上游错误一起安静降级（返回 `None`，
+/// 维持标准链的 Unsupported），不让 new-api 站点因为多打这一枪变成错误态。
+/// 只有认证失败（401/403 且非 UA 拦截）沿用既有 `Unauthorized` 语义。
+async fn probe_sub2api_usage(
+    client: &reqwest::Client,
+    bases: &[String],
+    api_key: &str,
+    start: Instant,
+    fetched_at: i64,
+) -> Option<SiteQuota> {
+    let mut unauthorized: Option<String> = None;
+    for base in bases {
+        let url = sub2api_usage_url(base);
+        let hit = fetch_hit(client, &url, api_key, Expected::Sub2ApiUsage, true).await;
+        match hit {
+            Hit::Sub2ApiUsage(usage) => {
+                if let Ok(quota) = available(
+                    QuotaSource::Sub2Api,
+                    usage.remaining,
+                    usage.used,
+                    usage.total,
+                    usage.unlimited,
+                    Some(&usage.unit),
+                    None,
+                    Some(url),
+                    fetched_at,
+                    start.elapsed().as_millis() as u64,
+                ) {
+                    return Some(quota);
+                }
+            }
+            // 认证失败先记下，仍继续尝试其它候选（可用余额优先于诊断）。
+            Hit::Unauthorized => {
+                unauthorized.get_or_insert(url);
+            }
+            // 该 origin 上不是 Sub2API（404/HTML/非法 JSON/上游错误/网络错误），
+            // 继续尝试下一个候选（如站点根）。
+            _ => {}
+        }
+    }
+    unauthorized.map(|url| {
+        quiet(
+            QuotaProbeStatus::Unauthorized,
+            None,
+            start.elapsed().as_millis() as u64,
+            Some(url),
+        )
+    })
+}
+
 pub async fn probe_quota(
     site: &SiteRow,
     api_key: &str,
@@ -1567,6 +1776,16 @@ pub async fn probe_quota(
             None,
         ),
     };
+
+    // 标准链判定「不支持」之后才给 Sub2API 一次机会：标准链命中的 new-api 站点
+    // 完全不受影响（零额外请求）；AiHub 这类全 404 的站点才会多打一次 /v1/usage。
+    if quota.status == QuotaProbeStatus::Unsupported {
+        if let Some(sub2api) =
+            probe_sub2api_usage(&client, &public_bases, api_key, start, fetched_at).await
+        {
+            return Ok(sanitize_absurd_amounts(sub2api));
+        }
+    }
     Ok(sanitize_absurd_amounts(quota))
 }
 
@@ -1729,6 +1948,10 @@ mod tests {
         assert_eq!(
             quota_status_url("https://api.example.com"),
             "https://api.example.com/api/status"
+        );
+        assert_eq!(
+            sub2api_usage_url("https://api.example.com/"),
+            "https://api.example.com/v1/usage"
         );
     }
 
@@ -2807,13 +3030,23 @@ mod tests {
         assert_eq!(quota.remaining_usd, Some(2.0));
 
         let recorded = requests.lock().unwrap().clone();
+        // 只有账户余额请求，及其并发取换算参数的 /api/status。
         assert_eq!(
             recorded.len(),
-            1,
+            2,
             "user self must short-circuit the standard chain"
         );
-        assert!(recorded[0].starts_with("GET /api/user/self "));
-        let request = recorded[0].to_ascii_lowercase();
+        assert!(recorded
+            .iter()
+            .any(|request| request.starts_with("GET /api/user/self ")));
+        assert!(recorded
+            .iter()
+            .any(|request| request.starts_with("GET /api/status ")));
+        let request = recorded
+            .iter()
+            .find(|request| request.starts_with("GET /api/user/self "))
+            .unwrap()
+            .to_ascii_lowercase();
         assert!(request.contains("authorization: bearer access-token"));
         assert!(request.contains("new-api-user: 42"));
         assert!(!recorded
@@ -2901,10 +3134,12 @@ mod tests {
         assert_eq!(quota.total_usd, probed.total_usd);
 
         // 两处都必须按同一顺序探测：先路径前缀 origin（404），再回退站点根。
+        // 每个候选还会并发取 /api/status 换算参数，这里按路径分别核对顺序。
         let recorded = requests.lock().unwrap().clone();
         let paths: Vec<&str> = recorded
             .iter()
-            .map(|request| request.split(' ').nth(1).unwrap_or_default())
+            .filter_map(|request| request.split(' ').nth(1))
+            .filter(|path| path.ends_with("/api/user/self"))
             .collect();
         assert_eq!(
             paths,
@@ -2915,6 +3150,21 @@ mod tests {
                 "/api/user/self",
             ],
             "test button and quota row must probe the same candidate origins in the same order"
+        );
+        let status_paths: Vec<&str> = recorded
+            .iter()
+            .filter_map(|request| request.split(' ').nth(1))
+            .filter(|path| path.ends_with("/api/status"))
+            .collect();
+        assert_eq!(
+            status_paths,
+            vec![
+                "/openai/api/status",
+                "/api/status",
+                "/openai/api/status",
+                "/api/status",
+            ],
+            "the conversion params must be fetched from the same candidate origins"
         );
     }
 
@@ -2955,6 +3205,475 @@ mod tests {
             .unwrap();
         assert_eq!(quota.source, Some(QuotaSource::TokenUsage));
         assert_eq!(quota.remaining_usd, Some(1.5));
+    }
+
+    /// 站点自报 `quota_per_unit` 作**除数**、`quota_display_type` 决定货币；
+    /// 缺失/非正数回退 500000，缺失 display_type（Raw）回退 USD。
+    #[test]
+    fn account_balance_scale_uses_self_reported_per_unit_and_currency() {
+        let usd = parse_quota_status(&json!({
+            "success": true,
+            "data": {"quota_per_unit": 100_000, "quota_display_type": "USD"}
+        }))
+        .unwrap();
+        assert_eq!(
+            account_balance_scale(Some(&usd)),
+            (100_000.0, "USD".to_string())
+        );
+
+        let cny = parse_quota_status(&json!({
+            "success": true,
+            "data": {
+                "quota_per_unit": 100_000,
+                "quota_display_type": "CNY",
+                "usd_exchange_rate": 7.3
+            }
+        }))
+        .unwrap();
+        assert_eq!(
+            account_balance_scale(Some(&cny)),
+            (100_000.0, "CNY".to_string())
+        );
+
+        // AgentRouter：无 quota_display_type → Raw，货币保持 USD 现状。
+        let raw = parse_quota_status(&json!({
+            "success": true,
+            "data": {"quota_per_unit": 500_000}
+        }))
+        .unwrap();
+        assert_eq!(raw.display_type, QuotaDisplayType::Raw);
+        assert_eq!(
+            account_balance_scale(Some(&raw)),
+            (500_000.0, "USD".to_string())
+        );
+
+        // 缺 quota_per_unit → 除 500000，但货币仍按自报类型。
+        let missing = parse_quota_status(&json!({
+            "success": true,
+            "data": {"quota_display_type": "CNY"}
+        }))
+        .unwrap();
+        assert_eq!(missing.quota_per_unit, None);
+        assert_eq!(
+            account_balance_scale(Some(&missing)),
+            (500_000.0, "CNY".to_string())
+        );
+
+        // 非正数在解析阶段就被过滤，除数回退 500000。
+        let zero = parse_quota_status(&json!({
+            "success": true,
+            "data": {"quota_per_unit": 0, "quota_display_type": "USD"}
+        }))
+        .unwrap();
+        assert_eq!(zero.quota_per_unit, None);
+        assert_eq!(
+            account_balance_scale(Some(&zero)),
+            (500_000.0, "USD".to_string())
+        );
+
+        // status 完全拿不到 → 默认 500000 / USD。
+        assert_eq!(account_balance_scale(None), (500_000.0, "USD".to_string()));
+    }
+
+    /// 语义锚点：token 额度是「乘数」，账户余额是「除数」。CNY 下两者数值不同，
+    /// 误用乘数会把 10.0 元算成 73.0。
+    #[test]
+    fn account_balance_scale_is_a_divisor_not_the_token_multiplier() {
+        let status = parse_quota_status(&json!({
+            "success": true,
+            "data": {
+                "quota_per_unit": 100_000,
+                "quota_display_type": "CNY",
+                "usd_exchange_rate": 7.3
+            }
+        }))
+        .unwrap();
+        let (scale, unit) = token_quota_scale(&status).unwrap();
+        let (divisor, balance_unit) = account_balance_scale(Some(&status));
+        assert_eq!(divisor, 100_000.0);
+        assert_eq!(balance_unit, "CNY");
+        assert_eq!(unit, "CNY");
+        assert_eq!(scale, 7.3 / 100_000.0);
+
+        let amounts = user_self_amounts(
+            &json!({"quota": 1_000_000, "used_quota": 500_000}),
+            Some(&status),
+        )
+        .unwrap();
+        assert_eq!(amounts, (10.0, 5.0, 15.0));
+        // 若误用 token 乘数（1_000_000 * 0.000073）会得到 73.0。
+        assert_ne!(amounts.0, 1_000_000.0 * scale);
+    }
+
+    #[test]
+    fn user_self_amounts_fall_back_to_500000_without_status() {
+        let amounts = user_self_amounts(
+            &json!({"quota": 135_193_229, "used_quota": 0}),
+            None,
+        )
+        .unwrap();
+        assert!((amounts.0 - 270.386458).abs() < 1e-9);
+        assert_eq!(amounts.1, 0.0);
+        assert!((amounts.2 - 270.386458).abs() < 1e-9);
+    }
+
+    /// 自报倍率与货币在「测试」按钮与主界面额度行上必须一致（共用链路）。
+    #[tokio::test]
+    async fn user_self_self_reported_scale_is_shared_by_test_button_and_quota_row() {
+        let (base, _requests) = routed_server(vec![
+            (
+                "GET /api/user/self ",
+                "200 OK",
+                r#"{"success":true,"data":{"quota":1000000,"used_quota":500000}}"#,
+            ),
+            (
+                "GET /api/status ",
+                "200 OK",
+                r#"{"success":true,"data":{"quota_per_unit":100000,"quota_display_type":"CNY","usd_exchange_rate":7.3}}"#,
+            ),
+        ])
+        .await;
+
+        let settings = test_settings();
+        let probed = test_newapi_access(&base, "access-token", "42", &settings)
+            .await
+            .unwrap();
+        assert!(probed.ok);
+        assert_eq!(probed.remaining_usd, Some(10.0));
+        assert_eq!(probed.used_usd, Some(5.0));
+        assert_eq!(probed.total_usd, Some(15.0));
+        // 「测试」按钮必须回传与主界面额度行同源的货币单位（CNY 自报时不再是 $）。
+        assert_eq!(probed.unit.as_deref(), Some("CNY"));
+
+        let site = newapi_site(&base);
+        let quota = probe_quota(
+            &site,
+            "sk-test",
+            &settings,
+            Some(("access-token", "42")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(quota.status, QuotaProbeStatus::Available);
+        assert_eq!(quota.source, Some(QuotaSource::UserSelf));
+        assert_eq!(quota.remaining_usd, probed.remaining_usd);
+        assert_eq!(quota.used_usd, probed.used_usd);
+        assert_eq!(quota.total_usd, probed.total_usd);
+        assert_eq!(quota.unit, probed.unit);
+        assert_eq!(quota.unit.as_deref(), Some("CNY"));
+    }
+
+    /// `/api/status` 失败绝不能拖垮账户余额：回退 500000/USD 继续显示。
+    #[tokio::test]
+    async fn user_self_balance_survives_status_failure() {
+        let (base, _requests) = routed_server(vec![
+            (
+                "GET /api/user/self ",
+                "200 OK",
+                r#"{"success":true,"data":{"quota":135193229,"used_quota":0}}"#,
+            ),
+            ("GET /api/status ", "500 Internal Server Error", ""),
+        ])
+        .await;
+        let site = newapi_site(&base);
+        let quota = probe_quota(
+            &site,
+            "sk-test",
+            &test_settings(),
+            Some(("access-token", "42")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(quota.status, QuotaProbeStatus::Available);
+        assert_eq!(quota.source, Some(QuotaSource::UserSelf));
+        assert_eq!(quota.remaining_usd, Some(270.386458));
+        assert_eq!(quota.unit.as_deref(), Some("USD"));
+    }
+
+    #[test]
+    fn parse_sub2api_usage_reads_wallet_balance_without_inventing_used_or_total() {
+        let usage = parse_sub2api_usage(&json!({
+            "mode": "unrestricted",
+            "isValid": true,
+            "planName": "钱包余额",
+            "balance": 31.31783589,
+            "remaining": 31.31783589,
+            "unit": "USD",
+            "usage": {"daily": 1.0, "total": 2.0},
+            "daily_usage": [],
+            "model_stats": []
+        }))
+        .unwrap();
+        assert_eq!(usage.remaining, Some(31.31783589));
+        assert_eq!(usage.used, None);
+        assert_eq!(usage.total, None);
+        assert_eq!(usage.unit, "USD");
+        assert!(!usage.unlimited);
+    }
+
+    #[test]
+    fn parse_sub2api_usage_rejects_invalid_or_failed_payloads() {
+        assert!(parse_sub2api_usage(&json!({"isValid": false, "balance": 10.0})).is_none());
+        assert!(
+            parse_sub2api_usage(&json!({"success": false, "message": "token not found"})).is_none()
+        );
+        assert!(parse_sub2api_usage(&json!({"error": {"message": "unauthorized"}})).is_none());
+        assert!(parse_sub2api_usage(&json!({"isValid": true})).is_none());
+        assert!(parse_sub2api_usage(&json!([1, 2, 3])).is_none());
+    }
+
+    #[test]
+    fn parse_sub2api_usage_falls_back_to_balance_and_defaults_unit_to_usd() {
+        let usage = parse_sub2api_usage(&json!({"isValid": true, "balance": "12.5"})).unwrap();
+        assert_eq!(usage.remaining, Some(12.5));
+        assert_eq!(usage.unit, "USD");
+        assert_eq!(usage.used, None);
+        assert_eq!(usage.total, None);
+
+        let cny = parse_sub2api_usage(&json!({
+            "isValid": true,
+            "remaining": 3.0,
+            "unit": "CNY"
+        }))
+        .unwrap();
+        assert_eq!(cny.unit, "CNY");
+    }
+
+    #[test]
+    fn parse_sub2api_usage_maps_unrestricted_negative_remaining_to_unlimited() {
+        let usage = parse_sub2api_usage(&json!({
+            "mode": "unrestricted",
+            "isValid": true,
+            "balance": -1.0,
+            "remaining": -1.0,
+            "unit": "USD"
+        }))
+        .unwrap();
+        assert!(usage.unlimited);
+        assert_eq!(usage.remaining, None);
+        assert_eq!(usage.used, None);
+        assert_eq!(usage.total, None);
+
+        // 非 unrestricted 的负值原样保留，交由 clamp_remaining 处理。
+        let negative =
+            parse_sub2api_usage(&json!({"mode": "quota", "remaining": -1.0})).unwrap();
+        assert!(!negative.unlimited);
+        assert_eq!(negative.remaining, Some(-1.0));
+    }
+
+    /// 端点不可用（404/405/501/HTML/非法 JSON/isValid:false）静默降级为不支持，
+    /// 认证失败沿用 Unauthorized 语义。
+    #[test]
+    fn classify_sub2api_usage_degrades_quietly() {
+        assert_eq!(
+            classify_status(404, "", Expected::Sub2ApiUsage),
+            Hit::NotFound
+        );
+        assert_eq!(
+            classify_status(405, "", Expected::Sub2ApiUsage),
+            Hit::NotFound
+        );
+        assert_eq!(
+            classify_status(501, "", Expected::Sub2ApiUsage),
+            Hit::NotFound
+        );
+        assert_eq!(
+            classify_status(
+                200,
+                "<!DOCTYPE html><html><body>welcome</body></html>",
+                Expected::Sub2ApiUsage
+            ),
+            Hit::Unsupported
+        );
+        assert_eq!(
+            classify_status(200, "not-json", Expected::Sub2ApiUsage),
+            Hit::Unsupported
+        );
+        assert_eq!(
+            classify_status(200, r#"{"isValid":false,"balance":1.0}"#, Expected::Sub2ApiUsage),
+            Hit::Unsupported
+        );
+        assert_eq!(
+            classify_status(403, "<!DOCTYPE html><html>", Expected::Sub2ApiUsage),
+            Hit::Unsupported
+        );
+        assert_eq!(
+            classify_status(401, "{}", Expected::Sub2ApiUsage),
+            Hit::Unauthorized
+        );
+        assert_eq!(
+            classify_status(
+                403,
+                r#"{"error":{"message":"forbidden"}}"#,
+                Expected::Sub2ApiUsage
+            ),
+            Hit::Unauthorized
+        );
+        match classify_status(
+            200,
+            r#"{"mode":"unrestricted","isValid":true,"balance":31.31,"unit":"USD"}"#,
+            Expected::Sub2ApiUsage,
+        ) {
+            Hit::Sub2ApiUsage(usage) => assert_eq!(usage.remaining, Some(31.31)),
+            other => panic!("expected sub2api usage, got {other:?}"),
+        }
+    }
+
+    /// 标准链命中的 new-api 站点不得因为 Sub2API 探测多打 `/v1/usage`。
+    #[tokio::test]
+    async fn sub2api_probe_is_skipped_when_standard_chain_hits() {
+        let (base, requests) = routed_server(vec![
+            (
+                "GET /api/usage/token ",
+                "200 OK",
+                r#"{"code":true,"data":{"total_available":750000,"total_used":250000,"total_granted":1000000,"unlimited_quota":false}}"#,
+            ),
+            (
+                "GET /api/status ",
+                "200 OK",
+                r#"{"success":true,"data":{"quota_per_unit":500000,"quota_display_type":"USD"}}"#,
+            ),
+        ])
+        .await;
+        let site = newapi_site(&base);
+        let quota = probe_quota(&site, "sk-test", &test_settings(), None)
+            .await
+            .unwrap();
+        assert_eq!(quota.source, Some(QuotaSource::TokenUsage));
+        assert_eq!(quota.remaining_usd, Some(1.5));
+
+        let recorded = requests.lock().unwrap().clone();
+        assert!(
+            !recorded
+                .iter()
+                .any(|request| request.contains("/v1/usage")),
+            "standard chain hit must not trigger a sub2api request"
+        );
+    }
+
+    /// Sub2API 站点：标准链全 404 → 命中 `/v1/usage` 钱包余额。
+    #[tokio::test]
+    async fn sub2api_wallet_balance_is_used_when_standard_chain_is_unsupported() {
+        let (base, requests) = routed_server(vec![(
+            "GET /v1/usage ",
+            "200 OK",
+            r#"{"mode":"unrestricted","isValid":true,"planName":"wallet","balance":31.31783589,"remaining":31.31783589,"unit":"USD","usage":{"daily":0,"total":0},"daily_usage":[],"model_stats":[]}"#,
+        )])
+        .await;
+        let site = newapi_site(&base);
+        let quota = probe_quota(&site, "sk-test", &test_settings(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(quota.status, QuotaProbeStatus::Available);
+        assert_eq!(quota.source, Some(QuotaSource::Sub2Api));
+        assert_eq!(quota.remaining_usd, Some(31.31783589));
+        assert_eq!(quota.used_usd, None);
+        assert_eq!(quota.total_usd, None);
+        assert_eq!(quota.unit.as_deref(), Some("USD"));
+        assert!(!quota.unlimited);
+        assert_eq!(quota.error, None);
+        assert_eq!(
+            quota.endpoint.as_deref(),
+            Some(format!("{base}/v1/usage").as_str())
+        );
+
+        let recorded = requests.lock().unwrap().clone();
+        let usage_request = recorded
+            .iter()
+            .find(|request| request.starts_with("GET /v1/usage "))
+            .expect("sub2api endpoint must be requested")
+            .to_ascii_lowercase();
+        assert!(usage_request.contains("authorization: bearer sk-test"));
+        // 现网约束：AiHub 拒绝无 UA 的请求（403），必须带 App UA。
+        assert!(
+            usage_request.contains("user-agent: xiaobaiswitch"),
+            "sub2api probe must send the app user agent, got: {usage_request}"
+        );
+    }
+
+    /// `/v1/usage` 不可用时安静降级为「不支持」，不出现错误文案。
+    #[tokio::test]
+    async fn sub2api_endpoint_failures_degrade_to_unsupported() {
+        for (status, body) in [
+            ("404 Not Found", ""),
+            ("405 Method Not Allowed", ""),
+            ("501 Not Implemented", ""),
+            ("200 OK", "<!DOCTYPE html><html><body>welcome</body></html>"),
+            ("200 OK", "not-json"),
+            ("200 OK", r#"{"isValid":false,"balance":31.31}"#),
+        ] {
+            let (base, requests) = routed_server(vec![("GET /v1/usage ", status, body)]).await;
+            let site = newapi_site(&base);
+            let quota = probe_quota(&site, "sk-test", &test_settings(), None)
+                .await
+                .unwrap();
+            assert_eq!(
+                quota.status,
+                QuotaProbeStatus::Unsupported,
+                "status={status} body={body}"
+            );
+            assert_eq!(quota.error, None);
+            assert_eq!(quota.source, None);
+            assert_eq!(quota.remaining_usd, None);
+            // 每个降级样例都必须真的打到 /v1/usage，否则这条测试是空转的。
+            let recorded = requests.lock().unwrap().clone();
+            assert!(
+                recorded
+                    .iter()
+                    .any(|request| request.starts_with("GET /v1/usage ")),
+                "status={status} body={body} must still hit the sub2api endpoint"
+            );
+        }
+    }
+
+    /// 候选 origin 复用 `public_api_bases`：路径前缀 origin 不是 Sub2API 时回退站点根。
+    #[tokio::test]
+    async fn sub2api_usage_falls_back_to_the_site_root_origin() {
+        let (base, requests) = routed_server(vec![(
+            "GET /v1/usage ",
+            "200 OK",
+            r#"{"mode":"unrestricted","isValid":true,"balance":31.31783589,"remaining":31.31783589,"unit":"USD"}"#,
+        )])
+        .await;
+        let base_url = format!("{base}/openai/v1");
+        let site = newapi_site(&base_url);
+        let quota = probe_quota(&site, "sk-test", &test_settings(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(quota.status, QuotaProbeStatus::Available);
+        assert_eq!(quota.source, Some(QuotaSource::Sub2Api));
+        assert_eq!(quota.remaining_usd, Some(31.31783589));
+        assert_eq!(
+            quota.endpoint.as_deref(),
+            Some(format!("{base}/v1/usage").as_str())
+        );
+
+        let recorded = requests.lock().unwrap().clone();
+        let paths: Vec<&str> = recorded
+            .iter()
+            .filter_map(|request| request.split(' ').nth(1))
+            .filter(|path| path.ends_with("/v1/usage"))
+            .collect();
+        assert_eq!(paths, vec!["/openai/v1/usage", "/v1/usage"]);
+    }
+
+    /// 401 是认证失败（不是 UA 拦截）时沿用 Unauthorized 语义。
+    #[tokio::test]
+    async fn sub2api_unauthorized_surfaces_as_unauthorized() {
+        let (base, _requests) = routed_server(vec![(
+            "GET /v1/usage ",
+            "401 Unauthorized",
+            r#"{"error":{"message":"invalid api key"}}"#,
+        )])
+        .await;
+        let site = newapi_site(&base);
+        let quota = probe_quota(&site, "sk-bad", &test_settings(), None)
+            .await
+            .unwrap();
+        assert_eq!(quota.status, QuotaProbeStatus::Unauthorized);
+        assert_eq!(quota.error, None);
     }
 
     /// AgentRouter/new-api 的硬编码上限（100000000）是「无限额度」哨兵值：

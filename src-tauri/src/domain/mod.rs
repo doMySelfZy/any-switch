@@ -321,6 +321,8 @@ pub enum QuotaSource {
     TokenUsage,
     UserSelf,
     OpencodeGo,
+    /// Sub2API 站点的 `/v1/usage` 钱包余额。
+    Sub2Api,
 }
 
 /// One usage window of an OpenCode Go plan (5-hour / weekly / monthly).

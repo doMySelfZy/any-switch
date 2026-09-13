@@ -10,6 +10,7 @@ import { BaseUrlListInput } from "./BaseUrlListInput";
 import { invalidateSiteIconCache } from "@/lib/siteIcon";
 import { siteApiKeys } from "@/lib/siteApiKey";
 import { normalizeBaseUrls, siteBaseUrls } from "@/lib/urlNormalize";
+import { formatQuotaAmountLocalized } from "@/lib/quotaProbe";
 import {
   anyCodexCapabilityOn,
   capabilitiesFromCodexFlags,
@@ -189,7 +190,10 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
       if (probe.ok) {
         setNewapiTestResult({
           ok: true,
-          amount: probe.remainingUsd != null ? `$${probe.remainingUsd.toFixed(2)}` : "-",
+          amount:
+            probe.remainingUsd != null
+              ? formatQuotaAmountLocalized(probe.remainingUsd, probe.unit, t)
+              : "-",
         });
       } else {
         setNewapiTestResult({

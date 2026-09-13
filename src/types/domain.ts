@@ -432,6 +432,8 @@ export interface NewApiAccessProbe {
   remainingUsd: number | null;
   usedUsd: number | null;
   totalUsd: number | null;
+  /** 与主界面额度行同源的货币单位（站点自报）；失败时为 null。 */
+  unit?: string | null;
   endpoint: string;
   message: string | null;
 }
@@ -477,7 +479,8 @@ export type QuotaSource =
   | "usage_only"
   | "token_usage"
   | "user_self"
-  | "opencode_go";
+  | "opencode_go"
+  | "sub2_api";
 
 /** One OpenCode Go usage window (5-hour / weekly / monthly). */
 export interface QuotaWindow {
