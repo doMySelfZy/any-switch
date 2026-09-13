@@ -147,15 +147,17 @@ describe("SiteListItem quota summary", () => {
 
   it("shows a neutral balance summary with amount and update time in the tooltip", async () => {
     const site = await seedSite();
-    seedQuota(site, quota({ remainingUsd: 12.34, unit: "USD" }));
+    seedQuota(site, quota({ remainingUsd: 12.34, usedUsd: 88.5, totalUsd: 100, unit: "USD" }));
     const { unmount } = renderListItem(site);
 
     const summary = await screen.findByTestId("site-quota-summary");
     expect(summary).toHaveTextContent("剩余 $12.34");
     expect(toRgb(summary.style.color)).toBe(toRgb(token.colorTextTertiary));
 
+    // 有进度条就摆出已用，分母（剩余 + 已用）才可还原。
     fireEvent.mouseEnter(summary);
-    expect(await screen.findByText("刚刚更新")).toBeInTheDocument();
+    expect(await screen.findByText("已用 $88.50")).toBeInTheDocument();
+    expect(screen.getByText("刚刚更新")).toBeInTheDocument();
     unmount();
   });
 

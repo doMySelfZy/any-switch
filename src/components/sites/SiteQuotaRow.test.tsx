@@ -37,7 +37,7 @@ describe("SiteQuotaRow", () => {
     await i18n.changeLanguage("zh-CN");
   });
 
-  it("renders only the remaining account balance and a refresh control when available", () => {
+  it("renders remaining balance, used amount and a refresh control when available", () => {
     const onRefresh = vi.fn();
     render(
       <Wrapper>
@@ -48,16 +48,16 @@ describe("SiteQuotaRow", () => {
     expect(screen.getByTestId("site-quota-row")).toBeInTheDocument();
     expect(screen.getByText("账户余额")).toBeInTheDocument();
     expect(screen.getByText("剩余 $87.50")).toBeInTheDocument();
-    // 已用 / 总额金额不再展示
+    // 已用随进度条一起展示（分母可还原）；已用 / 总额的组合形式不再出现
+    expect(screen.getByText("已用 $12.50")).toBeInTheDocument();
     expect(screen.queryByText("$12.50 / $100.00")).toBeNull();
-    expect(screen.queryByText("已用 $12.50")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "刷新额度" }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the used amount when the total is derived locally (user_self source)", () => {
-    // /api/user/self 只给剩余与已用，进度条分母是两者相加推算的，
-    // 因此必须把「已用」也摆出来，用户才能还原条按什么比例画。
+  it("shows the used amount whenever a progress bar is drawn", () => {
+    // 分母（剩余 + 已用）从不直接展示，只有摆出已用才能看出条按什么比例画。
+    // 这条对推算总额（user_self）与站点自报总额（token display）同样成立。
     render(
       <Wrapper>
         <SiteQuotaRow
@@ -78,7 +78,9 @@ describe("SiteQuotaRow", () => {
     expect(screen.getByText("已用 $388.41")).toBeInTheDocument();
   });
 
-  it("does not repeat the used amount when the site reported the total itself", () => {
+  it("shows the site-reported used amount too (token display source)", () => {
+    // SHUAI API：站点自己在 display 里给了 used=172.75，
+    // 之前只在推算来源显示已用，导致这个站点只有条和剩余、看不到分母。
     render(
       <Wrapper>
         <SiteQuotaRow
@@ -96,6 +98,28 @@ describe("SiteQuotaRow", () => {
     );
 
     expect(screen.getByText("剩余 ¥27.57")).toBeInTheDocument();
+    expect(screen.getByText("已用 ¥172.75")).toBeInTheDocument();
+  });
+
+  it("omits the used amount when there is no progress bar to explain", () => {
+    // 没有总额就没有进度条，此时补一个孤立的已用金额反而是噪音。
+    render(
+      <Wrapper>
+        <SiteQuotaRow
+          quota={quota({
+            source: "sub2_api",
+            remainingUsd: 31.32,
+            usedUsd: 12.5,
+            totalUsd: null,
+            unit: "USD",
+          })}
+          loading={false}
+          onRefresh={() => undefined}
+        />
+      </Wrapper>,
+    );
+
+    expect(screen.getByText("剩余 $31.32")).toBeInTheDocument();
     expect(screen.queryByText(/已用/)).toBeNull();
   });
 

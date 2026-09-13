@@ -9,7 +9,6 @@ import {
   formatQuotaUpdatedText,
   formatUsd,
   isBalanceQuotaSummary,
-  isDerivedBalanceTotal,
   isQuotaCacheFresh,
   QUOTA_TTL_MS,
   quotaCacheKey,
@@ -157,15 +156,6 @@ describe("quotaProbe helpers", () => {
     expect(formatQuotaAmountLocalized(12.5, "USD", t)).toBe("$12.50");
     expect(formatQuotaAmountLocalized(24_035, "RAW_QUOTA", t)).toBe("24,035.00 额度点数");
     expect(formatQuotaAmountLocalized(999.69, "CNY", t)).toBe("¥999.69");
-  });
-
-  it("flags only user_self balances as having a derived total", () => {
-    // /api/user/self 只返回剩余与已用，总额是本地相加得来的。
-    expect(isDerivedBalanceTotal(quota({ source: "user_self" }))).toBe(true);
-    // 其余来源的总额由站点返回，不需要在界面上补「已用」。
-    expect(isDerivedBalanceTotal(quota({ source: "token_usage" }))).toBe(false);
-    expect(isDerivedBalanceTotal(quota({ source: "credit_grants" }))).toBe(false);
-    expect(isDerivedBalanceTotal(quota({ source: "sub2_api" }))).toBe(false);
   });
 
   it("builds relative updated text through the translate function", () => {

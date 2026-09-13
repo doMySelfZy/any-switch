@@ -13,7 +13,7 @@ import {
   formatQuotaAmountLocalized,
   formatQuotaUpdatedText,
   isBalanceQuotaSummary,
-  isDerivedBalanceTotal,
+  quotaRemainingPercent,
   quotaRemainingTone,
   quotaWindowLabelKey,
   quotaWindowShortLabelKey,
@@ -135,8 +135,9 @@ export function SiteListItem({ site, active, onSelect, onEdit, onDelete }: Props
     } else if (isBalanceQuotaSummary(quota)) {
       const amount = formatQuotaAmountLocalized(quota.remainingUsd, quota.unit, t);
       const updatedText = formatQuotaUpdatedText(quota.fetchedAt, t);
+      // 与详情面板同一条规则：有进度条就摆出已用，让分母（剩余 + 已用）可还原。
       const usedText =
-        isDerivedBalanceTotal(quota) && quota.usedUsd != null
+        quota.usedUsd != null && quotaRemainingPercent(quota) != null
           ? formatQuotaAmountLocalized(quota.usedUsd, quota.unit, t)
           : null;
       quotaSummary = (
