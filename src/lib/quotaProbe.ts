@@ -1,5 +1,6 @@
+import type { TFunction } from "i18next";
 import { invoke } from "@/lib/invoke";
-import type { Site, SiteQuota } from "@/types/domain";
+import type { QuotaWindow, Site, SiteQuota } from "@/types/domain";
 
 export const QUOTA_TTL_MS = 5 * 60 * 1000;
 
@@ -145,4 +146,66 @@ export function emptyUnsupportedQuota(): SiteQuota {
     latencyMs: 0,
     error: null,
   };
+}
+
+/* ---- Shared summary helpers (SiteQuotaRow detail + SiteListItem list) ---- */
+
+const quotaWindowLabelKeys: Record<string, string> = {
+  rolling: "sites.quotaWindowRolling",
+  weekly: "sites.quotaWindowWeekly",
+  monthly: "sites.quotaWindowMonthly",
+};
+
+export function quotaWindowLabelKey(kind: string): string | null {
+  return quotaWindowLabelKeys[kind] ?? null;
+}
+
+export function clampQuotaPercent(percent: number): number {
+  return Math.max(0, Math.min(100, percent));
+}
+
+/** Primary summary window: rolling (5-hour) first, else the first reported window. */
+export function primaryQuotaWindow(quota: SiteQuota): QuotaWindow | null {
+  const windows = quota.windows ?? [];
+  if (windows.length === 0) return null;
+  return windows.find((window) => window.kind === "rolling") ?? windows[0];
+}
+
+export type QuotaUsageTone = "neutral" | "warn" | "danger";
+
+/** Summary colorization for window usage; no reliable total exists for balances. */
+export function quotaUsageTone(percent: number): QuotaUsageTone {
+  if (percent >= 90) return "danger";
+  if (percent >= 80) return "warn";
+  return "neutral";
+}
+
+/** Balance-style summary: available with a concrete remaining amount and no usage windows. */
+export function isBalanceQuotaSummary(
+  quota: SiteQuota,
+): quota is SiteQuota & { remainingUsd: number } {
+  return (
+    quota.status === "available" &&
+    (quota.windows ?? []).length === 0 &&
+    !quota.unlimited &&
+    quota.remainingUsd != null
+  );
+}
+
+/** Formats an amount with its unit (i18n key resolved through `t`). */
+export function formatQuotaAmountLocalized(
+  amount: number,
+  unit: string | null | undefined,
+  t: TFunction,
+): string {
+  const parts = formatQuotaAmountParts(amount, unit);
+  const unitText = parts.unitI18nKey ? t(parts.unitI18nKey) : parts.unit;
+  return unitText ? `${parts.value} ${unitText}` : parts.value;
+}
+
+/** Relative "updated" text: <1 minute = just now, else N minutes ago. */
+export function formatQuotaUpdatedText(fetchedAt: number, t: TFunction): string {
+  const mins = Math.max(0, Math.round((Date.now() - fetchedAt) / 60_000));
+  if (mins < 1) return t("sites.quotaUpdatedJustNow");
+  return t("sites.quotaUpdated", { time: t("sites.quotaMinutesAgo", { count: mins }) });
 }

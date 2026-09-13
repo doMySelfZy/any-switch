@@ -1,0 +1,220 @@
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { DndContext } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { App as AntdApp, ConfigProvider, theme } from "antd";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetBrowserMock } from "@/lib/browserMock";
+import { useSiteStore } from "@/stores";
+import { resetQuotaInflight } from "@/stores/siteStore";
+import type { QuotaWindow, Site, SiteQuota } from "@/types/domain";
+import { SiteListItem } from "./SiteListItem";
+import "@/i18n";
+
+let token: Record<string, string> = {};
+
+function CaptureToken() {
+  const { token: antdToken } = theme.useToken();
+  token = antdToken as unknown as Record<string, string>;
+  return null;
+}
+
+function Harness({ site, onSelect = () => {} }: { site: Site; onSelect?: () => void }) {
+  return (
+    <ConfigProvider>
+      <AntdApp>
+        <CaptureToken />
+        <DndContext>
+          <SortableContext items={[site.id]} strategy={verticalListSortingStrategy}>
+            <SiteListItem
+              site={site}
+              active={false}
+              onSelect={onSelect}
+              onEdit={() => {}}
+              onDelete={() => {}}
+            />
+          </SortableContext>
+        </DndContext>
+      </AntdApp>
+    </ConfigProvider>
+  );
+}
+
+async function seedSite(name = "Relay One", baseUrl = "https://api.example.com"): Promise<Site> {
+  let site: Site | null = null;
+  await act(async () => {
+    site = await useSiteStore.getState().createSite({ name, baseUrl, apiKey: "sk-test" });
+  });
+  if (!site) throw new Error("site was not created");
+  return site;
+}
+
+function quota(partial: Partial<SiteQuota>): SiteQuota {
+  return {
+    status: "available",
+    remainingUsd: null,
+    usedUsd: null,
+    totalUsd: null,
+    unlimited: false,
+    unit: "USD",
+    expiresAt: null,
+    source: "credit_grants",
+    endpoint: null,
+    fetchedAt: Date.now(),
+    latencyMs: 10,
+    error: null,
+    ...partial,
+  };
+}
+
+function window(kind: string, usagePercent: number | null): QuotaWindow {
+  return { kind, usagePercent, resetAt: Date.now() + 3600_000, limitUsd: null };
+}
+
+function seedQuota(site: Site, value: SiteQuota) {
+  act(() => {
+    useSiteStore.setState({ quotaBySite: { [site.id]: value } });
+  });
+}
+
+function renderListItem(site: Site, onSelect?: () => void) {
+  return render(<Harness site={site} onSelect={onSelect} />);
+}
+
+/** jsdom serializes colors as rgb()/rgba(); normalize token hex/rgba for comparison. */
+function toRgb(color: string): string {
+  const value = color.replace(/\s+/g, "");
+  if (value.startsWith("#")) {
+    const hex = value.slice(1);
+    const full = hex.length === 3 ? hex.split("").map((c) => c + c).join("") : hex;
+    const r = Number.parseInt(full.slice(0, 2), 16);
+    const g = Number.parseInt(full.slice(2, 4), 16);
+    const b = Number.parseInt(full.slice(4, 6), 16);
+    return `rgb(${r},${g},${b})`;
+  }
+  return value;
+}
+
+async function waitForSummaryColor(tokenColor: string) {
+  await waitFor(() => {
+    const summary = screen.getByTestId("site-quota-summary");
+    expect(toRgb(summary.style.color)).toBe(toRgb(tokenColor));
+  });
+}
+
+describe("SiteListItem quota summary", () => {
+  beforeEach(() => {
+    resetBrowserMock();
+    resetQuotaInflight();
+    useSiteStore.setState({
+      sites: [],
+      modelsBySite: {},
+      modelsLoadingBySite: {},
+      quotaBySite: {},
+      quotaAttemptBySite: {},
+      quotaCacheKeyBySite: {},
+      quotaAttemptCacheKeyBySite: {},
+      quotaLoadingBySite: {},
+      loading: false,
+      hydrated: false,
+      fetchingModels: false,
+      error: null,
+    });
+  });
+
+  afterEach(() => {
+    resetBrowserMock();
+  });
+
+  it("renders no summary before quota data or for unsupported / error / unlimited sites", async () => {
+    const site = await seedSite();
+    renderListItem(site);
+    // Flush the async SiteAvatar icon resolution so its setState stays in act.
+    await act(async () => {});
+
+    // No quota data yet.
+    expect(screen.queryByTestId("site-quota-summary")).toBeNull();
+
+    // Unsupported / error / unlimited all stay quiet.
+    seedQuota(site, quota({ status: "unsupported" }));
+    expect(screen.queryByTestId("site-quota-summary")).toBeNull();
+
+    seedQuota(site, quota({ status: "error", error: "boom" }));
+    expect(screen.queryByTestId("site-quota-summary")).toBeNull();
+
+    seedQuota(site, quota({ unlimited: true, remainingUsd: null }));
+    expect(screen.queryByTestId("site-quota-summary")).toBeNull();
+  });
+
+  it("shows a neutral balance summary with amount and update time in the tooltip", async () => {
+    const site = await seedSite();
+    seedQuota(site, quota({ remainingUsd: 12.34, unit: "USD" }));
+    const { unmount } = renderListItem(site);
+
+    const summary = await screen.findByTestId("site-quota-summary");
+    expect(summary).toHaveTextContent("剩余 $12.34");
+    expect(toRgb(summary.style.color)).toBe(toRgb(token.colorTextTertiary));
+
+    fireEvent.mouseEnter(summary);
+    expect(await screen.findByText("刚刚更新")).toBeInTheDocument();
+    unmount();
+  });
+
+  it("shows the rolling window percent and colorizes by usage thresholds", async () => {
+    const site = await seedSite();
+    seedQuota(
+      site,
+      quota({
+        remainingUsd: null,
+        source: "opencode_go",
+        windows: [window("rolling", 83), window("weekly", 46), window("monthly", 8)],
+      }),
+    );
+    const { unmount } = renderListItem(site);
+
+    const summary = await screen.findByTestId("site-quota-summary");
+    expect(summary).toHaveTextContent("83%");
+    expect(toRgb(summary.style.color)).toBe(toRgb(token.colorWarning));
+
+    // Tooltip lists every window plus the update time.
+    fireEvent.mouseEnter(summary);
+    expect(await screen.findByText("5 小时 83%")).toBeInTheDocument();
+    expect(screen.getByText("本周 46%")).toBeInTheDocument();
+    expect(screen.getByText("本月 8%")).toBeInTheDocument();
+    expect(screen.getByText("刚刚更新")).toBeInTheDocument();
+    fireEvent.mouseLeave(summary);
+
+    // >= 90% turns danger red.
+    seedQuota(
+      site,
+      quota({
+        remainingUsd: null,
+        source: "opencode_go",
+        windows: [window("rolling", 91), window("weekly", 46), window("monthly", 8)],
+      }),
+    );
+    await waitForSummaryColor(token.colorError);
+
+    // < 80% stays neutral.
+    seedQuota(
+      site,
+      quota({
+        remainingUsd: null,
+        source: "opencode_go",
+        windows: [window("rolling", 50), window("weekly", 46), window("monthly", 8)],
+      }),
+    );
+    await waitForSummaryColor(token.colorTextTertiary);
+    unmount();
+  });
+
+  it("keeps selecting the site when the summary itself is clicked", async () => {
+    const site = await seedSite();
+    seedQuota(site, quota({ remainingUsd: 87.5, unit: "USD" }));
+    const onSelect = vi.fn();
+    const { unmount } = renderListItem(site, onSelect);
+
+    fireEvent.click(await screen.findByTestId("site-quota-summary"));
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+});

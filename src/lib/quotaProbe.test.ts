@@ -1,14 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { TFunction } from "i18next";
 import type { SiteQuota } from "@/types/domain";
 import {
+  clampQuotaPercent,
   formatQuotaAmountParts,
   formatQuotaAmount,
+  formatQuotaAmountLocalized,
+  formatQuotaUpdatedText,
   formatUsd,
+  isBalanceQuotaSummary,
   isQuotaCacheFresh,
+  primaryQuotaWindow,
   QUOTA_TTL_MS,
   quotaCacheKey,
   quotaRemainingPercent,
   quotaTone,
+  quotaUsageTone,
+  quotaWindowLabelKey,
   shouldShowExpiry,
 } from "./quotaProbe";
 
@@ -84,5 +92,81 @@ describe("quotaProbe helpers", () => {
     expect(quotaTone(quota({ remainingUsd: 0.4, totalUsd: 100 }))).toBe("warn");
     expect(quotaTone(quota({ remainingUsd: 0, totalUsd: 100 }))).toBe("danger");
     expect(quotaRemainingPercent(quota({ unlimited: true, totalUsd: null }))).toBeNull();
+  });
+
+  it("resolves window label keys with a null fallback", () => {
+    expect(quotaWindowLabelKey("rolling")).toBe("sites.quotaWindowRolling");
+    expect(quotaWindowLabelKey("weekly")).toBe("sites.quotaWindowWeekly");
+    expect(quotaWindowLabelKey("monthly")).toBe("sites.quotaWindowMonthly");
+    expect(quotaWindowLabelKey("daily")).toBeNull();
+  });
+
+  it("clamps window percents into 0-100", () => {
+    expect(clampQuotaPercent(83.4)).toBe(83.4);
+    expect(clampQuotaPercent(-5)).toBe(0);
+    expect(clampQuotaPercent(120)).toBe(100);
+  });
+
+  it("picks the rolling window as the summary window, else the first one", () => {
+    expect(primaryQuotaWindow(quota({ windows: [] }))).toBeNull();
+    expect(
+      primaryQuotaWindow(
+        quota({
+          windows: [
+            { kind: "weekly", usagePercent: 10, resetAt: null, limitUsd: null },
+            { kind: "rolling", usagePercent: 83, resetAt: null, limitUsd: null },
+          ],
+        }),
+      )?.kind,
+    ).toBe("rolling");
+    expect(
+      primaryQuotaWindow(
+        quota({
+          windows: [
+            { kind: "weekly", usagePercent: 10, resetAt: null, limitUsd: null },
+            { kind: "monthly", usagePercent: 20, resetAt: null, limitUsd: null },
+          ],
+        }),
+      )?.kind,
+    ).toBe("weekly");
+  });
+
+  it("tones window usage at 80% and 90% thresholds", () => {
+    expect(quotaUsageTone(79.9)).toBe("neutral");
+    expect(quotaUsageTone(80)).toBe("warn");
+    expect(quotaUsageTone(89.9)).toBe("warn");
+    expect(quotaUsageTone(90)).toBe("danger");
+  });
+
+  it("recognizes balance-style summaries only", () => {
+    expect(isBalanceQuotaSummary(quota({ remainingUsd: 12.34, unit: "USD" }))).toBe(true);
+    expect(isBalanceQuotaSummary(quota({ remainingUsd: null }))).toBe(false);
+    expect(isBalanceQuotaSummary(quota({ unlimited: true }))).toBe(false);
+    expect(isBalanceQuotaSummary(quota({ status: "unsupported" }))).toBe(false);
+    expect(
+      isBalanceQuotaSummary(
+        quota({
+          windows: [{ kind: "rolling", usagePercent: 50, resetAt: null, limitUsd: null }],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("formats localized amounts with the unit label", () => {
+    const t = vi.fn((key: string) => (key === "sites.quotaUnitRaw" ? "额度点数" : key)) as unknown as TFunction;
+    expect(formatQuotaAmountLocalized(12.5, "USD", t)).toBe("$12.50");
+    expect(formatQuotaAmountLocalized(24_035, "RAW_QUOTA", t)).toBe("24,035.00 额度点数");
+    expect(formatQuotaAmountLocalized(999.69, "CNY", t)).toBe("¥999.69");
+  });
+
+  it("builds relative updated text through the translate function", () => {
+    const t = vi.fn((key: string, opts?: Record<string, unknown>) => {
+      if (key === "sites.quotaUpdatedJustNow") return "刚刚更新";
+      if (key === "sites.quotaMinutesAgo") return `${opts?.count} 分钟前`;
+      if (key === "sites.quotaUpdated") return `更新于 ${opts?.time}`;
+      return key;
+    }) as unknown as TFunction;
+    expect(formatQuotaUpdatedText(Date.now(), t)).toBe("刚刚更新");
+    expect(formatQuotaUpdatedText(Date.now() - 5 * 60_000, t)).toBe("更新于 5 分钟前");
   });
 });

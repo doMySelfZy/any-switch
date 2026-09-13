@@ -83,6 +83,17 @@ export function SitesPage() {
     void loadSites({ soft: useSiteStore.getState().hydrated });
   }, [loadSites]);
 
+  // 列表额度摘要预取：probeQuota 自带 5 分钟 TTL + in-flight 去重，就是节流层，
+  // 不要再包一层缓存。失败静默（错误态只在右侧详情展示）。依赖用站点 id 串，
+  // 避免对象引用变化导致重复触发。
+  const siteIdsKey = sites.map((s) => s.id).join(",");
+  useEffect(() => {
+    if (!siteIdsKey) return;
+    for (const site of useSiteStore.getState().sites) {
+      void probeQuota(site.id).catch(() => undefined);
+    }
+  }, [siteIdsKey, probeQuota]);
+
   useEffect(() => {
     if (!pendingSiteForm) return;
     setEditing(null);

@@ -4,9 +4,11 @@ import { useTranslation } from "react-i18next";
 import type { SiteQuota } from "@/types/domain";
 import {
   formatExpiryDate,
-  formatQuotaAmountParts,
+  formatQuotaAmountLocalized,
+  formatQuotaUpdatedText,
   quotaRemainingPercent,
   quotaTone,
+  quotaWindowLabelKey,
   shouldShowExpiry,
 } from "@/lib/quotaProbe";
 
@@ -26,12 +28,6 @@ const quotaStatusMessageKeys: Record<string, string> = {
   unauthorized: "sites.quotaUnauthorized",
   error: "sites.quotaError",
   invalid_data: "sites.quotaInvalidData",
-};
-
-const quotaWindowLabelKeys: Record<string, string> = {
-  rolling: "sites.quotaWindowRolling",
-  weekly: "sites.quotaWindowWeekly",
-  monthly: "sites.quotaWindowMonthly",
 };
 
 function quotaStatusMessageKey(quota: SiteQuota | null): string | null {
@@ -103,11 +99,7 @@ export function SiteQuotaRow({
 
   if (quota?.status !== "available") return null;
 
-  const formatMoney = (n: number) => {
-    const parts = formatQuotaAmountParts(n, quota.unit);
-    const unit = parts.unitI18nKey ? t(parts.unitI18nKey) : parts.unit;
-    return unit ? `${parts.value} ${unit}` : parts.value;
-  };
+  const formatMoney = (n: number) => formatQuotaAmountLocalized(n, quota.unit, t);
   const formatReset = (resetAt: number | null): string | null => {
     if (resetAt == null || !Number.isFinite(resetAt)) return null;
     const remaining = resetAt - Date.now();
@@ -125,11 +117,7 @@ export function SiteQuotaRow({
 
   const windows = quota.windows ?? [];
   if (windows.length > 0) {
-    const mins = Math.max(0, Math.round((Date.now() - quota.fetchedAt) / 60_000));
-    const updated =
-      mins < 1
-        ? t("sites.quotaUpdatedJustNow")
-        : t("sites.quotaUpdated", { time: t("sites.quotaMinutesAgo", { count: mins }) });
+    const updated = formatQuotaUpdatedText(quota.fetchedAt, t);
     const latestAttemptFailed = latestAttempt?.status !== "available";
     return (
       <div className="flex flex-col gap-1.5" data-testid="site-quota-row">
@@ -155,7 +143,7 @@ export function SiteQuotaRow({
           </div>
         </div>
         {windows.map((window) => {
-          const labelKey = quotaWindowLabelKeys[window.kind];
+          const labelKey = quotaWindowLabelKey(window.kind);
           const label = labelKey ? t(labelKey) : window.kind;
           const percent =
             window.usagePercent == null
@@ -226,26 +214,17 @@ export function SiteQuotaRow({
         ? token.colorWarning
         : token.colorPrimary;
 
-  const money = (n: number) => {
-    const parts = formatQuotaAmountParts(n, quota.unit);
-    const unit = parts.unitI18nKey ? t(parts.unitI18nKey) : parts.unit;
-    return unit ? `${parts.value} ${unit}` : parts.value;
-  };
   // 只展示账户真实可用的剩余金额：已用 / 总额不再展示（new-api 的总额
   // 常是「无限额度」哨兵值，展示出来会误导用户）。
   const primary = quota.unlimited
     ? t("sites.quotaUnlimited")
     : quota.remainingUsd != null
-      ? t("sites.quotaRemaining", { amount: money(quota.remainingUsd) })
+      ? t("sites.quotaRemaining", { amount: formatMoney(quota.remainingUsd) })
       : t("sites.quotaUnknown");
 
   const showExpiry = shouldShowExpiry(quota.expiresAt);
   const latestAttemptFailed = latestAttempt?.status !== "available";
-  const mins = Math.max(0, Math.round((Date.now() - quota.fetchedAt) / 60_000));
-  const updated =
-    mins < 1
-      ? t("sites.quotaUpdatedJustNow")
-      : t("sites.quotaUpdated", { time: t("sites.quotaMinutesAgo", { count: mins }) });
+  const updated = formatQuotaUpdatedText(quota.fetchedAt, t);
 
   return (
     <div className="flex gap-2" data-testid="site-quota-row">

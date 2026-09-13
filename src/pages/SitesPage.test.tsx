@@ -687,7 +687,10 @@ describe("SitesPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("site-quota-row")).toBeInTheDocument();
     });
-    expect(screen.getByText("剩余 $87.50")).toBeInTheDocument();
+    // The balance now appears both in the detail row and in the list summary;
+    // scope the detail assertion to the quota row.
+    expect(within(screen.getByTestId("site-quota-row")).getByText("剩余 $87.50")).toBeInTheDocument();
+    expect(screen.getAllByText("剩余 $87.50").length).toBeGreaterThanOrEqual(2);
     expect(document.querySelector(".ant-card")).toBeNull();
   });
 
@@ -759,6 +762,40 @@ describe("SitesPage", () => {
     await waitFor(() => {
       expect(getBrowserQuotaProbeCallCount()).toBe(2);
     });
+    probe.mockRestore();
+  });
+
+  it("prefetches quota for every site once when the page mounts", async () => {
+    await act(async () => {
+      await useSiteStore.getState().createSite({
+        name: "Alpha",
+        baseUrl: "https://alpha.example.com",
+        apiKey: "sk-test",
+      });
+      await useSiteStore.getState().createSite({
+        name: "Beta",
+        baseUrl: "https://beta.example.com",
+        apiKey: "sk-test",
+      });
+    });
+    const probe = vi.spyOn(useSiteStore.getState(), "probeQuota");
+
+    render(
+      <Wrapper>
+        <SitesPage />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(getBrowserQuotaProbeCallCount()).toBe(2);
+    });
+    // Flush one more microtask turn so any late duplicate request would land
+    // before the count is asserted again.
+    await act(async () => {});
+    expect(getBrowserQuotaProbeCallCount()).toBe(2);
+    for (const id of useSiteStore.getState().sites.map((s) => s.id)) {
+      expect(probe).toHaveBeenCalledWith(id);
+    }
     probe.mockRestore();
   });
 
