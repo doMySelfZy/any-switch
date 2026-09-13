@@ -1715,6 +1715,24 @@ export async function handleBrowserCommand<T>(
           },
         },
         {
+          name: "io.github.example/no-config-needed",
+          description: "Needs no user input (browser mock)",
+          version: "2.0.0",
+          repositoryUrl: null,
+          installKinds: ["package"],
+          draft: {
+            name: "no-config-needed",
+            displayName: "io.github.example/no-config-needed",
+            kind: "stdio",
+            config: { command: "uvx", args: ["no-config-needed"] },
+            env: {},
+            headers: {},
+            // 没有必填项：一键安装应当直接装好，不弹表单。
+            requiredFields: [],
+            repositoryUrl: null,
+          },
+        },
+        {
           name: "ai.example/hosted-memory",
           description: "Hosted memory service (browser mock)",
           version: "0.4.0",

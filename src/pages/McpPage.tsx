@@ -236,7 +236,7 @@ export function McpPage() {
   };
 
   /** 从仓库条目进入表单：自动填好命令/地址，只留必填密钥给用户。 */
-  const openFromRegistry = (candidate: RegistryCandidate) => {
+  const openFromRegistry = (candidate: RegistryCandidate, targets: TargetKind[]) => {
     const install = candidate.draft;
     if (!install) return;
     setEditingId(null);
@@ -247,13 +247,120 @@ export function McpPage() {
       name: install.name,
       kind: install.kind,
       enabled: true,
-      targets: [],
+      targets,
       ...splitConfig(install.config as Record<string, unknown>),
       env: JSON.stringify(install.env ?? {}, null, 2),
       headers: JSON.stringify(install.headers ?? {}, null, 2),
     });
-    void message.info(t("mcp.registryInstalled"));
     setOpen(true);
+  };
+
+  /**
+   * 仓库条目的目标推断：不新增 MCP 时，把已有 MCP 已经配置的目标作为默认值。
+   *
+   * 这样一键安装不会只保存不应用——用户是在已经用起来的客户端上加装，不需要每次重新勾。
+   * 没有任何已配置目标时返回空数组，由调用方决定是直接装还是先问一句。
+   */
+  const preferredTargets = (): TargetKind[] => {
+    const targets = new Set<TargetKind>();
+    servers.forEach((server) => server.targets.forEach((target) => targets.add(target)));
+    return TARGETS.filter((target) => targets.has(target));
+  };
+
+  /**
+   * 把表单值 + 仓库必填项组装成待保存的输入。
+   * 供弹窗保存与一键安装共用，避免两条路径的校验/拼装逻辑分叉。
+   */
+  const buildServerInput = (
+    values: FormValues,
+    options: { id?: string; targets: TargetKind[] },
+  ): McpServerInput => {
+    const extra = parseJsonObject(values.extraConfig, t("mcp.extraConfig"), t);
+    const env = parseJsonObject(values.env, t("mcp.env"), t);
+    const headers = parseJsonObject(values.headers, t("mcp.headers"), t);
+
+    for (const field of draft?.requiredFields ?? []) {
+      const value = (requiredValues[field.name] ?? "").trim();
+      if (!value) continue;
+      if (field.kind === "env") env[field.name] = value;
+      else headers[field.name] = value;
+    }
+
+    const config: Record<string, unknown> = { ...extra };
+    if (values.kind === "stdio") {
+      const command = (values.command ?? "").trim();
+      if (command) config.command = command;
+      const args = parseArgs(values.argsText);
+      if (args.length > 0) config.args = args;
+    } else {
+      const url = (values.url ?? "").trim();
+      if (url) config.url = url;
+    }
+
+    return {
+      id: options.id,
+      name: values.name.trim(),
+      kind: values.kind,
+      enabled: values.enabled,
+      targets: options.targets,
+      config,
+      env,
+      headers,
+    };
+  };
+
+  /** 保存并反馈结果。返回是否成功，供一键安装决定要不要再问用户。 */
+  const persist = async (input: McpServerInput): Promise<boolean> => {
+    try {
+      const { sweep } = await saveServer(input);
+      setDraft(null);
+      void message.success(t("common.success"));
+      if (sweep.results.some((item) => !item.ok)) {
+        void message.warning(t("mcp.applyPartial"));
+      }
+      showApplyOutcome(sweep);
+      return true;
+    } catch (error) {
+      void message.error(errorText(error));
+      return false;
+    }
+  };
+
+  /**
+   * 一键安装：仓库条目已带全部启动信息、且不需要用户填任何东西时直接装好。
+   * 需要填密钥、或还没配置过任何目标（不知道该装到哪儿）时，才打开表单。
+   */
+  const installFromRegistry = async (candidate: RegistryCandidate) => {
+    const install = candidate.draft;
+    if (!install) return;
+
+    const targets = preferredTargets();
+    const needsInput =
+      (install.requiredFields?.length ?? 0) > 0 || targets.length === 0;
+
+    if (needsInput) {
+      openFromRegistry(candidate, targets);
+      return;
+    }
+
+    // 名称冲突交给后端报错，这里不预判——用户可以直接改名重试。
+    const values: FormValues = {
+      name: install.name,
+      kind: install.kind,
+      enabled: true,
+      targets,
+      ...splitConfig(install.config as Record<string, unknown>),
+      env: JSON.stringify(install.env ?? {}, null, 2),
+      headers: JSON.stringify(install.headers ?? {}, null, 2),
+    };
+    setRequiredValues({});
+    try {
+      const input = buildServerInput(values, { targets, id: undefined });
+      await persist(input);
+    } catch (error) {
+      // draft 为空时 buildServerInput 不会用到仓库必填项；解析失败只可能是预填值异常。
+      void message.error(errorText(error));
+    }
   };
 
   const handleSave = async () => {
@@ -279,56 +386,13 @@ export function McpPage() {
 
     let input: McpServerInput;
     try {
-      const extra = parseJsonObject(values.extraConfig, t("mcp.extraConfig"), t);
-      const env = parseJsonObject(values.env, t("mcp.env"), t);
-      const headers = parseJsonObject(values.headers, t("mcp.headers"), t);
-
-      // 必填项落到对应的 env / headers 里。
-      for (const field of draft?.requiredFields ?? []) {
-        const value = (requiredValues[field.name] ?? "").trim();
-        if (!value) continue;
-        if (field.kind === "env") env[field.name] = value;
-        else headers[field.name] = value;
-      }
-
-      const config: Record<string, unknown> = { ...extra };
-      if (values.kind === "stdio") {
-        const command = (values.command ?? "").trim();
-        if (command) config.command = command;
-        const args = parseArgs(values.argsText);
-        if (args.length > 0) config.args = args;
-      } else {
-        const url = (values.url ?? "").trim();
-        if (url) config.url = url;
-      }
-
-      input = {
-        id: editingId ?? undefined,
-        name: values.name.trim(),
-        kind: values.kind,
-        enabled: values.enabled,
-        targets: values.targets ?? [],
-        config,
-        env,
-        headers,
-      };
+      input = buildServerInput(values, { id: editingId ?? undefined, targets: values.targets ?? [] });
     } catch (error) {
       void message.error(errorText(error));
       return;
     }
 
-    try {
-      const { sweep } = await saveServer(input);
-      setOpen(false);
-      setDraft(null);
-      void message.success(t("common.success"));
-      if (sweep.results.some((item) => !item.ok)) {
-        void message.warning(t("mcp.applyPartial"));
-      }
-      showApplyOutcome(sweep);
-    } catch (error) {
-      void message.error(errorText(error));
-    }
+    if (await persist(input)) setOpen(false);
   };
 
   const handleDelete = (record: McpServerSummary) => {
@@ -654,7 +718,7 @@ export function McpPage() {
                         type="primary"
                         size="small"
                         disabled={!install}
-                        onClick={() => openFromRegistry(candidate)}
+                        onClick={() => void installFromRegistry(candidate)}
                       >
                         {t("mcp.registryInstall")}
                       </Button>,
@@ -871,8 +935,11 @@ export function McpPage() {
             <Checkbox>{t("mcp.enabled")}</Checkbox>
           </Form.Item>
 
+          {/* 箭头放到行尾、去掉头部的内边距，让「高级配置」与上方 Form 标签左对齐 */}
           <Collapse
             ghost
+            expandIconPosition="end"
+            styles={{ header: { paddingInline: 0 } }}
             items={[
               {
                 key: "advanced",

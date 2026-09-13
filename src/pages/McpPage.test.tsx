@@ -275,6 +275,71 @@ describe("McpPage", () => {
       expect(within(row as HTMLElement).getByText("远程服务")).toBeInTheDocument();
     });
 
+    it("installs in one click when the entry needs no user input", async () => {
+      // 已有 MCP 配置过目标，一键安装才知道该装到哪儿。
+      await seedServer({ targets: ["claude_code"] });
+
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      fireEvent.change(await screen.findByPlaceholderText(/搜索，例如 github/), {
+        target: { value: "no-config-needed" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /搜\s*索/ }));
+      fireEvent.click(await screen.findByRole("button", { name: /安\s*装/ }));
+
+      // 不需要用户填任何东西 → 不弹表单，直接装好并沿用已有目标。
+      await waitFor(() => {
+        expect(useMcpStore.getState().servers).toHaveLength(2);
+      });
+      expect(screen.queryByRole("dialog")).toBeNull();
+      const saved = useMcpStore
+        .getState()
+        .servers.find((item) => item.name === "no-config-needed");
+      expect(saved?.targets).toEqual(["claude_code"]);
+    });
+
+    it("opens the form when the entry requires input", async () => {
+      await seedServer({ targets: ["claude_code"] });
+
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      fireEvent.change(await screen.findByPlaceholderText(/搜索，例如 github/), {
+        target: { value: "filesystem" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /搜\s*索/ }));
+      fireEvent.click(await screen.findByRole("button", { name: /安\s*装/ }));
+
+      // 仓库声明了必填项 → 必须让用户填，表单要打开。
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByText("API_KEY")).toBeInTheDocument();
+    });
+
+    it("opens the form when no target is configured yet", async () => {
+      // 一个 MCP 都没有时无法推断装到哪儿，必须问用户。
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      fireEvent.change(await screen.findByPlaceholderText(/搜索，例如 github/), {
+        target: { value: "no-config-needed" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /搜\s*索/ }));
+      fireEvent.click(await screen.findByRole("button", { name: /安\s*装/ }));
+
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByLabelText("服务名称")).toBeInTheDocument();
+    });
+
     it("prefills the form from the registry entry", async () => {
       render(
         <Wrapper>
