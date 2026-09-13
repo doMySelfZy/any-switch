@@ -61,7 +61,7 @@ export function SiteQuotaRow({
   if (loading && quota?.status !== "available") {
     return (
       <div className="flex gap-2" data-testid="site-quota-loading">
-        <span className="w-28 shrink-0 opacity-50">{t("sites.quota")}</span>
+        <span className="w-28 shrink-0 opacity-50">{t("sites.accountBalance")}</span>
         <Skeleton.Input active size="small" style={{ width: 180, minWidth: 180, height: 18 }} />
       </div>
     );
@@ -76,7 +76,7 @@ export function SiteQuotaRow({
         role="status"
         aria-live="polite"
       >
-        <span className="w-28 shrink-0 opacity-50">{t("sites.quota")}</span>
+        <span className="w-28 shrink-0 opacity-50">{t("sites.accountBalance")}</span>
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <span className="min-w-0 text-xs" style={{ color: token.colorTextSecondary }}>
             {t(statusMessageKey)}
@@ -134,7 +134,7 @@ export function SiteQuotaRow({
     return (
       <div className="flex flex-col gap-1.5" data-testid="site-quota-row">
         <div className="flex gap-2" data-testid="site-quota-windows">
-          <span className="w-28 shrink-0 opacity-50">{t("sites.quota")}</span>
+          <span className="w-28 shrink-0 opacity-50">{t("sites.usageWindow")}</span>
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             <Tooltip title={t("sites.quotaRefresh")}>
               <Button
@@ -216,7 +216,9 @@ export function SiteQuotaRow({
   }
 
   const tone = quotaTone(quota);
-  const percent = quotaRemainingPercent(quota);
+  // 进度条只在剩余金额已知时才画：没有剩余金额却用「总额 - 已用」推一个
+  // 百分比，会和「额度未知」的文案自相矛盾。
+  const percent = quota.remainingUsd != null ? quotaRemainingPercent(quota) : null;
   const stroke =
     tone === "danger"
       ? token.colorError
@@ -229,30 +231,13 @@ export function SiteQuotaRow({
     const unit = parts.unitI18nKey ? t(parts.unitI18nKey) : parts.unit;
     return unit ? `${parts.value} ${unit}` : parts.value;
   };
+  // 只展示账户真实可用的剩余金额：已用 / 总额不再展示（new-api 的总额
+  // 常是「无限额度」哨兵值，展示出来会误导用户）。
   const primary = quota.unlimited
     ? t("sites.quotaUnlimited")
     : quota.remainingUsd != null
       ? t("sites.quotaRemaining", { amount: money(quota.remainingUsd) })
-      : quota.usedUsd != null
-        ? t("sites.quotaUsed", { amount: money(quota.usedUsd) })
-        : quota.totalUsd != null
-          ? money(quota.totalUsd)
-          : t("sites.quotaUnknown");
-
-  const secondary: string[] = [];
-  if (!quota.unlimited && quota.usedUsd != null && quota.totalUsd != null) {
-    secondary.push(
-      t("sites.quotaUsedOfTotal", {
-        used: money(quota.usedUsd),
-        total: money(quota.totalUsd),
-      }),
-    );
-  } else if (quota.unlimited && quota.usedUsd != null) {
-    secondary.push(t("sites.quotaCumulativeUsed", { amount: money(quota.usedUsd) }));
-  }
-  if (quota.unlimited) {
-    secondary.push(t("sites.quotaBalanceUnknown"));
-  }
+      : t("sites.quotaUnknown");
 
   const showExpiry = shouldShowExpiry(quota.expiresAt);
   const latestAttemptFailed = latestAttempt?.status !== "available";
@@ -264,16 +249,10 @@ export function SiteQuotaRow({
 
   return (
     <div className="flex gap-2" data-testid="site-quota-row">
-      <span className="w-28 shrink-0 opacity-50">{t("sites.quota")}</span>
+      <span className="w-28 shrink-0 opacity-50">{t("sites.accountBalance")}</span>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="min-w-0 truncate">{primary}</span>
-          {secondary.map((detail) => (
-            <span className="contents" key={detail}>
-              <span className="opacity-40">·</span>
-              <span className="min-w-0 truncate opacity-70">{detail}</span>
-            </span>
-          ))}
           <Tooltip title={t("sites.quotaRefresh")}>
             <Button
               type="text"

@@ -37,7 +37,7 @@ describe("SiteQuotaRow", () => {
     await i18n.changeLanguage("zh-CN");
   });
 
-  it("renders remaining, used/total, and a refresh control when available", () => {
+  it("renders only the remaining account balance and a refresh control when available", () => {
     const onRefresh = vi.fn();
     render(
       <Wrapper>
@@ -46,9 +46,11 @@ describe("SiteQuotaRow", () => {
     );
 
     expect(screen.getByTestId("site-quota-row")).toBeInTheDocument();
-    expect(screen.getByText("额度")).toBeInTheDocument();
+    expect(screen.getByText("账户余额")).toBeInTheDocument();
     expect(screen.getByText("剩余 $87.50")).toBeInTheDocument();
-    expect(screen.getByText("$12.50 / $100.00")).toBeInTheDocument();
+    // 已用 / 总额金额不再展示
+    expect(screen.queryByText("$12.50 / $100.00")).toBeNull();
+    expect(screen.queryByText("已用 $12.50")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "刷新额度" }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
@@ -163,7 +165,7 @@ describe("SiteQuotaRow", () => {
       </Wrapper>,
     );
     expect(screen.getByTestId("site-quota-loading")).toBeInTheDocument();
-    expect(screen.getByText("额度")).toBeInTheDocument();
+    expect(screen.getByText("账户余额")).toBeInTheDocument();
   });
 
   it("renders CNY remaining from token usage display", () => {
@@ -183,7 +185,7 @@ describe("SiteQuotaRow", () => {
       </Wrapper>,
     );
     expect(screen.getByText("剩余 ¥999.69")).toBeInTheDocument();
-    expect(screen.getByText("¥0.31 / ¥1,000.00")).toBeInTheDocument();
+    expect(screen.queryByText("¥0.31 / ¥1,000.00")).toBeNull();
   });
 
   it("localizes raw quota units as quota credits", () => {
@@ -198,7 +200,7 @@ describe("SiteQuotaRow", () => {
     );
 
     expect(screen.getByText("剩余 87.50 额度点数")).toBeInTheDocument();
-    expect(screen.getByText("12.50 额度点数 / 100.00 额度点数")).toBeInTheDocument();
+    expect(screen.queryByText("12.50 额度点数 / 100.00 额度点数")).toBeNull();
   });
 
   it("keeps the last successful quota visible when the latest refresh fails", () => {
@@ -223,7 +225,7 @@ describe("SiteQuotaRow", () => {
     expect(screen.getByText("上次成功数据，刷新失败")).toBeInTheDocument();
   });
 
-  it("shows unlimited copy without a progress bar", () => {
+  it("shows unlimited copy without a progress bar or used amounts", () => {
     render(
       <Wrapper>
         <SiteQuotaRow
@@ -239,12 +241,12 @@ describe("SiteQuotaRow", () => {
       </Wrapper>,
     );
     expect(screen.getByText("此 Key 不限额")).toBeInTheDocument();
-    expect(screen.getByText("累计已用 $3.00")).toBeInTheDocument();
-    expect(screen.getByText("账户余额未知")).toBeInTheDocument();
+    expect(screen.queryByText("累计已用 $3.00")).toBeNull();
+    expect(screen.queryByText("账户余额未知")).toBeNull();
     expect(document.querySelector(".ant-progress")).toBeNull();
   });
 
-  it("does not label a finite usage-only result as unlimited", () => {
+  it("does not show a used amount for a usage-only result", () => {
     render(
       <Wrapper>
         <SiteQuotaRow
@@ -261,7 +263,9 @@ describe("SiteQuotaRow", () => {
       </Wrapper>,
     );
 
-    expect(screen.getByText("已用 $25.00")).toBeInTheDocument();
+    // 没有可展示的剩余金额时只提示未知，绝不回退展示「已用」
+    expect(screen.queryByText("已用 $25.00")).toBeNull();
+    expect(screen.getByText("额度未知")).toBeInTheDocument();
     expect(screen.queryByText("此 Key 不限额")).toBeNull();
   });
 
@@ -310,6 +314,9 @@ describe("SiteQuotaRow", () => {
 
     expect(screen.getByTestId("site-quota-windows")).toBeInTheDocument();
     expect(screen.getByTestId("site-quota-window-rolling")).toBeInTheDocument();
+    // 窗口视图展示的是用量窗口，不是账户余额，标签不能跟着余额行改名
+    expect(screen.getByText("用量窗口")).toBeInTheDocument();
+    expect(screen.queryByText("账户余额")).not.toBeInTheDocument();
     expect(screen.getByText("5 小时")).toBeInTheDocument();
     expect(screen.getByText("本周")).toBeInTheDocument();
     expect(screen.getByText("本月")).toBeInTheDocument();

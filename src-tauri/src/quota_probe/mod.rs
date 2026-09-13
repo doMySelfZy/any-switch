@@ -1176,6 +1176,82 @@ fn truncate_message(body: &str, token: &str) -> String {
     }
 }
 
+/// `/api/user/self` 的单次请求结果。站点编辑里的「测试」按钮与主界面额度行
+/// 共用这一条请求/解析链路，保证两处显示的账户余额来源完全一致。
+struct UserSelfResponse {
+    status: u16,
+    body: String,
+    endpoint: String,
+    /// 成功且未被上游标记为失败时的 `data` 对象。
+    data: Option<Value>,
+}
+
+async fn request_user_self(
+    client: &reqwest::Client,
+    origin: &str,
+    token: &str,
+    user_id: &str,
+) -> reqwest::Result<UserSelfResponse> {
+    let endpoint = format!("{}/api/user/self", strip_trailing_slash(origin));
+    let resp = client
+        .get(&endpoint)
+        .bearer_auth(token)
+        .header("New-Api-User", user_id)
+        .send()
+        .await?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap_or_default();
+    let data = serde_json::from_str::<Value>(&body)
+        .ok()
+        .and_then(|value| {
+            if response_indicates_failure(&value) {
+                None
+            } else {
+                value.get("data").filter(|data| data.is_object()).cloned()
+            }
+        });
+    Ok(UserSelfResponse {
+        status,
+        body,
+        endpoint,
+        data,
+    })
+}
+
+/// `/api/user/self` 的候选 origin：与标准探测链共用同一套候选（先去 `/v1`
+/// 得到路径前缀 origin，再回退站点根）。带路径前缀的 Base URL（如
+/// `https://host/openai/v1`）只有回退到站点根才命中，因此「测试」按钮与主界面
+/// 额度行必须遍历同一个集合，否则两处会取到不同来源的余额。
+fn user_self_candidates(base_url: &str) -> Vec<String> {
+    let mut candidates = public_api_bases(base_url);
+    if candidates.is_empty() {
+        candidates.push(strip_trailing_slash(base_url).to_string());
+    }
+    candidates
+}
+
+/// 由 `/api/user/self` 的 `data` 换算（剩余, 已用, 总额）美元金额。账户余额的
+/// 换算口径只此一处，两处展示共用，避免除数或口径分叉。
+fn user_self_amounts(data: &Value) -> Option<(f64, f64, f64)> {
+    let quota = field_f64(data, "quota")?;
+    let used = field_f64(data, "used_quota").unwrap_or(0.0);
+    Some((
+        quota / NEWAPI_QUOTA_PER_UNIT,
+        used / NEWAPI_QUOTA_PER_UNIT,
+        (quota + used) / NEWAPI_QUOTA_PER_UNIT,
+    ))
+}
+
+/// 判定一次请求是否给出了可信的账户余额。要求 2xx 且 `data.quota` 可解析：
+/// 非 2xx 但 body 恰好可解析的响应（网关错误页等）在「测试」按钮里也必须算失败，
+/// 否则会出现「测试通过、主界面回落到别的来源」的分叉。
+fn user_self_success(response: &UserSelfResponse) -> Option<(f64, f64, f64)> {
+    if !(200..300).contains(&response.status) {
+        return None;
+    }
+    response.data.as_ref().and_then(user_self_amounts)
+}
+
 /// 测试访问令牌：按候选 origin 逐个尝试 /api/user/self，返回首个非 404 的结果。
 pub async fn test_newapi_access(
     base_url: &str,
@@ -1184,22 +1260,14 @@ pub async fn test_newapi_access(
     settings: &AppSettings,
 ) -> AppResult<NewApiAccessProbe> {
     let preview = normalize_base_url(base_url)?;
-    let mut candidates = public_api_bases(&preview.codex_base_url);
-    if candidates.is_empty() {
-        candidates.push(strip_trailing_slash(&preview.codex_base_url).to_string());
-    }
+    let candidates = user_self_candidates(&preview.codex_base_url);
     let client = crate::http_client::build_client(settings, PROBE_TIMEOUT)?;
     let mut last: Option<NewApiAccessProbe> = None;
     for origin in candidates {
-        let url = format!("{}/api/user/self", strip_trailing_slash(&origin));
-        let resp = client
-            .get(&url)
-            .bearer_auth(token)
-            .header("New-Api-User", user_id)
-            .send()
-            .await?;
-        let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
+        let response = request_user_self(&client, &origin, token, user_id).await?;
+        let status = response.status;
+        let balance = user_self_success(&response);
+        let url = response.endpoint;
         if status == 404 {
             last = Some(NewApiAccessProbe {
                 ok: false,
@@ -1208,31 +1276,20 @@ pub async fn test_newapi_access(
                 used_usd: None,
                 total_usd: None,
                 endpoint: url,
-                message: Some(truncate_message(&body, token)),
+                message: Some(truncate_message(&response.body, token)),
             });
             continue;
         }
-        let parsed: Option<Value> = serde_json::from_str(&body).ok();
-        let data = parsed.as_ref().and_then(|value| {
-            if response_indicates_failure(value) {
-                None
-            } else {
-                value.get("data")
-            }
-        });
-        if let Some(data) = data {
-            if let Some(quota) = field_f64(data, "quota") {
-                let used = field_f64(data, "used_quota").unwrap_or(0.0);
-                return Ok(NewApiAccessProbe {
-                    ok: true,
-                    status,
-                    remaining_usd: Some(quota / NEWAPI_QUOTA_PER_UNIT),
-                    used_usd: Some(used / NEWAPI_QUOTA_PER_UNIT),
-                    total_usd: Some((quota + used) / NEWAPI_QUOTA_PER_UNIT),
-                    endpoint: url,
-                    message: None,
-                });
-            }
+        if let Some((remaining, used, total)) = balance {
+            return Ok(NewApiAccessProbe {
+                ok: true,
+                status,
+                remaining_usd: Some(remaining),
+                used_usd: Some(used),
+                total_usd: Some(total),
+                endpoint: url,
+                message: None,
+            });
         }
         return Ok(NewApiAccessProbe {
             ok: false,
@@ -1241,7 +1298,7 @@ pub async fn test_newapi_access(
             used_usd: None,
             total_usd: None,
             endpoint: url,
-            message: Some(truncate_message(&body, token)),
+            message: Some(truncate_message(&response.body, token)),
         });
     }
     Ok(last.unwrap_or(NewApiAccessProbe {
@@ -1255,49 +1312,67 @@ pub async fn test_newapi_access(
     }))
 }
 
-/// ccswitch 同款兜底：用 NewAPI 访问令牌查账户级钱包余额。
-/// 标准探测链（billing 三件套 / token usage / status）失败或未支持时使用。
+/// 用 NewAPI 访问令牌查账户级钱包余额（`/api/user/self`）。
+/// 这是配置了访问令牌时的最高优先级来源：new-api 的 billing 上限可能是
+/// 「无限额度」哨兵值，只有账户令牌链路能拿到用户真实可用的余额。
+/// 候选 origin 与「测试」按钮完全一致（见 `user_self_candidates`）。
 async fn fetch_user_self_quota(
     client: &reqwest::Client,
-    origin: &str,
+    base_url: &str,
     token: &str,
     user_id: &str,
     start: Instant,
     fetched_at: i64,
 ) -> Option<SiteQuota> {
-    let url = format!("{}/api/user/self", strip_trailing_slash(origin));
-    let resp = client
-        .get(&url)
-        .bearer_auth(token)
-        .header("New-Api-User", user_id)
-        .send()
-        .await
-        .ok()?;
-    if !resp.status().is_success() {
-        return None;
+    for origin in user_self_candidates(base_url) {
+        let response = request_user_self(client, origin.as_str(), token, user_id)
+            .await
+            .ok()?;
+        let Some((remaining, used, total)) = user_self_success(&response) else {
+            continue;
+        };
+        return Some(SiteQuota {
+            status: QuotaProbeStatus::Available,
+            remaining_usd: Some(remaining),
+            used_usd: Some(used),
+            total_usd: Some(total),
+            unlimited: false,
+            unit: Some("USD".into()),
+            expires_at: None,
+            source: Some(QuotaSource::UserSelf),
+            endpoint: Some(response.endpoint),
+            fetched_at,
+            latency_ms: start.elapsed().as_millis() as u64,
+            error: None,
+            windows: Vec::new(),
+        });
     }
-    let value: Value = serde_json::from_str(&resp.text().await.ok()?).ok()?;
-    if response_indicates_failure(&value) {
-        return None;
+    None
+}
+
+/// new-api 用 1e8 量级的 `hard_limit_usd`（如 100000000）表达「无限额度」，
+/// 标准探测链会把它折算成荒谬的美元余额。
+///
+/// 判据只看 **剩余金额**（缺失时才看总额）：已用 / 总额在累计口径下可能天然很大，
+/// 若用它们触发，会把一个真实可用的剩余金额一起清掉、误报成「不限额」。
+/// 阈值取 1000 万：new-api 的哨兵值远超它，而真实可花费余额不会到这个量级。
+pub const ABSURD_AMOUNT_USD: f64 = 10_000_000.0;
+
+pub fn sanitize_absurd_amounts(mut quota: SiteQuota) -> SiteQuota {
+    let absurd = match quota.remaining_usd {
+        Some(remaining) => remaining >= ABSURD_AMOUNT_USD,
+        None => quota
+            .total_usd
+            .is_some_and(|total| total >= ABSURD_AMOUNT_USD),
+    };
+    if !absurd {
+        return quota;
     }
-    let data = value.get("data")?;
-    let quota = field_f64(data, "quota")?;
-    let used = field_f64(data, "used_quota").unwrap_or(0.0);
-    Some(SiteQuota {
-        status: QuotaProbeStatus::Available,
-        remaining_usd: Some(quota / NEWAPI_QUOTA_PER_UNIT),
-        used_usd: Some(used / NEWAPI_QUOTA_PER_UNIT),
-        total_usd: Some((quota + used) / NEWAPI_QUOTA_PER_UNIT),
-        unlimited: false,
-        unit: Some("USD".into()),
-        expires_at: None,
-        source: Some(QuotaSource::UserSelf),
-        endpoint: Some(url),
-        fetched_at,
-        latency_ms: start.elapsed().as_millis() as u64,
-        error: None,
-        windows: Vec::new(),
-    })
+    quota.unlimited = true;
+    quota.remaining_usd = None;
+    quota.used_usd = None;
+    quota.total_usd = None;
+    quota
 }
 
 /// Classify an OpenCode Go usage response into a `SiteQuota`.
@@ -1441,6 +1516,24 @@ pub async fn probe_quota(
 
     let preview = normalize_base_url(&site.base_url)?;
     let client = crate::http_client::build_client(settings, PROBE_TIMEOUT)?;
+
+    // 来源优先级：配置了访问令牌时先查 `/api/user/self` —— 这才是账户真实余额。
+    // new-api 的 billing 上限可能是「无限额度」哨兵值，标准链会算出荒谬数字。
+    if let Some((token, user_id)) = newapi_creds {
+        if let Some(quota) = fetch_user_self_quota(
+            &client,
+            &preview.codex_base_url,
+            token,
+            user_id,
+            start,
+            fetched_at,
+        )
+        .await
+        {
+            return Ok(quota);
+        }
+    }
+
     let public_bases = public_api_bases(&preview.codex_base_url);
     let round = fetch_round(
         &client,
@@ -1465,7 +1558,7 @@ pub async fn probe_quota(
     } else {
         first
     };
-    let mut quota = match combined {
+    let quota = match combined {
         RoundOutcome::Available(quota) | RoundOutcome::Quiet(quota) => quota,
         RoundOutcome::Fallback => quiet(
             QuotaProbeStatus::Unsupported,
@@ -1474,18 +1567,7 @@ pub async fn probe_quota(
             None,
         ),
     };
-    if !matches!(quota.status, QuotaProbeStatus::Available) {
-        if let Some((token, user_id)) = newapi_creds {
-            let origin = origin_without_v1(&preview.codex_base_url)
-                .unwrap_or_else(|| preview.codex_base_url.clone());
-            if let Some(fallback) =
-                fetch_user_self_quota(&client, &origin, token, user_id, start, fetched_at).await
-            {
-                quota = fallback;
-            }
-        }
-    }
-    Ok(quota)
+    Ok(sanitize_absurd_amounts(quota))
 }
 
 #[cfg(test)]
@@ -2636,6 +2718,330 @@ mod tests {
             .message
             .as_deref()
             .is_some_and(|message| message.contains("bad-token")));
+    }
+
+    /// 按路径前缀路由响应并记录每条请求；未匹配的路径返回 404。
+    async fn routed_server(
+        routes: Vec<(&'static str, &'static str, &'static str)>,
+    ) -> (String, Arc<Mutex<Vec<String>>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = requests.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let mut bytes = Vec::new();
+                let mut buffer = [0_u8; 2048];
+                loop {
+                    let Ok(read) = socket.read(&mut buffer).await else {
+                        break;
+                    };
+                    if read == 0 {
+                        break;
+                    }
+                    bytes.extend_from_slice(&buffer[..read]);
+                    if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let request = String::from_utf8_lossy(&bytes).to_string();
+                sink.lock().unwrap().push(request.clone());
+                let (status, body) = routes
+                    .iter()
+                    .find(|(prefix, _, _)| request.starts_with(prefix))
+                    .map(|(_, status, body)| (*status, *body))
+                    .unwrap_or(("404 Not Found", ""));
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+        (format!("http://{address}"), requests)
+    }
+
+    fn test_settings() -> AppSettings {
+        let mut settings = AppSettings::default();
+        settings.proxy_mode = "none".into();
+        settings
+    }
+
+    /// 配了访问令牌时，`/api/user/self` 是最高优先级来源：即便标准链本可返回，
+    /// 也应短路，不请求 billing / token 路径。
+    #[tokio::test]
+    async fn user_self_priority_short_circuits_standard_chain() {
+        let (base, requests) = routed_server(vec![
+            (
+                "GET /api/user/self ",
+                "200 OK",
+                r#"{"success":true,"data":{"quota":1000000,"used_quota":250000}}"#,
+            ),
+            (
+                "GET /api/usage/token ",
+                "200 OK",
+                r#"{"code":true,"data":{"total_available":750000,"total_used":250000,"total_granted":1000000,"unlimited_quota":false}}"#,
+            ),
+            (
+                "GET /api/status ",
+                "200 OK",
+                r#"{"success":true,"data":{"quota_per_unit":500000,"quota_display_type":"USD"}}"#,
+            ),
+        ])
+        .await;
+        let site = newapi_site(&base);
+        let quota = probe_quota(
+            &site,
+            "sk-test",
+            &test_settings(),
+            Some(("access-token", "42")),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(quota.status, QuotaProbeStatus::Available);
+        assert_eq!(quota.source, Some(QuotaSource::UserSelf));
+        assert_eq!(quota.remaining_usd, Some(2.0));
+
+        let recorded = requests.lock().unwrap().clone();
+        assert_eq!(
+            recorded.len(),
+            1,
+            "user self must short-circuit the standard chain"
+        );
+        assert!(recorded[0].starts_with("GET /api/user/self "));
+        let request = recorded[0].to_ascii_lowercase();
+        assert!(request.contains("authorization: bearer access-token"));
+        assert!(request.contains("new-api-user: 42"));
+        assert!(!recorded
+            .iter()
+            .any(|request| request.contains("/dashboard/billing")));
+        assert!(!recorded
+            .iter()
+            .any(|request| request.contains("/api/usage/token")));
+    }
+
+    /// 访问令牌链路失败（401）时才回落到标准探测链。
+    #[tokio::test]
+    async fn user_self_failure_falls_back_to_standard_chain() {
+        let (base, requests) = routed_server(vec![
+            (
+                "GET /api/user/self ",
+                "401 Unauthorized",
+                r#"{"success":false,"message":"Unauthorized"}"#,
+            ),
+            (
+                "GET /api/usage/token ",
+                "200 OK",
+                r#"{"code":true,"data":{"total_available":750000,"total_used":250000,"total_granted":1000000,"unlimited_quota":false}}"#,
+            ),
+            (
+                "GET /api/status ",
+                "200 OK",
+                r#"{"success":true,"data":{"quota_per_unit":500000,"quota_display_type":"USD"}}"#,
+            ),
+        ])
+        .await;
+        let site = newapi_site(&base);
+        let quota = probe_quota(
+            &site,
+            "sk-test",
+            &test_settings(),
+            Some(("bad-token", "42")),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(quota.status, QuotaProbeStatus::Available);
+        assert_eq!(quota.source, Some(QuotaSource::TokenUsage));
+        assert_eq!(quota.remaining_usd, Some(1.5));
+
+        let recorded = requests.lock().unwrap().clone();
+        assert!(recorded
+            .iter()
+            .any(|request| request.starts_with("GET /api/user/self ")));
+        assert!(recorded
+            .iter()
+            .any(|request| request.starts_with("GET /api/usage/token ")));
+    }
+
+    /// 带路径前缀的 Base URL（`https://host/openai/v1`）只有回退到站点根才能命中
+    /// `/api/user/self`。「测试」按钮与主界面额度行必须遍历同一套候选 origin，
+    /// 否则两边会显示不同来源的余额（本次修的就是这个不一致）。
+    #[tokio::test]
+    async fn user_self_candidates_match_between_test_button_and_quota_row() {
+        let (base, requests) = routed_server(vec![(
+            "GET /api/user/self ",
+            "200 OK",
+            r#"{"success":true,"data":{"quota":1000000,"used_quota":250000}}"#,
+        )])
+        .await;
+        let base_url = format!("{base}/openai/v1");
+
+        let mut settings = AppSettings::default();
+        settings.proxy_mode = "none".into();
+        let probed = test_newapi_access(&base_url, "access-token", "42", &settings)
+            .await
+            .unwrap();
+        assert!(probed.ok);
+        assert_eq!(probed.remaining_usd, Some(2.0));
+        assert_eq!(probed.used_usd, Some(0.5));
+        assert_eq!(probed.total_usd, Some(2.5));
+
+        let site = newapi_site(&base_url);
+        let quota = probe_quota(&site, "sk-test", &settings, Some(("access-token", "42")))
+            .await
+            .unwrap();
+        assert_eq!(quota.source, Some(QuotaSource::UserSelf));
+        assert_eq!(quota.remaining_usd, probed.remaining_usd);
+        assert_eq!(quota.used_usd, probed.used_usd);
+        assert_eq!(quota.total_usd, probed.total_usd);
+
+        // 两处都必须按同一顺序探测：先路径前缀 origin（404），再回退站点根。
+        let recorded = requests.lock().unwrap().clone();
+        let paths: Vec<&str> = recorded
+            .iter()
+            .map(|request| request.split(' ').nth(1).unwrap_or_default())
+            .collect();
+        assert_eq!(
+            paths,
+            vec![
+                "/openai/api/user/self",
+                "/api/user/self",
+                "/openai/api/user/self",
+                "/api/user/self",
+            ],
+            "test button and quota row must probe the same candidate origins in the same order"
+        );
+    }
+
+    /// 非 2xx 但 body 恰好可解析时，两处都必须算失败：否则会出现
+    /// 「测试通过、主界面回落到 billing 哨兵值」的分叉。
+    #[tokio::test]
+    async fn non_2xx_parseable_user_self_body_is_not_a_success_for_either_entrypoint() {
+        let (base, _requests) = routed_server(vec![
+            (
+                "GET /api/user/self ",
+                "502 Bad Gateway",
+                r#"{"success":true,"data":{"quota":1000000,"used_quota":250000}}"#,
+            ),
+            (
+                "GET /api/usage/token ",
+                "200 OK",
+                r#"{"code":true,"data":{"total_available":750000,"total_used":250000,"total_granted":1000000,"unlimited_quota":false}}"#,
+            ),
+            (
+                "GET /api/status ",
+                "200 OK",
+                r#"{"success":true,"data":{"quota_per_unit":500000,"quota_display_type":"USD"}}"#,
+            ),
+        ])
+        .await;
+
+        let mut settings = AppSettings::default();
+        settings.proxy_mode = "none".into();
+        let probed = test_newapi_access(&base, "access-token", "42", &settings)
+            .await
+            .unwrap();
+        assert!(!probed.ok);
+        assert_eq!(probed.status, 502);
+
+        let site = newapi_site(&base);
+        let quota = probe_quota(&site, "sk-test", &settings, Some(("access-token", "42")))
+            .await
+            .unwrap();
+        assert_eq!(quota.source, Some(QuotaSource::TokenUsage));
+        assert_eq!(quota.remaining_usd, Some(1.5));
+    }
+
+    /// AgentRouter/new-api 的硬编码上限（100000000）是「无限额度」哨兵值：
+    /// 不能按「总额 - 已用」换算成荒谬的美元余额。
+    #[tokio::test]
+    async fn absurd_hard_limit_is_reported_as_unlimited_not_usd() {
+        let (base, _requests) = routed_server(vec![
+            (
+                "GET /dashboard/billing/subscription",
+                "200 OK",
+                r#"{"hard_limit_usd":100000000,"soft_limit_usd":100000000}"#,
+            ),
+            (
+                "GET /dashboard/billing/usage",
+                "200 OK",
+                r#"{"total_usage":30363}"#,
+            ),
+        ])
+        .await;
+        let site = newapi_site(&base);
+        let quota = probe_quota(&site, "sk-test", &test_settings(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(quota.status, QuotaProbeStatus::Available);
+        assert_eq!(quota.error, None);
+        assert!(quota.unlimited);
+        assert_eq!(quota.remaining_usd, None);
+        assert_eq!(quota.used_usd, None);
+        assert_eq!(quota.total_usd, None);
+    }
+
+    #[test]
+    fn sanitize_absurd_amounts_flags_sentinel_and_clears_amounts() {
+        let mut quota = quiet(QuotaProbeStatus::Available, None, 1, None);
+        quota.remaining_usd = Some(99_999_696.37);
+        quota.used_usd = Some(303.63);
+        quota.total_usd = Some(100_000_000.0);
+        quota.source = Some(QuotaSource::SubscriptionUsage);
+
+        let sanitized = sanitize_absurd_amounts(quota);
+        assert!(sanitized.unlimited);
+        assert_eq!(sanitized.remaining_usd, None);
+        assert_eq!(sanitized.used_usd, None);
+        assert_eq!(sanitized.total_usd, None);
+        assert_eq!(sanitized.status, QuotaProbeStatus::Available);
+        assert_eq!(sanitized.error, None);
+        assert_eq!(sanitized.source, Some(QuotaSource::SubscriptionUsage));
+    }
+
+    #[test]
+    fn sanitize_absurd_amounts_keeps_real_balances() {
+        let mut quota = quiet(QuotaProbeStatus::Available, None, 1, None);
+        quota.remaining_usd = Some(1223.89);
+        quota.used_usd = Some(303.63);
+        quota.total_usd = Some(1527.52);
+        quota.source = Some(QuotaSource::UserSelf);
+
+        assert_eq!(sanitize_absurd_amounts(quota.clone()), quota);
+    }
+
+    /// 只有「剩余金额」能触发哨兵判定：某站的累计已用 / 总额天然巨大时，
+    /// 不能连真实可用的剩余金额一起清掉、误报成「不限额」。
+    #[test]
+    fn sanitize_absurd_amounts_keeps_real_remaining_when_totals_look_absurd() {
+        let mut quota = quiet(QuotaProbeStatus::Available, None, 1, None);
+        quota.remaining_usd = Some(500.0);
+        quota.used_usd = Some(2_000_000.0);
+        quota.total_usd = Some(2_000_500.0);
+        quota.source = Some(QuotaSource::SubscriptionUsage);
+
+        let sanitized = sanitize_absurd_amounts(quota.clone());
+        assert!(!sanitized.unlimited);
+        assert_eq!(sanitized.remaining_usd, Some(500.0));
+        assert_eq!(sanitized, quota);
+    }
+
+    /// 阈值以下的真实大额余额照常展示，不猜成「不限额」。
+    #[test]
+    fn sanitize_absurd_amounts_keeps_large_but_plausible_balance() {
+        let mut quota = quiet(QuotaProbeStatus::Available, None, 1, None);
+        quota.remaining_usd = Some(2_000_000.0);
+        quota.used_usd = Some(10.0);
+        quota.total_usd = Some(2_000_010.0);
+        quota.source = Some(QuotaSource::UserSelf);
+
+        assert_eq!(sanitize_absurd_amounts(quota.clone()), quota);
     }
 
     #[test]
