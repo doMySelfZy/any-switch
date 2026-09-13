@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 5
+- **Total Sessions**: 6
 - **Last Active**: 2026-09-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~125 | Active |
+| `journal-1.md` | ~148 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 6 | 2026-09-13 | 站点列表侧栏加宽 + v0.1.4 打包安装 | `b0a45fc`, `f593b1e` | `main` |
 | 5 | 2026-09-13 | 额度探测读站点自报倍率 + Sub2API /v1/usage 支持 | `9218d45` | `main` |
 | 4 | 2026-09-13 | 站点列表额度摘要与余额自动刷新 | `eb236c6` | `main` |
 | 3 | 2026-09-13 | MCP 统一管控与跨设备同步 | `f5ef700`, `6eb9e80` | `main` |

@@ -123,3 +123,26 @@ WebDAV 真同步全链路落地：逻辑内容指纹引擎+变更驱动守护任
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: 站点列表侧栏加宽 + v0.1.4 打包安装
+<!-- trellis-session: v=2 fp=bae04b0287028145 -->
+
+**Date**: 2026-09-13
+**Task**: 站点列表侧栏加宽 + v0.1.4 打包安装
+**Branch**: `main`
+
+### Summary
+
+用户反馈列表里 OpenCode 只能看到一个数值、三窗口显示不全。核实为两个独立问题叠加：①用户安装的 0.1.3 不含「列表展示全部用量窗口」（提交 f6882d4/7cce472 在 v0.1.3 发版之后，标签指向 bump 提交 25ba00d）；②侧栏 256px 时列表项文字区仅 137px，而三窗口都接近满额需 152px，必然截断。改动：SitesPage 两处侧栏 w-64 → w-72（288px，实测可用 169px，余量 17px），骨架与实际布局同步。浏览器实测最坏情况三个 100% 全部完整（clipped=false），1100px 与 900px 视口下详情面板均无横向溢出；pnpm typecheck 绿、314 测试绿（2 个既有 updater 用例失败）。升版本 0.1.4 并打包安装，真机 UIA 确认列表显示「5h 100% 周 76% 月 47%」三窗口完整，其余站点余额正常。打包踩坑复现：CARGO_TARGET_DIR 指向主仓库但签名密钥用了相对路径 → 报 Invalid symbol 46，需用绝对路径单独 signer sign 补签。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b0a45fc` | feat(sites): 站点列表侧栏加宽至 w-72，三窗口额度摘要不再截断 |
+| `f593b1e` | chore(version): bump version to v0.1.4 |
+
+### Status
+
+[OK] **Completed**
