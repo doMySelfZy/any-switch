@@ -151,6 +151,7 @@ export function McpPage() {
     deleteServer,
     applyServers,
     searchRegistry,
+    discoverRegistry,
   } = useMcpStore();
 
   const [open, setOpen] = useState(false);
@@ -178,6 +179,9 @@ export function McpPage() {
     void invoke<[TargetKind, string][]>("mcp_target_paths")
       .then(setTargetPaths)
       .catch(() => setTargetPaths([]));
+    // 首次打开就直接给出内容：空查询表示「浏览最近更新的 MCP」，避免进来是一片空白。
+    void browseRecent(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadServers]);
 
   const targetLabel = useCallback(
@@ -389,12 +393,34 @@ export function McpPage() {
   // 仓库搜索
   // ---------------------------------------------------------------------
 
-  const runSearch = async (cursor?: string | null) => {
-    const term = query.trim();
-    if (!term) return;
+  /** 一次补齐的目标条数：仓库远程条目多，只看本地时单页往往只剩两三条。 */
+  const FILL_TARGET = 20;
+
+  /** 首次进入/切换「只看本地」时，用常见类目词拉「热门」而不是空列表。 */
+  const browseRecent = async (onlyLocal: boolean) => {
     setSearching(true);
     try {
-      const result = await searchRegistry(term, { cursor, localOnly });
+      const result = await discoverRegistry({ localOnly: onlyLocal, minResults: FILL_TARGET });
+      setCandidates(result.candidates);
+      setNextCursor(result.nextCursor ?? null);
+      setSearched(true);
+    } catch (error) {
+      // 首次加载失败不该打断其它功能（手动添加仍可用），只提示一次。
+      void message.error(errorText(error));
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const runSearch = async (cursor?: string | null) => {
+    const term = query.trim();
+    setSearching(true);
+    try {
+      const result = await searchRegistry(term, {
+        cursor,
+        localOnly,
+        minResults: FILL_TARGET,
+      });
       setCandidates((current) =>
         cursor ? [...current, ...result.candidates] : result.candidates,
       );
@@ -410,17 +436,19 @@ export function McpPage() {
   const toggleLocalOnly = (checked: boolean) => {
     setLocalOnly(checked);
     // 过滤在后端做，切换后必须重查，否则列表和开关会对不上。
-    if (searched && query.trim()) {
-      setCandidates([]);
-      setNextCursor(null);
-      void runSearchAgain(checked);
-    }
+    setCandidates([]);
+    setNextCursor(null);
+    if (query.trim()) void runSearchAgain(checked);
+    else void browseRecent(checked);
   };
 
   const runSearchAgain = async (onlyLocal: boolean) => {
     setSearching(true);
     try {
-      const result = await searchRegistry(query.trim(), { localOnly: onlyLocal });
+      const result = await searchRegistry(query.trim(), {
+        localOnly: onlyLocal,
+        minResults: FILL_TARGET,
+      });
       setCandidates(result.candidates);
       setNextCursor(result.nextCursor ?? null);
     } catch (error) {

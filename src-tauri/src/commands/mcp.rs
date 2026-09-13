@@ -14,48 +14,129 @@ pub fn list_mcp_servers(state: State<'_, AppState>) -> AppResult<Vec<McpServerSu
     state.db.with_conn(|conn| repo::mcp::list(conn, &state.crypto))
 }
 
-/// 搜索官方 MCP Registry。
+/// 首次打开面板时给出「热门」候选：用一批常见类目词并发查询官方仓库再合并去重。
 ///
-/// 只访问固定的官方域名（见 `mcp_registry::REGISTRY_BASE`），不接受调用方传入地址。
-/// `local_only` 是界面「只看本地运行」开关：勾着时只返回 npx/uvx 这类跑在用户自己机器上的
-/// 条目，避免把请求交给来源不明的第三方服务器。
+/// 官方仓库没有热度排序，只拉「最近更新」时按本地过滤后往往只剩几条，首屏太空。
+/// 这里换成几个常见类目词并发查，条目仍完全来自仓库实时数据（不是写死的推荐清单）。
 #[tauri::command]
-pub async fn search_mcp_registry(
+pub async fn discover_mcp_registry(
     state: State<'_, AppState>,
-    query: String,
-    cursor: Option<String>,
     local_only: Option<bool>,
+    min_results: Option<u32>,
 ) -> AppResult<crate::mcp_registry::RegistrySearchResult> {
     use crate::mcp_registry as registry;
     use std::time::Duration;
 
     let settings: AppSettings = state.db.with_conn(repo::settings::get_settings)?;
     let client = crate::http_client::build_client(&settings, Duration::from_secs(20))?;
+    let only_local = local_only.unwrap_or(false);
+    let target = min_results.unwrap_or(20) as usize;
 
-    let url = registry::search_url(&query, cursor.as_deref(), None);
-    let response = client.get(&url).send().await.map_err(|error| {
-        crate::error::AppError::new(
-            "mcp_registry_unreachable",
-            format!("无法连接官方 MCP 仓库: {error}"),
-        )
-    })?;
-    let status = response.status();
-    if !status.is_success() {
+    let requests = registry::DISCOVERY_TERMS.iter().map(|term| {
+        let client = client.clone();
+        let url = registry::search_url(term, None, Some(50));
+        async move {
+            let response = client.get(&url).send().await.ok()?;
+            if !response.status().is_success() {
+                return None;
+            }
+            let bytes = response.bytes().await.ok()?;
+            registry::parse_search_response(&bytes).ok()
+        }
+    });
+
+    // 并发拉取：串行会让首屏等待明显变长。个别类目失败不影响整体（ok() 折叠成 None）。
+    let pages = futures_util::future::join_all(requests).await;
+    let batches: Vec<Vec<registry::RegistryCandidate>> =
+        pages.into_iter().flatten().map(|page| page.candidates).collect();
+    if batches.is_empty() {
         return Err(crate::error::AppError::new(
-            "mcp_registry_http",
-            format!("官方 MCP 仓库返回 {status}"),
+            "mcp_registry_unreachable",
+            "无法连接官方 MCP 仓库",
         ));
     }
-    let bytes = response.bytes().await.map_err(|error| {
-        crate::error::AppError::new(
-            "mcp_registry_unreachable",
-            format!("读取官方 MCP 仓库响应失败: {error}"),
-        )
-    })?;
 
-    let mut result = registry::parse_search_response(&bytes)?;
-    result.candidates = registry::filter_candidates(result.candidates, local_only.unwrap_or(false));
-    Ok(result)
+    let merged = registry::merge_candidates(batches);
+    let filtered = registry::filter_candidates(merged, only_local);
+    let candidates = filtered.into_iter().take(target.max(1)).collect();
+    Ok(crate::mcp_registry::RegistrySearchResult {
+        candidates,
+        next_cursor: None,
+    })
+}
+
+/// 搜索官方 MCP Registry。
+///
+/// 只访问固定的官方域名（见 `mcp_registry::REGISTRY_BASE`），不接受调用方传入地址。
+/// `local_only` 是界面「只看本地运行」开关：勾着时只返回 npx/uvx 这类跑在用户自己机器上的
+/// 条目，避免把请求交给来源不明的第三方服务器。
+/// `query` 允许为空——那表示「浏览最近更新」，用于页面首次打开时给出内容而不是空白。
+/// `min_results` 是「至少凑够多少条」：仓库里远程条目占多数，只看本地时单页往往只剩两三条，
+/// 这里会自动往后翻页补齐，避免用户一点搜索只看到寥寥几项。
+#[tauri::command]
+pub async fn search_mcp_registry(
+    state: State<'_, AppState>,
+    query: String,
+    cursor: Option<String>,
+    local_only: Option<bool>,
+    limit: Option<u32>,
+    min_results: Option<u32>,
+) -> AppResult<crate::mcp_registry::RegistrySearchResult> {
+    use crate::mcp_registry as registry;
+    use std::time::Duration;
+
+    let settings: AppSettings = state.db.with_conn(repo::settings::get_settings)?;
+    let client = crate::http_client::build_client(&settings, Duration::from_secs(20))?;
+    let only_local = local_only.unwrap_or(false);
+    // 补齐目标只在「按本地过滤」时才有意义：不过滤时一页就是完整结果集。
+    let target = if only_local {
+        min_results.unwrap_or(0).min(registry::MAX_FILL_RESULTS) as usize
+    } else {
+        0
+    };
+
+    let mut collected: Vec<registry::RegistryCandidate> = Vec::new();
+    let mut next = cursor.clone();
+    let mut pages = 0;
+
+    loop {
+        let url = registry::search_url(&query, next.as_deref(), limit);
+        let response = client.get(&url).send().await.map_err(|error| {
+            crate::error::AppError::new(
+                "mcp_registry_unreachable",
+                format!("无法连接官方 MCP 仓库: {error}"),
+            )
+        })?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(crate::error::AppError::new(
+                "mcp_registry_http",
+                format!("官方 MCP 仓库返回 {status}"),
+            ));
+        }
+        let bytes = response.bytes().await.map_err(|error| {
+            crate::error::AppError::new(
+                "mcp_registry_unreachable",
+                format!("读取官方 MCP 仓库响应失败: {error}"),
+            )
+        })?;
+
+        let page = registry::parse_search_response(&bytes)?;
+        next = page.next_cursor.clone();
+        collected.extend(page.candidates);
+
+        pages += 1;
+        let enough = collected.len() >= target;
+        if enough || next.is_none() || pages >= registry::MAX_FILL_PAGES {
+            break;
+        }
+    }
+
+    let filtered = registry::filter_candidates(collected, only_local);
+    Ok(crate::mcp_registry::RegistrySearchResult {
+        candidates: filtered,
+        next_cursor: next,
+    })
 }
 
 #[tauri::command]

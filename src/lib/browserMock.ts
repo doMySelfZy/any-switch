@@ -1687,7 +1687,8 @@ export async function handleBrowserCommand<T>(
         ["pi", "/Users/demo/.pi/agent/mcp.json"],
         ["prime", "/Users/demo/.prime/agent/settings.json"],
       ] as T;
-    case "search_mcp_registry": {
+    case "search_mcp_registry":
+    case "discover_mcp_registry": {
       // 浏览器模式下的固定样例，覆盖「本地包」「远程服务」「无法安装」三类，
       // 让 UI 的三条渲染分支都能在开发时看到。真实数据来自官方仓库。
       const all: RegistryCandidate[] = [

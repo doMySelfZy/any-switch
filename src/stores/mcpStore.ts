@@ -20,8 +20,12 @@ interface McpState {
   applyServers: (targets: TargetKind[]) => Promise<McpApplyResult>;
   searchRegistry: (
     query: string,
-    options?: { cursor?: string | null; localOnly?: boolean },
+    options?: { cursor?: string | null; localOnly?: boolean; minResults?: number },
   ) => Promise<RegistrySearchResult>;
+  discoverRegistry: (options?: {
+    localOnly?: boolean;
+    minResults?: number;
+  }) => Promise<RegistrySearchResult>;
 }
 
 export const useMcpStore = create<McpState>((set) => ({
@@ -63,5 +67,13 @@ export const useMcpStore = create<McpState>((set) => ({
       query,
       cursor: options?.cursor ?? null,
       localOnly: options?.localOnly ?? true,
+      minResults: options?.minResults ?? 0,
+    }),
+
+  // 首屏「热门」：后端用一批常见类目词并发查仓库再合并，比只拉「最近更新」更有用。
+  discoverRegistry: async (options) =>
+    invoke<RegistrySearchResult>("discover_mcp_registry", {
+      localOnly: options?.localOnly ?? true,
+      minResults: options?.minResults ?? 20,
     }),
 }));

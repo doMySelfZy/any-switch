@@ -654,7 +654,7 @@
     "noTargets": "Select at least one target for a server",
     "pathsTitle": "Target config file locations",
     "registryTitle": "Install from the official MCP registry",
-    "registryDesc": "Search the official MCP registry; picking an entry fills in the launch command, so you only add the required secrets.",
+    "registryDesc": "Search the official MCP registry; picking an entry fills in the launch command, so you only add the required secrets. Common servers are listed below by default.",
     "registrySearchPlaceholder": "Search, e.g. github, filesystem, postgres",
     "registrySearch": "Search",
     "registrySearching": "Searching…",

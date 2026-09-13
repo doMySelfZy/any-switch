@@ -129,6 +129,7 @@ pub fn run() {
             commands::apply_mcp_servers,
             commands::mcp_target_paths,
             commands::search_mcp_registry,
+            commands::discover_mcp_registry,
             commands::save_settings,
             commands::get_app_paths,
             commands::preview_urls,

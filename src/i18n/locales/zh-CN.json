@@ -654,7 +654,7 @@
     "noTargets": "请至少为一个服务选择应用目标",
     "pathsTitle": "目标配置文件位置",
     "registryTitle": "从官方 MCP 仓库安装",
-    "registryDesc": "搜索 MCP 官方仓库，选中后自动填好启动命令，你只需补必填的密钥。",
+    "registryDesc": "搜索 MCP 官方仓库，选中后自动填好启动命令，你只需补必填的密钥。下方默认列出常用的服务。",
     "registrySearchPlaceholder": "搜索，例如 github、filesystem、postgres",
     "registrySearch": "搜索",
     "registrySearching": "搜索中…",

@@ -210,6 +210,17 @@ describe("McpPage", () => {
   });
 
   describe("registry install", () => {
+    it("shows entries on first open instead of an empty panel", async () => {
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      // 不点搜索也要有内容：默认拉「最近更新」，避免进来一片空白。
+      expect(await screen.findByText("io.github.example/filesystem")).toBeInTheDocument();
+    });
+
     it("searches the registry and lists local entries first", async () => {
       render(
         <Wrapper>
@@ -228,6 +239,21 @@ describe("McpPage", () => {
       expect(screen.queryByText("io.example/not-installable")).toBeNull();
     });
 
+    it("falls back to recent entries when the query matches nothing", async () => {
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      fireEvent.change(await screen.findByPlaceholderText(/搜索，例如 github/), {
+        target: { value: "no-such-server-xyz" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /搜\s*索/ }));
+
+      expect(await screen.findByText("没有找到匹配的 MCP 服务")).toBeInTheDocument();
+    });
+
     it("shows remote entries with the host their requests go to", async () => {
       render(
         <Wrapper>
@@ -244,7 +270,9 @@ describe("McpPage", () => {
 
       expect(await screen.findByText("ai.example/hosted-memory")).toBeInTheDocument();
       expect(screen.getByText("请求将发送到 mcp.example.ai")).toBeInTheDocument();
-      expect(screen.getByText("远程服务")).toBeInTheDocument();
+      // 「远程服务」标签在多条远程条目上都会出现，按条目范围断言。
+      const row = screen.getByText("ai.example/hosted-memory").closest(".ant-list-item")!;
+      expect(within(row as HTMLElement).getByText("远程服务")).toBeInTheDocument();
     });
 
     it("prefills the form from the registry entry", async () => {

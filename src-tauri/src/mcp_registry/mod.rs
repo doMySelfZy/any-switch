@@ -16,8 +16,28 @@ pub const REGISTRY_BASE: &str = "https://registry.modelcontextprotocol.io/v0.1";
 /// 响应体积上限：仓库条目可能很大，异常响应不应该把界面拖垮。
 const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 
-const DEFAULT_LIMIT: u32 = 20;
-const MAX_LIMIT: u32 = 50;
+const DEFAULT_LIMIT: u32 = 50;
+const MAX_LIMIT: u32 = 100;
+
+/// 「按本地过滤」时为了凑够一屏结果，最多往后翻几页；以及一次补齐的目标上限。
+/// 仓库里远程条目占多数，只看本地时单页常常只剩两三条，需要翻页补齐。
+pub const MAX_FILL_PAGES: usize = 4;
+pub const MAX_FILL_RESULTS: u32 = 40;
+
+/// 首屏「热门」发现用的常见类目词。
+///
+/// 官方仓库没有「按热度排序」的接口，也没提供使用量字段，所以这里用一批常见类目分别搜索再
+/// 合并去重——它不是写死的推荐清单（条目仍完全来自仓库的实时数据），只是把「最近更新」
+/// 换成了更容易撞到常用服务的查询策略。实测只拉「最近更新」时只看本地只剩 4 条，
+/// 换成这批词能到 30 条以上。
+pub const DISCOVERY_TERMS: [&str; 6] = [
+    "filesystem",
+    "github",
+    "database",
+    "browser",
+    "memory",
+    "search",
+];
 
 // ---------------------------------------------------------------------------
 // 仓库响应形状（只声明我们真正用到的字段）
@@ -460,6 +480,26 @@ fn dedupe_by_name(candidates: &mut Vec<RegistryCandidate>) {
     candidates.retain(|candidate| seen.insert(candidate.name.clone()));
 }
 
+/// 合并多页/多次查询的结果：按名称去重并保持「本地优先」顺序。
+///
+/// 首屏「热门」由多个类目词查询拼成，同一个服务很可能在多个词下都命中，必须去重；
+/// 本地条目优先的排序在这里再保证一次（跨查询合并后顺序会被打乱）。
+pub fn merge_candidates(
+    batches: impl IntoIterator<Item = Vec<RegistryCandidate>>,
+) -> Vec<RegistryCandidate> {
+    let mut seen = std::collections::HashSet::new();
+    let mut merged: Vec<RegistryCandidate> = Vec::new();
+    for batch in batches {
+        for candidate in batch {
+            if seen.insert(candidate.name.clone()) {
+                merged.push(candidate);
+            }
+        }
+    }
+    merged.sort_by_key(|candidate| !is_local_only(candidate));
+    merged
+}
+
 /// 按安装方式过滤候选。「只看本地运行」由界面默认开启。
 pub fn filter_candidates(
     candidates: Vec<RegistryCandidate>,
@@ -743,6 +783,78 @@ mod tests {
     }
 
     #[test]
+    fn merged_candidates_dedupe_across_batches_and_keep_local_first() {
+        // 首屏「热门」由多个类目词拼成，同一个服务会在多个词下命中。
+        let local = |name: &str| RegistryCandidate {
+            name: name.to_string(),
+            description: None,
+            version: None,
+            repository_url: None,
+            install_kinds: vec![RegistryInstallKind::Package],
+            draft: Some(RegistryInstallDraft {
+                name: name.rsplit('/').next().unwrap_or(name).to_string(),
+                display_name: name.to_string(),
+                kind: McpKind::Stdio,
+                config: json!({ "command": "npx" }),
+                env: json!({}),
+                headers: json!({}),
+                required_fields: vec![],
+                repository_url: None,
+            }),
+        };
+        let remote = |name: &str| RegistryCandidate {
+            name: name.to_string(),
+            description: None,
+            version: None,
+            repository_url: None,
+            install_kinds: vec![RegistryInstallKind::Remote],
+            draft: Some(RegistryInstallDraft {
+                name: name.rsplit('/').next().unwrap_or(name).to_string(),
+                display_name: name.to_string(),
+                kind: McpKind::Http,
+                config: json!({ "url": "https://example.com/mcp" }),
+                env: json!({}),
+                headers: json!({}),
+                required_fields: vec![],
+                repository_url: None,
+            }),
+        };
+
+        let merged = merge_candidates(vec![
+            vec![remote("io.example/a"), local("io.example/b")],
+            vec![local("io.example/b"), local("io.example/c")],
+        ]);
+
+        assert_eq!(merged.len(), 3, "duplicates across batches collapse");
+        assert_eq!(merged[0].name, "io.example/b", "local entries come first");
+        assert_eq!(merged[1].name, "io.example/c");
+        assert_eq!(merged[2].name, "io.example/a");
+    }
+
+    #[test]
+    fn discovery_terms_are_distinct_and_non_empty() {
+        // 类目词直接拼进查询 URL，空词或重复词只会浪费一次请求。
+        let mut seen = std::collections::HashSet::new();
+        for term in DISCOVERY_TERMS {
+            assert!(!term.trim().is_empty());
+            assert!(seen.insert(term), "duplicate discovery term: {term}");
+        }
+        assert!(DISCOVERY_TERMS.len() >= 4, "太少类目凑不满首屏");
+    }
+
+    #[test]
+    fn fill_limits_keep_paging_bounded() {
+        // 补齐只用于「只看本地」：仓库远程条目占多数，单页常常只剩两三条。
+        // 上限保证最坏情况下也不会无限翻页。
+        assert!(MAX_FILL_RESULTS >= 10, "补齐目标要够填满一屏");
+        assert!(MAX_FILL_PAGES >= 1);
+        assert!(
+            (MAX_FILL_PAGES as u32) * MAX_LIMIT >= MAX_FILL_RESULTS,
+            "翻页上限乘每页上限必须够得到补齐目标，否则永远补不满"
+        );
+    }
+
+    #[test]
     fn duplicate_versions_collapse_to_one_candidate() {
         // 实测仓库会对同一服务返回多个历史版本；即使请求漏了 version=latest，
         // 解析也不该把同一个服务重复展示给用户。
@@ -764,8 +876,9 @@ mod tests {
 
     #[test]
     fn search_url_omits_empty_query_and_clamps_limit() {
+        // 空查询表示「浏览最近更新」，用于首次打开页面时给出内容。
         let url = search_url("   ", None, Some(999));
-        assert!(url.contains("limit=50"), "limit must be clamped: {url}");
+        assert!(url.contains("limit=100"), "limit must be clamped: {url}");
         assert!(!url.contains("search="), "{url}");
         assert!(!url.contains("cursor="), "{url}");
     }
