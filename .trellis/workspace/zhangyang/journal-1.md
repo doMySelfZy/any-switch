@@ -240,7 +240,6 @@ WebDAV 真同步全链路落地：逻辑内容指纹引擎+变更驱动守护任
 | Hash | Message |
 |------|---------|
 | `4b6add3` | feat(rules): 全局约束统一注入到四个 Agent 的用户级指令文件 |
-| `fa237fb` | chore(task): archive 09-13-global-agent-rules |
 
 ### Status
 
