@@ -24,6 +24,10 @@ function saveButton(): HTMLElement {
   return screen.getByRole("button", { name: /保\s*存/ });
 }
 
+function manualAddButton(): HTMLElement {
+  return screen.getByRole("button", { name: /手动添加/ });
+}
+
 async function seedServer(overrides: Record<string, unknown> = {}) {
   return handleBrowserCommand("save_mcp_server", {
     input: {
@@ -37,6 +41,12 @@ async function seedServer(overrides: Record<string, unknown> = {}) {
       ...overrides,
     },
   });
+}
+
+/** 展开高级折叠区，才能看到 env / headers / 其他字段。 */
+async function openAdvanced() {
+  const toggle = await screen.findByText("高级配置");
+  fireEvent.click(toggle);
 }
 
 describe("McpPage", () => {
@@ -84,7 +94,7 @@ describe("McpPage", () => {
       </Wrapper>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /添加 MCP 服务/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /手动添加/ }));
     const nameInput = await screen.findByLabelText("服务名称");
     fireEvent.change(nameInput, { target: { value: "bad name" } });
     fireEvent.click(saveButton());
@@ -101,12 +111,13 @@ describe("McpPage", () => {
       </Wrapper>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /添加 MCP 服务/ }));
+    fireEvent.click(manualAddButton());
     fireEvent.change(await screen.findByLabelText("服务名称"), {
       target: { value: "filesystem" },
     });
-    const configInput = screen.getByLabelText("配置");
-    fireEvent.change(configInput, { target: { value: "{not json" } });
+    await openAdvanced();
+    const envInput = screen.getByLabelText("环境变量");
+    fireEvent.change(envInput, { target: { value: "{not json" } });
     fireEvent.click(saveButton());
 
     await waitFor(() => {
@@ -127,9 +138,10 @@ describe("McpPage", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /应用到目标/ }));
 
-    // 两个目标都有启用的服务指向它们，应用结果逐目标列出。
-    expect(await screen.findByText(/Claude Code 应用成功/)).toBeInTheDocument();
-    expect(screen.getByText(/Codex 应用成功/)).toBeInTheDocument();
+    const dialogs = await screen.findAllByRole("dialog");
+    const text = dialogs.map((dialog) => dialog.textContent ?? "").join("\n");
+    expect(text).toMatch(/Claude Code 应用成功/);
+    expect(text).toMatch(/Codex 应用成功/);
   });
 
   it("disables apply when no enabled server selects a target", async () => {
@@ -147,11 +159,11 @@ describe("McpPage", () => {
     });
   });
 
-  it("round-trips an edited server back into the form", async () => {
+  it("round-trips an edited server back into the simple form", async () => {
     const saved = (await seedServer({
       targets: ["codex"],
-      config: { command: "npx", args: ["-y", "pkg"] },
-      env: { TOKEN: "abc" },
+      config: { command: "npx", args: ["-y", "pkg"], cwd: "/tmp/work" },
+      env: { TOKEN: "placeholder-value" },
     })) as { server: { id: string } };
 
     render(
@@ -167,28 +179,161 @@ describe("McpPage", () => {
     await waitFor(() => {
       expect(nameInput.value).toBe("demo");
     });
-    const configInput = screen.getByLabelText("配置") as HTMLTextAreaElement;
-    expect(configInput.value).toContain("npx");
-    // 已保存的密钥回填到编辑框，用户不必重新输入。
+    // 简单层直接显示命令，不用去翻 JSON。
+    expect((screen.getByLabelText("启动命令") as HTMLInputElement).value).toBe("npx");
+    expect((screen.getByLabelText("启动参数") as HTMLTextAreaElement).value).toBe("-y\npkg");
+
+    // 高级层保留 cwd 这类额外字段，且已保存的密钥回填供编辑。
+    await openAdvanced();
+    expect((screen.getByLabelText("其他配置字段") as HTMLTextAreaElement).value).toContain("cwd");
     expect((screen.getByLabelText("环境变量") as HTMLTextAreaElement).value).toContain("TOKEN");
     expect(saved.server.id).toBeTruthy();
   });
 
-  it("reports per-target results in the apply dialog", async () => {
-    await seedServer({ targets: ["claude_code"] });
-
+  it("switches the launch field between command and url by kind", async () => {
     render(
       <Wrapper>
         <McpPage />
       </Wrapper>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /应用到目标/ }));
+    fireEvent.click(manualAddButton());
+    expect(await screen.findByLabelText("启动命令")).toBeInTheDocument();
+    expect(screen.queryByLabelText("服务地址")).toBeNull();
 
-    // 应用结果弹窗对目标逐一给出结果。
-    const dialogs = await screen.findAllByRole("dialog");
-    const text = dialogs.map((dialog) => dialog.textContent ?? "").join("\n");
-    expect(text).toContain("应用结果");
-    expect(text).toMatch(/Claude Code 应用成功/);
+    // 切成 HTTP 后只问地址，不再问命令。
+    fireEvent.click(screen.getByRole("radio", { name: "HTTP" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("服务地址")).toBeInTheDocument();
+    });
+    expect(screen.queryByLabelText("启动命令")).toBeNull();
+  });
+
+  describe("registry install", () => {
+    it("searches the registry and lists local entries first", async () => {
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      fireEvent.change(await screen.findByPlaceholderText(/搜索，例如 github/), {
+        target: { value: "example" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /搜\s*索/ }));
+
+      expect(await screen.findByText("io.github.example/filesystem")).toBeInTheDocument();
+      // 「只看本地运行」默认开启：远程条目和不可安装条目都不该出现。
+      expect(screen.queryByText("ai.example/hosted-memory")).toBeNull();
+      expect(screen.queryByText("io.example/not-installable")).toBeNull();
+    });
+
+    it("shows remote entries with the host their requests go to", async () => {
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      // 关掉「只看本地运行」才会出现远程条目。
+      fireEvent.click(await screen.findByRole("switch"));
+      fireEvent.change(screen.getByPlaceholderText(/搜索，例如 github/), {
+        target: { value: "hosted" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /搜\s*索/ }));
+
+      expect(await screen.findByText("ai.example/hosted-memory")).toBeInTheDocument();
+      expect(screen.getByText("请求将发送到 mcp.example.ai")).toBeInTheDocument();
+      expect(screen.getByText("远程服务")).toBeInTheDocument();
+    });
+
+    it("prefills the form from the registry entry", async () => {
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      fireEvent.change(await screen.findByPlaceholderText(/搜索，例如 github/), {
+        target: { value: "filesystem" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /搜\s*索/ }));
+      fireEvent.click(await screen.findByRole("button", { name: /安\s*装/ }));
+
+      // 名称、命令、参数都自动填好了，用户不需要懂 command/args。
+      const nameInput = (await screen.findByLabelText("服务名称")) as HTMLInputElement;
+      expect(nameInput.value).toBe("filesystem");
+      expect((screen.getByLabelText("启动命令") as HTMLInputElement).value).toBe("npx");
+      expect((screen.getByLabelText("启动参数") as HTMLTextAreaElement).value).toContain(
+        "@modelcontextprotocol/server-filesystem",
+      );
+      // 如实展示将要运行的命令。
+      expect(screen.getByText(/将运行：/)).toBeInTheDocument();
+      // 必填项单独列出来，而不是丢一个 JSON 让用户猜。
+      expect(screen.getByText("API_KEY")).toBeInTheDocument();
+      expect(screen.getByText("敏感信息")).toBeInTheDocument();
+    });
+
+    it("blocks saving until registry-declared required fields are filled", async () => {
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      fireEvent.change(await screen.findByPlaceholderText(/搜索，例如 github/), {
+        target: { value: "filesystem" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /搜\s*索/ }));
+      fireEvent.click(await screen.findByRole("button", { name: /安\s*装/ }));
+
+      // 名称等基础字段已由仓库填好，但必填密钥为空。
+      fireEvent.click(saveButton());
+      await waitFor(() => {
+        expect(screen.getByText("请先填写上面列出的必填项")).toBeInTheDocument();
+      });
+      expect(useMcpStore.getState().servers).toHaveLength(0);
+    });
+
+    it("saves the registry-declared required value into the server", async () => {
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      fireEvent.change(await screen.findByPlaceholderText(/搜索，例如 github/), {
+        target: { value: "filesystem" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /搜\s*索/ }));
+      fireEvent.click(await screen.findByRole("button", { name: /安\s*装/ }));
+
+      const requiredInput = (await screen.findByLabelText("API_KEY")) as HTMLInputElement;
+      fireEvent.change(requiredInput, { target: { value: "the-token" } });
+      fireEvent.click(saveButton());
+
+      await waitFor(() => {
+        expect(useMcpStore.getState().servers).toHaveLength(1);
+      });
+      const saved = await useMcpStore.getState().getServer(
+        useMcpStore.getState().servers[0].id,
+      );
+      expect(saved.env.API_KEY).toBe("the-token");
+      expect(saved.config.command).toBe("npx");
+    });
+
+    it("keeps manual add available as a fallback", async () => {
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      // 仓库不可用时手动路径必须还在。
+      fireEvent.click(manualAddButton());
+      const nameInput = (await screen.findByLabelText("服务名称")) as HTMLInputElement;
+      expect(nameInput.value).toBe("");
+      expect(screen.getByLabelText("启动命令")).toBeInTheDocument();
+    });
   });
 });

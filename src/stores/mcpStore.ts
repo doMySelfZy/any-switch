@@ -6,6 +6,7 @@ import type {
   McpServer,
   McpServerInput,
   McpServerSummary,
+  RegistrySearchResult,
 } from "@/types/mcp";
 import type { TargetKind } from "@/types/domain";
 
@@ -17,6 +18,10 @@ interface McpState {
   saveServer: (input: McpServerInput) => Promise<McpSaveResult>;
   deleteServer: (id: string) => Promise<McpApplyResult>;
   applyServers: (targets: TargetKind[]) => Promise<McpApplyResult>;
+  searchRegistry: (
+    query: string,
+    options?: { cursor?: string | null; localOnly?: boolean },
+  ) => Promise<RegistrySearchResult>;
 }
 
 export const useMcpStore = create<McpState>((set) => ({
@@ -52,4 +57,11 @@ export const useMcpStore = create<McpState>((set) => ({
 
   applyServers: async (targets: TargetKind[]) =>
     invoke<McpApplyResult>("apply_mcp_servers", { targets }),
+
+  searchRegistry: async (query, options) =>
+    invoke<RegistrySearchResult>("search_mcp_registry", {
+      query,
+      cursor: options?.cursor ?? null,
+      localOnly: options?.localOnly ?? true,
+    }),
 }));

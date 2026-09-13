@@ -15,6 +15,7 @@ mod http_client;
 mod key_switch;
 mod lock;
 mod macos_scheme;
+mod mcp_registry;
 mod model_probe;
 mod models_fetch;
 mod paths;
@@ -127,6 +128,7 @@ pub fn run() {
             commands::delete_mcp_server,
             commands::apply_mcp_servers,
             commands::mcp_target_paths,
+            commands::search_mcp_registry,
             commands::save_settings,
             commands::get_app_paths,
             commands::preview_urls,

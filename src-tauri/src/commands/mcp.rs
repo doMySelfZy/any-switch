@@ -14,6 +14,50 @@ pub fn list_mcp_servers(state: State<'_, AppState>) -> AppResult<Vec<McpServerSu
     state.db.with_conn(|conn| repo::mcp::list(conn, &state.crypto))
 }
 
+/// 搜索官方 MCP Registry。
+///
+/// 只访问固定的官方域名（见 `mcp_registry::REGISTRY_BASE`），不接受调用方传入地址。
+/// `local_only` 是界面「只看本地运行」开关：勾着时只返回 npx/uvx 这类跑在用户自己机器上的
+/// 条目，避免把请求交给来源不明的第三方服务器。
+#[tauri::command]
+pub async fn search_mcp_registry(
+    state: State<'_, AppState>,
+    query: String,
+    cursor: Option<String>,
+    local_only: Option<bool>,
+) -> AppResult<crate::mcp_registry::RegistrySearchResult> {
+    use crate::mcp_registry as registry;
+    use std::time::Duration;
+
+    let settings: AppSettings = state.db.with_conn(repo::settings::get_settings)?;
+    let client = crate::http_client::build_client(&settings, Duration::from_secs(20))?;
+
+    let url = registry::search_url(&query, cursor.as_deref(), None);
+    let response = client.get(&url).send().await.map_err(|error| {
+        crate::error::AppError::new(
+            "mcp_registry_unreachable",
+            format!("无法连接官方 MCP 仓库: {error}"),
+        )
+    })?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(crate::error::AppError::new(
+            "mcp_registry_http",
+            format!("官方 MCP 仓库返回 {status}"),
+        ));
+    }
+    let bytes = response.bytes().await.map_err(|error| {
+        crate::error::AppError::new(
+            "mcp_registry_unreachable",
+            format!("读取官方 MCP 仓库响应失败: {error}"),
+        )
+    })?;
+
+    let mut result = registry::parse_search_response(&bytes)?;
+    result.candidates = registry::filter_candidates(result.candidates, local_only.unwrap_or(false));
+    Ok(result)
+}
+
 #[tauri::command]
 pub fn get_mcp_server(state: State<'_, AppState>, id: String) -> AppResult<McpServer> {
     state.db

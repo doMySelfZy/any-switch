@@ -35,7 +35,7 @@ import type {
   UrlProbeResult,
   WebDavConfigView,
 } from "@/types/domain";
-import type { McpApplyResult, McpApplyTargetResult, McpServer, McpServerInput } from "@/types/mcp";
+import type { McpApplyResult, McpApplyTargetResult, McpServer, McpServerInput, RegistryCandidate } from "@/types/mcp";
 import { keyPrefix, normalizeBaseUrl } from "./urlNormalize";
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -1687,6 +1687,76 @@ export async function handleBrowserCommand<T>(
         ["pi", "/Users/demo/.pi/agent/mcp.json"],
         ["prime", "/Users/demo/.prime/agent/settings.json"],
       ] as T;
+    case "search_mcp_registry": {
+      // 浏览器模式下的固定样例，覆盖「本地包」「远程服务」「无法安装」三类，
+      // 让 UI 的三条渲染分支都能在开发时看到。真实数据来自官方仓库。
+      const all: RegistryCandidate[] = [
+        {
+          name: "io.github.example/filesystem",
+          description: "Local filesystem access (browser mock)",
+          version: "1.2.3",
+          repositoryUrl: "https://github.com/example/fs",
+          installKinds: ["package"],
+          draft: {
+            name: "filesystem",
+            displayName: "io.github.example/filesystem",
+            kind: "stdio",
+            config: {
+              command: "npx",
+              args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+            },
+            env: { MODE: "readonly" },
+            headers: {},
+            requiredFields: [
+              { name: "API_KEY", description: "Access token", secret: true, kind: "env" },
+            ],
+            repositoryUrl: "https://github.com/example/fs",
+          },
+        },
+        {
+          name: "ai.example/hosted-memory",
+          description: "Hosted memory service (browser mock)",
+          version: "0.4.0",
+          repositoryUrl: null,
+          installKinds: ["remote"],
+          draft: {
+            name: "hosted-memory",
+            displayName: "ai.example/hosted-memory",
+            kind: "http",
+            config: { url: "https://mcp.example.ai" },
+            env: {},
+            headers: {},
+            requiredFields: [
+              {
+                name: "Authorization",
+                description: "Bearer token",
+                secret: true,
+                kind: "header",
+              },
+            ],
+            repositoryUrl: null,
+          },
+        },
+        {
+          name: "io.example/not-installable",
+          description: "No packages or remotes (browser mock)",
+          version: "0.0.1",
+          repositoryUrl: null,
+          installKinds: [],
+          draft: null,
+        },
+      ];
+      const term = String(args?.query ?? "").trim().toLowerCase();
+      let candidates = term
+        ? all.filter((item) => item.name.toLowerCase().includes(term))
+        : all;
+      if (args?.localOnly === true) {
+        candidates = candidates.filter(
+          (item) => item.draft?.kind === "stdio" && Boolean(item.draft.config.command),
+        );
+      }
+      return { candidates, nextCursor: null } as T;
+    }
     case "preview_urls":
       return normalizeBaseUrl(String(args?.baseUrl ?? "")) as T;
     default:
