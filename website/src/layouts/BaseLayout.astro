@@ -67,7 +67,7 @@ const lang = htmlLang(locale);
           if (/bot|crawl|spider|slurp|bingpreview|facebookexternalhit|embedly|linkedinbot|pinterest|redditbot|whatsapp/i.test(ua)) {
             return;
           }
-          var key = document.documentElement.getAttribute("data-locale-storage-key") || "xiaobaiswitch-locale";
+          var key = document.documentElement.getAttribute("data-locale-storage-key") || "anyswitch-locale";
           var current = document.documentElement.getAttribute("data-current-locale") || "zh";
           var stored = localStorage.getItem(key);
           var preferred = stored;
@@ -96,7 +96,7 @@ const lang = htmlLang(locale);
     <script is:inline>
       (function () {
         try {
-          var key = document.documentElement.getAttribute("data-theme-storage-key") || "xiaobaiswitch-theme";
+          var key = document.documentElement.getAttribute("data-theme-storage-key") || "anyswitch-theme";
           var stored = localStorage.getItem(key);
           var pref = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
           var theme =

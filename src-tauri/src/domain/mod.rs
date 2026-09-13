@@ -547,7 +547,7 @@ pub struct AppSettings {
     pub auto_check_update: bool,
     #[serde(default = "default_update_check_interval")]
     pub update_check_interval: u32,
-    /// Max backup copies kept per target under ~/.xiaobai-switch/backups/{target}.
+    /// Max backup copies kept per target under ~/.any-switch/backups/{target}.
     #[serde(default = "default_max_backup_copies")]
     pub max_backup_copies: u32,
     #[serde(default = "default_proxy_mode")]
@@ -586,6 +586,8 @@ impl Default for WebDavConfigView {
         Self {
             base_url: String::new(),
             username: String::new(),
+            // 远端目录名属于跨机内部协议路径：与同步 manifest 名称绑定，
+            // 改名会让新旧版本机器落到不同目录而互相看不到对方数据。
             remote_path: "xiaobai-switch".into(),
             accept_invalid_certs: false,
             has_password: false,

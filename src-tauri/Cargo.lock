@@ -89,6 +89,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "any-switch"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "base64 0.22.1",
+ "chrono",
+ "dirs 5.0.1",
+ "fs2",
+ "futures-util",
+ "hex",
+ "jsonc-parser",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "once_cell",
+ "parking_lot",
+ "quick-xml 0.38.4",
+ "rand 0.8.7",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-deep-link",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-process",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tokio-util",
+ "toml_edit 0.22.27",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "winreg 0.52.0",
+ "zip",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6398,54 +6446,6 @@ checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
 dependencies = [
  "libc",
  "rustix",
-]
-
-[[package]]
-name = "xiaobai-switch"
-version = "0.0.11"
-dependencies = [
- "aes-gcm",
- "base64 0.22.1",
- "chrono",
- "dirs 5.0.1",
- "fs2",
- "futures-util",
- "hex",
- "jsonc-parser",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "once_cell",
- "parking_lot",
- "quick-xml 0.38.4",
- "rand 0.8.7",
- "reqwest 0.12.28",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-deep-link",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-process",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tempfile",
- "thiserror 2.0.19",
- "tokio",
- "tokio-util",
- "toml_edit 0.22.27",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
- "winreg 0.52.0",
- "zip",
 ]
 
 [[package]]

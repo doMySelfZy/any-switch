@@ -1,10 +1,10 @@
 ---
 title: Introduction
-description: "XiaoBaiSwitch is site-first: wire an upstream API to Claude Code, Codex, Pi, and Prime."
+description: "AnySwitch is site-first: wire an upstream API to Claude Code, Codex, Pi, and Prime."
 order: 1
 ---
 
-**XiaoBaiSwitch** is a beginner-friendly desktop app for driving Claude Code, Codex, Pi, and Prime configuration from an upstream site.
+**AnySwitch** is a beginner-friendly desktop app for driving Claude Code, Codex, Pi, and Prime configuration from an upstream site.
 
 There is one main line:
 
@@ -19,11 +19,11 @@ The site is the single source of truth. Get the upstream right, then write each 
 - **Pi**: merges `~/.pi/agent/models.json`, `auth.json`, and `settings.json`
 - **Prime**: merges `~/.prime/agent/models.json`, `auth.json`, and `settings.json`
 
-App data lives in **`~/.xiaobai-switch/`** (not the OS application-support folder, and not Tauri’s `app_data_dir`):
+App data lives in **`~/.any-switch/`** (not the OS application-support folder, and not Tauri’s `app_data_dir`):
 
 ```text
-~/.xiaobai-switch/
-├── xiaobai-switch.db   # app state
+~/.any-switch/
+├── any-switch.db       # app state
 ├── master.key          # AES-256-GCM master key (mode 0600 on Unix)
 └── backups/            # pre-apply backups
 ```

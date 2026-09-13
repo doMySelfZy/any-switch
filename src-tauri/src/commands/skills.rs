@@ -1044,7 +1044,7 @@ fn validate_managed_installation(target: &Path, source_ref: &str) -> AppResult<(
     let manifest_path = target.join(INSTALL_MANIFEST);
     if !manifest_path.is_file() {
         return Err(validation_error(
-            "refusing to replace a skill directory not managed by XiaoBaiSwitch",
+            "refusing to replace a skill directory not managed by AnySwitch",
         ));
     }
     let manifest: InstallManifest = serde_json::from_slice(&fs::read(manifest_path)?)?;
@@ -1318,7 +1318,7 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    const VALID_SKILL: &str = "---\nname: demo\ndescription: Demo skill\nmetadata:\n  author: XiaoBai\n  version: 1.2.3\n---\n\n# Demo\n";
+    const VALID_SKILL: &str = "---\nname: demo\ndescription: Demo skill\nmetadata:\n  author: AnySwitch\n  version: 1.2.3\n---\n\n# Demo\n";
 
     fn write_skill(root: &Path, directory: &str) -> PathBuf {
         let skill_dir = root.join(directory);

@@ -1,10 +1,10 @@
 export const GITHUB_API_LATEST =
-  "https://api.github.com/repos/doMySelfZy/xiaobai-switch/releases/latest";
+  "https://api.github.com/repos/doMySelfZy/any-switch/releases/latest";
 
 export function githubReleaseApiUrl(tag?: string): string {
   const normalized = tag?.trim().replace(/^refs\/tags\//, "");
   if (!normalized) return GITHUB_API_LATEST;
-  return `https://api.github.com/repos/doMySelfZy/xiaobai-switch/releases/tags/${encodeURIComponent(normalized)}`;
+  return `https://api.github.com/repos/doMySelfZy/any-switch/releases/tags/${encodeURIComponent(normalized)}`;
 }
 
 export type AssetKind =
@@ -69,7 +69,7 @@ export async function loadLatestRelease(
   try {
     const headers: Record<string, string> = {
       Accept: "application/vnd.github+json",
-      "User-Agent": "xiaobai-switch-website",
+      "User-Agent": "any-switch-website",
     };
     if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch(url, { headers });

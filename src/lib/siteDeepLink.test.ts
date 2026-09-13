@@ -4,7 +4,7 @@ import { buildSiteDeepLink, parseSiteDeepLink } from "./siteDeepLink";
 describe("parseSiteDeepLink", () => {
   it("parses multi-route payload from repeated baseurls", () => {
     const payload = parseSiteDeepLink(
-      "xiaobaiswitch://sites?name=Example%20Relay&baseurls=https%3A%2F%2Fa.example.com%2Fv1&baseurls=https%3A%2F%2Fb.example.com%2Fv1&apikey=sk-test&protocol=openai_compatible&notes=hi",
+      "anyswitch://sites?name=Example%20Relay&baseurls=https%3A%2F%2Fa.example.com%2Fv1&baseurls=https%3A%2F%2Fb.example.com%2Fv1&apikey=sk-test&protocol=openai_compatible&notes=hi",
     );
     expect(payload).toEqual({
       name: "Example Relay",
@@ -20,7 +20,7 @@ describe("parseSiteDeepLink", () => {
 
   it("parses triple-slash sites URL", () => {
     const payload = parseSiteDeepLink(
-      "xiaobaiswitch:///sites?name=Claude&baseurls=https%3A%2F%2Fapi.anthropic.com&apikey=sk-ant&protocol=anthropic",
+      "anyswitch:///sites?name=Claude&baseurls=https%3A%2F%2Fapi.anthropic.com&apikey=sk-ant&protocol=anthropic",
     );
     expect(payload).toEqual({
       name: "Claude",
@@ -36,7 +36,7 @@ describe("parseSiteDeepLink", () => {
 
   it("accepts comma-separated baseurls", () => {
     const payload = parseSiteDeepLink(
-      "xiaobaiswitch://sites?name=xxx&baseurls=https://a.example.com,https://b.example.com",
+      "anyswitch://sites?name=xxx&baseurls=https://a.example.com,https://b.example.com",
     );
     expect(payload?.baseUrls).toEqual(["https://a.example.com", "https://b.example.com"]);
     expect(payload?.apiKey).toBeNull();
@@ -45,14 +45,14 @@ describe("parseSiteDeepLink", () => {
 
   it("accepts pipe-separated baseurls", () => {
     const payload = parseSiteDeepLink(
-      "xiaobaiswitch://sites?name=xxx&baseurls=https://a.example.com|https://b.example.com",
+      "anyswitch://sites?name=xxx&baseurls=https://a.example.com|https://b.example.com",
     );
     expect(payload?.baseUrls).toEqual(["https://a.example.com", "https://b.example.com"]);
   });
 
   it("merges baseurl and baseurls in query order", () => {
     const payload = parseSiteDeepLink(
-      "xiaobaiswitch://sites?name=Mix&baseurl=https://first.example.com&baseurls=https://second.example.com",
+      "anyswitch://sites?name=Mix&baseurl=https://first.example.com&baseurls=https://second.example.com",
     );
     expect(payload?.baseUrls).toEqual([
       "https://first.example.com",
@@ -63,12 +63,12 @@ describe("parseSiteDeepLink", () => {
   it("maps protocol aliases including AQBot type=", () => {
     expect(
       parseSiteDeepLink(
-        "xiaobaiswitch://sites?name=O&baseurls=https://a.example.com&type=openai",
+        "anyswitch://sites?name=O&baseurls=https://a.example.com&type=openai",
       )?.protocol,
     ).toBe("openai_compatible");
     expect(
       parseSiteDeepLink(
-        "xiaobaiswitch://sites?name=A&baseurls=https://a.example.com&protocol=anthropic",
+        "anyswitch://sites?name=A&baseurls=https://a.example.com&protocol=anthropic",
       )?.protocol,
     ).toBe("anthropic");
   });
@@ -80,18 +80,18 @@ describe("parseSiteDeepLink", () => {
       ),
     ).toBeNull();
     expect(parseSiteDeepLink("https://example.com")).toBeNull();
-    expect(parseSiteDeepLink("xiaobaiswitch://apply?name=x")).toBeNull();
-    expect(parseSiteDeepLink("xiaobaiswitch://sites?baseurls=https://a.example.com")).toBeNull();
+    expect(parseSiteDeepLink("anyswitch://apply?name=x")).toBeNull();
+    expect(parseSiteDeepLink("anyswitch://sites?baseurls=https://a.example.com")).toBeNull();
   });
 
   it("returns null for invalid routes or protocol", () => {
     expect(
-      parseSiteDeepLink("xiaobaiswitch://sites?name=x&baseurls=ftp://a.example.com"),
+      parseSiteDeepLink("anyswitch://sites?name=x&baseurls=ftp://a.example.com"),
     ).toBeNull();
-    expect(parseSiteDeepLink("xiaobaiswitch://sites?name=x")).toBeNull();
+    expect(parseSiteDeepLink("anyswitch://sites?name=x")).toBeNull();
     expect(
       parseSiteDeepLink(
-        "xiaobaiswitch://sites?name=x&baseurls=https://a.example.com&protocol=gemini",
+        "anyswitch://sites?name=x&baseurls=https://a.example.com&protocol=gemini",
       ),
     ).toBeNull();
   });
@@ -121,7 +121,7 @@ describe("parseSiteDeepLink", () => {
 
   it("parses Codex capability presets and fills missing known keys", () => {
     const payload = parseSiteDeepLink(
-      "xiaobaiswitch://sites?name=Relay&baseurls=https://a.example.com&codex-compact=1&codex-vision=1",
+      "anyswitch://sites?name=Relay&baseurls=https://a.example.com&codex-compact=1&codex-vision=1",
     );
     expect(payload?.hasCapabilityParams).toBe(true);
     expect(payload?.capabilities).toEqual({

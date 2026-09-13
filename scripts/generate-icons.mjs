@@ -46,7 +46,7 @@ function artworkInner() {
 
 function composeVectorSvg(clipInner, { x, y, size }) {
   const scale = size / 1024;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="XiaoBaiSwitch">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="AnySwitch">
   <defs><clipPath id="plate">${clipInner}</clipPath></defs>
   <g clip-path="url(#plate)">
     <g transform="translate(${x} ${y}) scale(${scale})">
@@ -112,7 +112,7 @@ writeFileSync(join(brandDir, "app-icon.svg"), buildMacVectorSvg());
 writeFileSync(join(brandDir, "app-icon-windows.svg"), buildWindowsVectorSvg());
 writeFileSync(join(publicDir, "favicon.svg"), buildMacVectorSvg());
 
-const tempRoot = mkdtempSync(join(tmpdir(), "xiaobai-switch-icons-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "any-switch-icons-"));
 const macSvg = join(tempRoot, "macos.svg");
 const windowsSvg = join(tempRoot, "windows.svg");
 const macIcons = join(tempRoot, "macos");

@@ -5,7 +5,7 @@ import {
   resetDeepLinkSession,
 } from "./deepLinkSession";
 
-const SCHEME = "xiaobaiswitch://sites?name=SchemeTest&baseurls=https://a.example.com";
+const SCHEME = "anyswitch://sites?name=SchemeTest&baseurls=https://a.example.com";
 
 describe("deepLinkSession", () => {
   afterEach(() => {
@@ -24,7 +24,7 @@ describe("deepLinkSession", () => {
 
   it("still delivers a different import link", () => {
     expect(consumeStartupDeepLinkUrls([SCHEME])).toEqual([SCHEME]);
-    const other = "xiaobaiswitch://sites?name=Other&baseurls=https://b.example.com";
+    const other = "anyswitch://sites?name=Other&baseurls=https://b.example.com";
     expect(consumeStartupDeepLinkUrls([other])).toEqual([other]);
   });
 });

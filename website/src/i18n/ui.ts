@@ -16,10 +16,10 @@ const zh = {
     langEn: "English",
   },
   seo: {
-    homeTitle: "XiaoBaiSwitch — 站点驱动的 Claude Code / Codex / Pi 配置切换",
+    homeTitle: "AnySwitch — 站点驱动的 Claude Code / Codex / Pi 配置切换",
     homeDescription:
-      "小白也能上手。填好上游 Base URL 与 API Key，拉取模型，一键应用到 Claude Code、Codex 或 Pi。",
-    downloadTitle: "下载 XiaoBaiSwitch",
+      "新手也能上手。填好上游 Base URL 与 API Key，拉取模型，一键应用到 Claude Code、Codex 或 Pi。",
+    downloadTitle: "下载 AnySwitch",
     downloadDescription: "下载 macOS 与 Windows 安装包，开始配置 Claude Code、Codex 和 Pi 上游站点。",
     docsTitle: "使用文档",
     docsDescription: "从安装、快速开始到站点、模型、应用中心与安全说明。",
@@ -27,7 +27,7 @@ const zh = {
     notFoundDescription: "这个地址没有对应的页面。",
   },
   hero: {
-    title: "小白也能上手的 Claude Code / Codex / Pi 上游配置",
+    title: "新手也能上手的 Claude Code / Codex / Pi 上游配置",
     subtitle:
       "以站点为中心：填好 Base URL 和 API Key，拉取或手输模型，再分别应用到 Claude Code、Codex 或 Pi。",
     ctaDownload: "下载应用",
@@ -60,7 +60,7 @@ const zh = {
     backups: "配置备份",
     backupsd: "应用前自动备份，可在应用中心还原。",
     links: "链接导入",
-    linksd: "xiaobaiswitch:// 一键导入站点，不会自动应用到工具。",
+    linksd: "anyswitch:// 一键导入站点，不会自动应用到工具。",
     keys: "密钥加密",
     keysd: "API Key 在应用内加密存储，界面只显示前缀。",
     desktop: "桌面体验",
@@ -144,10 +144,10 @@ const en: typeof zh = {
     langEn: "English",
   },
   seo: {
-    homeTitle: "XiaoBaiSwitch — site-driven Claude Code / Codex / Pi config",
+    homeTitle: "AnySwitch — site-driven Claude Code / Codex / Pi config",
     homeDescription:
       "Beginner-friendly desktop app: enter an upstream Base URL and API key, fetch models, then apply to Claude Code, Codex, or Pi.",
-    downloadTitle: "Download XiaoBaiSwitch",
+    downloadTitle: "Download AnySwitch",
     downloadDescription:
       "Get the macOS and Windows installers and start wiring Claude Code, Codex, and Pi to an upstream site.",
     docsTitle: "Documentation",
@@ -190,7 +190,7 @@ const en: typeof zh = {
     backups: "Backups",
     backupsd: "Configs are backed up before apply, and can be restored in Apply Center.",
     links: "Link import",
-    linksd: "Import a site with xiaobaiswitch:// ; it is not applied to tools automatically.",
+    linksd: "Import a site with anyswitch:// ; it is not applied to tools automatically.",
     keys: "Encrypted keys",
     keysd: "API keys are encrypted in the app; the UI only shows a prefix.",
     desktop: "Desktop extras",

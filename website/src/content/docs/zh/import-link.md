@@ -1,10 +1,10 @@
 ---
 title: 链接导入
-description: "用 xiaobaiswitch:// 导入站点；导入不会自动应用到 Claude Code、Codex 或 Pi。"
+description: "用 anyswitch:// 导入站点；导入不会自动应用到 Claude Code、Codex 或 Pi。"
 order: 10
 ---
 
-安装桌面端后，浏览器或其它应用可以打开 `xiaobaiswitch://` 链接，拉起 XiaoBaiSwitch 并导入上游站点。**导入不会自动应用到工具**，需在应用中心手动确认。
+安装桌面端后，浏览器或其它应用可以打开 `anyswitch://` 链接，拉起 AnySwitch 并导入上游站点。**导入不会自动应用到工具**，需在应用中心手动确认。
 
 1. 安装并打开桌面端
 2. 点击导入链接，应用会切到站点页并弹出确认框
@@ -24,7 +24,7 @@ order: 10
 ## 链接格式
 
 ```text
-xiaobaiswitch://sites?name=<name>&baseurls=<url>[&baseurls=<url>…][&apikey=<key>][&protocol=openai_compatible|anthropic][&notes=<notes>][&codex-compact=1][&codex-vision=1][&codex-imagegen=1][&codex-search=1]
+anyswitch://sites?name=<name>&baseurls=<url>[&baseurls=<url>…][&apikey=<key>][&protocol=openai_compatible|anthropic][&notes=<notes>][&codex-compact=1][&codex-vision=1][&codex-imagegen=1][&codex-search=1]
 ```
 
 | 参数 | 必填 | 说明 |
@@ -46,7 +46,7 @@ xiaobaiswitch://sites?name=<name>&baseurls=<url>[&baseurls=<url>…][&apikey=<ke
 第一项是当前 / 默认线路。推荐重复写 `baseurls`，避免 URL 本身带逗号时被拆错：
 
 ```text
-xiaobaiswitch://sites?name=Example%20Relay&baseurls=https://a.example.com/v1&baseurls=https://b.example.com/v1&protocol=openai_compatible
+anyswitch://sites?name=Example%20Relay&baseurls=https://a.example.com/v1&baseurls=https://b.example.com/v1&protocol=openai_compatible
 ```
 
 也接受写在同一个参数里，用逗号或 `|` 分隔。`baseurl` 和 `baseurls` 可以混用，按查询串出现顺序合并。

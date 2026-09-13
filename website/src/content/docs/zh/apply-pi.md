@@ -8,7 +8,7 @@ order: 8
 
 ## 写入内容
 
-XiaoBaiSwitch 使用 Pi 官方配置接口，不安装 extension：
+AnySwitch 使用 Pi 官方配置接口，不安装 extension：
 
 - `models.json`：写入一个 `xiaobai_` Provider、Base URL、协议和模型列表
 - `auth.json`：写入对应 API Key
@@ -24,11 +24,11 @@ XiaoBaiSwitch 使用 Pi 官方配置接口，不安装 extension：
 
 ## 保留与单活
 
-Pi 中同时只保留一个 XiaoBaiSwitch 管理的 Provider。切换站点只替换 `xiaobai_` 命名空间；其他自定义 Provider、OAuth 登录、注释、尾逗号和未知设置都会保留。
+Pi 中同时只保留一个 AnySwitch 管理的 Provider。切换站点只替换 `xiaobai_` 命名空间；其他自定义 Provider、OAuth 登录、注释、尾逗号和未知设置都会保留。
 
 全局默认值可能被项目级 `.pi/settings.json`、CLI 参数或恢复会话覆盖，这不会让受管 Provider 变成过期状态。
 
-## 移除 XiaoBai 配置
+## 移除 AnySwitch 配置
 
 此操作只删除受管 Provider 和对应凭据。当 Pi 当前默认值仍指向它时，应用才恢复首次写入前保存的默认值，避免覆盖用户后来在 Pi 中做出的选择。
 

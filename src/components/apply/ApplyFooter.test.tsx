@@ -133,7 +133,7 @@ describe("ApplyFooter", () => {
       </Wrapper>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "移除 XiaoBai 配置" }));
+    fireEvent.click(screen.getByRole("button", { name: "移除 AnySwitch 配置" }));
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent("其他自定义 Provider、OAuth 登录与未知设置都会保留");
     fireEvent.click(within(dialog).getByRole("button", { name: "移除配置" }));
@@ -154,7 +154,7 @@ describe("ApplyFooter", () => {
       </Wrapper>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "移除 XiaoBai 配置" }));
+    fireEvent.click(screen.getByRole("button", { name: "移除 AnySwitch 配置" }));
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent("~/.prime/agent/auth.json");
     fireEvent.click(within(dialog).getByRole("button", { name: "移除配置" }));

@@ -3,19 +3,19 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>XiaoBaiSwitch</string>
+  <string>AnySwitch</string>
   <key>CFBundleDisplayName</key>
-  <string>XiaoBaiSwitch</string>
+  <string>AnySwitch</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>
       <key>CFBundleTypeRole</key>
       <string>Editor</string>
       <key>CFBundleURLName</key>
-      <string>com.github.licoy.xiaobai-switch.app</string>
+      <string>com.domyselfzy.any-switch.app</string>
       <key>CFBundleURLSchemes</key>
       <array>
-        <string>xiaobaiswitch</string>
+        <string>anyswitch</string>
       </array>
     </dict>
   </array>

@@ -6,7 +6,7 @@ order: 14
 
 ## macOS says the app is damaged
 
-See [Install](../install/). Run `xattr -cr /Applications/XiaoBaiSwitch.app`, then right-click Open.
+See [Install](../install/). Run `xattr -cr /Applications/AnySwitch.app`, then right-click Open.
 
 ## Apply succeeded, but the CLI still uses the old URL
 
@@ -24,6 +24,10 @@ No. Import only creates or updates a site. You still apply in Apply Center.
 
 Current releases are macOS and Windows.
 
+## Should I uninstall the old XiaoBaiSwitch after upgrading?
+
+Yes. The old build may still be launched at login; running both versions writes the same target CLI configs while each keeps independent sync bookkeeping, so stale data can be uploaded by the old build and pulled back by the new one. Uninstall it or at least turn off its launch-at-login. Rollback is asymmetric too: new backups use the `any-switch-backup-*` prefix, which the old build does not recognize — restore new backups inside AnySwitch.
+
 ## What is the official site URL?
 
-[https://xiaobaiswitch.com](https://xiaobaiswitch.com) (GitHub Pages custom domain). Docs live at `/docs/`; English at `/en/`.
+[https://any-switch.example.com](https://any-switch.example.com) (GitHub Pages custom domain). Docs live at `/docs/`; English at `/en/`.

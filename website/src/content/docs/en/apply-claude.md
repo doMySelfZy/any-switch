@@ -33,7 +33,7 @@ Map Claude Code’s built-in **fable / opus / sonnet / haiku** aliases to model 
 
 Effort is written to the top-level `effortLevel` field. The persistent choices are Low, Medium, High, and Extra High (`xhigh`). This does not lock Claude Code’s interactive selector: `/effort` can change and save supported levels. `max` is session-only and is not persisted.
 
-When an older configuration is reapplied, XiaoBaiSwitch migrates its binding and removes the legacy `ANTHROPIC_MODEL` and `CLAUDE_CODE_EFFORT_LEVEL` entries from `settings.json`. It does not remove variables with the same names that the user set in a shell or another external environment.
+When an older configuration is reapplied, AnySwitch migrates its binding and removes the legacy `ANTHROPIC_MODEL` and `CLAUDE_CODE_EFFORT_LEVEL` entries from `settings.json`. It does not remove variables with the same names that the user set in a shell or another external environment.
 
 ## After apply
 

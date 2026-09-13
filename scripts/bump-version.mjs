@@ -36,7 +36,7 @@ if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) {
 const jsonFiles = ['package.json', 'src-tauri/tauri.conf.json'];
 const cargoToml = 'src-tauri/Cargo.toml';
 const cargoLock = 'src-tauri/Cargo.lock';
-const cargoPackage = 'xiaobai-switch';
+const cargoPackage = 'any-switch';
 const allFiles = [...jsonFiles, cargoToml, cargoLock];
 const tag = `v${version}`;
 

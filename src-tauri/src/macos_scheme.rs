@@ -15,7 +15,7 @@ pub fn parse_pending_deep_link_file(raw: &str) -> Option<String> {
     if url.is_empty() || url.len() > MAX_PENDING_LEN {
         return None;
     }
-    if !url.starts_with("xiaobaiswitch:") {
+    if !url.starts_with("anyswitch:") {
         return None;
     }
     Some(url.to_string())
@@ -37,15 +37,15 @@ pub fn install_dev_url_handler() -> AppResult<PathBuf> {
     ensure_app_dirs()?;
     let apps = home_dir()?.join("Applications");
     fs::create_dir_all(&apps)?;
-    let dest = apps.join("XiaoBaiSwitch Dev.app");
+    let dest = apps.join("AnySwitch Dev.app");
 
     let script = r#"on open location theURL
-	set dest to (POSIX path of (path to home folder)) & ".xiaobai-switch/pending-deeplink.url"
-	do shell script "mkdir -p \"$HOME/.xiaobai-switch\" && umask 077 && printf '%s' " & quoted form of theURL & " > " & quoted form of dest & ".tmp && mv " & quoted form of dest & ".tmp " & quoted form of dest
+	set dest to (POSIX path of (path to home folder)) & ".any-switch/pending-deeplink.url"
+	do shell script "mkdir -p \"$HOME/.any-switch\" && umask 077 && printf '%s' " & quoted form of theURL & " > " & quoted form of dest & ".tmp && mv " & quoted form of dest & ".tmp " & quoted form of dest
 end open location
 "#;
 
-    let tmp = std::env::temp_dir().join("XiaoBaiSwitch-Dev-url-handler.applescript");
+    let tmp = std::env::temp_dir().join("AnySwitch-Dev-url-handler.applescript");
     fs::write(&tmp, script)?;
 
     if dest.exists() {
@@ -71,7 +71,7 @@ end open location
     let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
     let _ = Command::new(lsregister).arg("-f").arg(&dest).status();
 
-    tracing::info!("registered xiaobaiswitch:// via {}", dest.display());
+    tracing::info!("registered anyswitch:// via {}", dest.display());
     Ok(dest)
 }
 
@@ -101,26 +101,26 @@ fn patch_handler_info_plist(info: &PathBuf) -> AppResult<()> {
         true,
     )?;
     run(
-        "Add :CFBundleURLTypes:0:CFBundleURLName string com.domyselfzy.xiaobai-switch.url-handler",
+        "Add :CFBundleURLTypes:0:CFBundleURLName string com.domyselfzy.any-switch.url-handler",
         true,
     )?;
     run("Add :CFBundleURLTypes:0:CFBundleURLSchemes array", true)?;
     run(
-        "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string xiaobaiswitch",
+        "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string anyswitch",
         true,
     )?;
     let _ = run(
-        "Set :CFBundleIdentifier com.domyselfzy.xiaobai-switch.url-handler",
+        "Set :CFBundleIdentifier com.domyselfzy.any-switch.url-handler",
         false,
     );
     let _ = run(
-        "Add :CFBundleIdentifier string com.domyselfzy.xiaobai-switch.url-handler",
+        "Add :CFBundleIdentifier string com.domyselfzy.any-switch.url-handler",
         false,
     );
-    let _ = run("Set :CFBundleName XiaoBaiSwitch Dev", false);
-    let _ = run("Add :CFBundleName string XiaoBaiSwitch Dev", false);
-    let _ = run("Set :CFBundleDisplayName XiaoBaiSwitch Dev", false);
-    let _ = run("Add :CFBundleDisplayName string XiaoBaiSwitch Dev", false);
+    let _ = run("Set :CFBundleName AnySwitch Dev", false);
+    let _ = run("Add :CFBundleName string AnySwitch Dev", false);
+    let _ = run("Set :CFBundleDisplayName AnySwitch Dev", false);
+    let _ = run("Add :CFBundleDisplayName string AnySwitch Dev", false);
     Ok(())
 }
 
@@ -132,10 +132,10 @@ mod tests {
     fn parse_pending_accepts_scheme_only() {
         assert_eq!(
             parse_pending_deep_link_file(
-                "  xiaobaiswitch://sites?name=A&baseurls=https://a.example.com  \n"
+                "  anyswitch://sites?name=A&baseurls=https://a.example.com  \n"
             )
             .as_deref(),
-            Some("xiaobaiswitch://sites?name=A&baseurls=https://a.example.com")
+            Some("anyswitch://sites?name=A&baseurls=https://a.example.com")
         );
     }
 

@@ -64,7 +64,17 @@ jobs:
       - name: Check Pages custom domain
         run: |
           test -f dist/CNAME
-          grep -qx 'xiaobaiswitch.com' dist/CNAME
+          domain="$(tr -d '[:space:]' < dist/CNAME)"
+          # A placeholder domain would claim a reserved hostname for GitHub Pages
+          # (breaking both github.io and the custom domain), so fail loudly here
+          # instead of deploying a site that looks green in CI.
+          case "$domain" in
+            ""|*.example.com|example.com|*.example|*.test|*.invalid)
+              echo "::error::website/public/CNAME is still a placeholder ('$domain'). Replace it with the real AnySwitch domain (see website/README.md) before deploying GitHub Pages."
+              exit 1
+              ;;
+          esac
+          echo "Pages custom domain: $domain"
           test -f dist/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'

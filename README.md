@@ -3,14 +3,14 @@
 </p>
 
 <p align="center">
-  <img src="assets/brand/app-icon-1024.png" alt="XiaoBaiSwitch" width="160" height="160">
+  <img src="assets/brand/app-icon-1024.png" alt="AnySwitch" width="160" height="160">
 </p>
 
-# XiaoBaiSwitch
+# AnySwitch
 
-官网：[https://xiaobaiswitch.com](https://xiaobaiswitch.com)
+官网：待定（占位，需替换为 AnySwitch 自有域名；原站点域名属于上游原作者）
 
-小白也能上手的，以站点驱动的 Claude Code / Codex / Pi 上游配置桌面应用。
+新手也能上手的，以站点驱动的 Claude Code / Codex / Pi 上游配置桌面应用。
 
 以「上游站点」为中心：填好 Base URL 与 API Key，拉取或手输模型，再一键应用到 Claude Code、Codex 或 Pi。
 
@@ -21,7 +21,7 @@
 - **应用中心**：分别为 Claude Code、Codex、Pi 选择站点、模型与目标选项后写入
 - **线路切换**：切换后可同步已应用到工具里的地址
 - **配置备份**：应用前自动备份，可在应用中心还原
-- **链接导入**：通过 `xiaobaiswitch://` 链接一键导入站点，不会自动应用到工具
+- **链接导入**：通过 `anyswitch://` 链接一键导入站点，不会自动应用到工具
 - **桌面体验**：托盘常驻、开机启动、浅色 / 深色主题、简体中文与 English
 
 ## 软件截图
@@ -43,7 +43,7 @@
 
 ## 从链接导入站点
 
-安装桌面端后，浏览器或其它应用可以打开 `xiaobaiswitch://` 链接，拉起 XiaoBaiSwitch 并导入上游站点；导入不会自动应用到 Claude Code / Codex / Pi，需在应用中心手动确认。
+安装桌面端后，浏览器或其它应用可以打开 `anyswitch://` 链接，拉起 AnySwitch 并导入上游站点；导入不会自动应用到 Claude Code / Codex / Pi，需在应用中心手动确认。
 
 1. 安装并打开桌面端
 2. 点击导入链接，应用会切到站点页并弹出确认框
@@ -55,7 +55,7 @@
 ### 链接格式
 
 ```text
-xiaobaiswitch://sites?name=<name>&baseurls=<url>[&baseurls=<url>…][&apikey=<key>][&protocol=openai_compatible|anthropic][&notes=<notes>][&codex-compact=1][&codex-vision=1][&codex-imagegen=1][&codex-search=1]
+anyswitch://sites?name=<name>&baseurls=<url>[&baseurls=<url>…][&apikey=<key>][&protocol=openai_compatible|anthropic][&notes=<notes>][&codex-compact=1][&codex-vision=1][&codex-imagegen=1][&codex-search=1]
 ```
 
 | 参数 | 必填 | 说明 |
@@ -77,35 +77,45 @@ xiaobaiswitch://sites?name=<name>&baseurls=<url>[&baseurls=<url>…][&apikey=<ke
 第一项是当前 / 默认线路；推荐重复写 `baseurls`，避免 URL 本身带逗号时被拆错：
 
 ```text
-xiaobaiswitch://sites?name=Example%20Relay&baseurls=https://a.example.com/v1&baseurls=https://b.example.com/v1&apikey=sk-xxx&protocol=openai_compatible
+anyswitch://sites?name=Example%20Relay&baseurls=https://a.example.com/v1&baseurls=https://b.example.com/v1&apikey=sk-xxx&protocol=openai_compatible
 ```
 
 也接受写在同一个参数里，用逗号或 `|` 分隔：
 
 ```text
-xiaobaiswitch://sites?name=Example&baseurls=https://a.example.com/v1,https://b.example.com/v1
-xiaobaiswitch://sites?name=Example&baseurls=https://a.example.com/v1|https://b.example.com/v1
+anyswitch://sites?name=Example&baseurls=https://a.example.com/v1,https://b.example.com/v1
+anyswitch://sites?name=Example&baseurls=https://a.example.com/v1|https://b.example.com/v1
 ```
 
 `baseurl` 和 `baseurls` 可以混用，按查询串出现顺序合并：
 
 ```text
-xiaobaiswitch://sites?name=Mix&baseurl=https://first.example.com/v1&baseurls=https://second.example.com/v1
+anyswitch://sites?name=Mix&baseurl=https://first.example.com/v1&baseurls=https://second.example.com/v1
 ```
 
 URL 中携带 API Key 可能被浏览器历史、扩展或系统日志记录，不要把真实密钥写在公开页面；推荐登录后的私有后台按需生成，或省略 `apikey` 让用户在应用内补全。
 
 ## 下载与安装
 
-支持 macOS（Apple Silicon / Intel）与 Windows（x64 / ARM64），请到 [Releases](https://github.com/doMySelfZy/xiaobai-switch/releases) 下载对应安装包。
+支持 macOS（Apple Silicon / Intel）与 Windows（x64 / ARM64），请到 [Releases](https://github.com/doMySelfZy/any-switch/releases) 下载对应安装包。
 
 macOS 安装包是 ad-hoc 签名（未使用 Apple Developer ID，也未公证）；浏览器下载后，系统可能提示「已损坏」——这是隔离属性，不是文件坏了，**「隐私与安全性」不会出现「仍要打开」**；把应用拖到「应用程序」后执行：
 
 ```bash
-xattr -cr /Applications/XiaoBaiSwitch.app
+xattr -cr /Applications/AnySwitch.app
 ```
 
 然后右键点应用 → 打开。
+
+## 从 XiaoBaiSwitch 升级
+
+AnySwitch 是 XiaoBaiSwitch 的延续版本，升级后首次启动会自动把数据从 `~/.xiaobai-switch/` 复制迁移到 `~/.any-switch/`（含站点、API Key、历史备份），并校验数据库与 `master.key`。**旧目录会原样保留**；确认新版本稳定后可以自行删除。历史备份、WebDAV 同步与已应用到 Claude Code / Codex / Pi / Prime 的配置都会被识别，无需重新配置。
+
+> **升级后请卸载或停用旧版 XiaoBaiSwitch**（尤其是关闭开机自启）。两版并行会导致两者写同一套目标 CLI 配置，而各自的 WebDAV 同步各自记账：可能出现「旧版把过期数据上传 → 新版又拉回旧数据」的反复覆盖，或目标配置在新旧状态间来回跳。
+>
+> **回滚不再对称**：新版生成的备份文件名是 `any-switch-backup-*`，旧版只认 `xiaobai-switch-backup-*`，因此旧版看不到新版备份，也无法恢复它们。需要回滚到某个新版备份时，请在 AnySwitch 内操作；旧版本只能读旧目录与旧前缀备份。
+
+> 深链协议随品牌变更为 `anyswitch://`，旧的 `xiaobaiswitch://` 链接不再生效。
 
 ## 致谢
 
@@ -119,7 +129,7 @@ xattr -cr /Applications/XiaoBaiSwitch.app
 
 API Key 在应用内加密存储；编辑站点时会按需解密到默认隐藏的密码输入框。应用后可能以明文写入 Claude Code 配置、Codex 环境、`~/.pi/agent/auth.json` 或 `~/.prime/agent/auth.json`，请勿把这些配置同步到不可信云盘。
 
-Pi 与 Prime 使用官方 `models.json`、`auth.json`、`settings.json` 接口。XiaoBaiSwitch 仅管理 `xiaobai_` Provider，保留其他自定义 Provider、OAuth 登录和未知设置；可选择只写默认模型或写入站点全部模型。Prime 默认写入 `~/.prime/agent`，不要写到 `~/.pi/agent`。
+Pi 与 Prime 使用官方 `models.json`、`auth.json`、`settings.json` 接口。AnySwitch 仅管理 `xiaobai_` Provider，保留其他自定义 Provider、OAuth 登录和未知设置；可选择只写默认模型或写入站点全部模型。Prime 默认写入 `~/.prime/agent`，不要写到 `~/.pi/agent`。
 
 ## 社区支持
 - [LinuxDO](https://linux.do)

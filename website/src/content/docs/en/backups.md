@@ -4,7 +4,7 @@ description: Target configs are backed up before apply and can be previewed, res
 order: 11
 ---
 
-Before writing Claude Code, Codex, Pi, or Prime, the app copies the current target files into `~/.xiaobai-switch/backups/`. Each target has a separate directory; Pi and Prime back up `models.json`, `auth.json`, and `settings.json` together.
+Before writing Claude Code, Codex, Pi, or Prime, the app copies the current target files into `~/.any-switch/backups/`. Each target has a separate directory; Pi and Prime back up `models.json`, `auth.json`, and `settings.json` together.
 
 ## In Apply Center
 

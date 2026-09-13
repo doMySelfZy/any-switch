@@ -114,7 +114,7 @@ function githubHeaders(token, accept) {
   return {
     accept,
     authorization: `Bearer ${token}`,
-    "user-agent": "xiaobai-switch-release-workflow",
+    "user-agent": "any-switch-release-workflow",
     "x-github-api-version": "2022-11-28",
   };
 }

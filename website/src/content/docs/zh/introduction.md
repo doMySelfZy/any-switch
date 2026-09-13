@@ -1,10 +1,10 @@
 ---
 title: 简介
-description: XiaoBaiSwitch 以站点为中心，把上游 API 接到 Claude Code、Codex、Pi 和 Prime。
+description: AnySwitch 以站点为中心，把上游 API 接到 Claude Code、Codex、Pi 和 Prime。
 order: 1
 ---
 
-**XiaoBaiSwitch** 是一个桌面应用：小白也能上手，用「上游站点」驱动 Claude Code、Codex、Pi 和 Prime 的配置。
+**AnySwitch** 是一个桌面应用：新手也能上手，用「上游站点」驱动 Claude Code、Codex、Pi 和 Prime 的配置。
 
 领域上只有一条主线：
 
@@ -19,11 +19,11 @@ order: 1
 - **Pi**：合并 `~/.pi/agent/models.json`、`auth.json` 与 `settings.json`
 - **Prime**：合并 `~/.prime/agent/models.json`、`auth.json` 与 `settings.json`
 
-应用数据在 **`~/.xiaobai-switch/`**（不是系统「应用支持」目录，也不是 Tauri 的 `app_data_dir`）：
+应用数据在 **`~/.any-switch/`**（不是系统「应用支持」目录，也不是 Tauri 的 `app_data_dir`）：
 
 ```text
-~/.xiaobai-switch/
-├── xiaobai-switch.db   # 应用状态
+~/.any-switch/
+├── any-switch.db       # 应用状态
 ├── master.key          # AES-256-GCM 主密钥（Unix 上权限 0600）
 └── backups/            # 应用前备份
 ```

@@ -1,10 +1,10 @@
 ---
 title: Import from a link
-description: "Import a site with xiaobaiswitch:// ; import does not apply to Claude Code, Codex, or Pi automatically."
+description: "Import a site with anyswitch:// ; import does not apply to Claude Code, Codex, or Pi automatically."
 order: 10
 ---
 
-After the desktop app is installed, a browser or another app can open a `xiaobaiswitch://` link to launch XiaoBaiSwitch and import an upstream site. **Import does not apply to tools automatically**; confirm in Apply Center yourself.
+After the desktop app is installed, a browser or another app can open a `anyswitch://` link to launch AnySwitch and import an upstream site. **Import does not apply to tools automatically**; confirm in Apply Center yourself.
 
 1. Install and open the desktop app
 2. Click the import link; the app switches to Sites and shows a confirm dialog
@@ -24,7 +24,7 @@ The same protocol plus the same set of routes (order does not matter) counts as 
 ## Link format
 
 ```text
-xiaobaiswitch://sites?name=<name>&baseurls=<url>[&baseurls=<url>…][&apikey=<key>][&protocol=openai_compatible|anthropic][&notes=<notes>][&codex-compact=1][&codex-vision=1][&codex-imagegen=1][&codex-search=1]
+anyswitch://sites?name=<name>&baseurls=<url>[&baseurls=<url>…][&apikey=<key>][&protocol=openai_compatible|anthropic][&notes=<notes>][&codex-compact=1][&codex-vision=1][&codex-imagegen=1][&codex-search=1]
 ```
 
 | Parameter | Required | Description |
@@ -46,7 +46,7 @@ Aliases: `baseurl` = `baseurls`, `type=openai` / `type=anthropic` = `protocol`. 
 The first item is the current / default route. Prefer repeating `baseurls` so a URL that contains a comma is not split by mistake:
 
 ```text
-xiaobaiswitch://sites?name=Example%20Relay&baseurls=https://a.example.com/v1&baseurls=https://b.example.com/v1&protocol=openai_compatible
+anyswitch://sites?name=Example%20Relay&baseurls=https://a.example.com/v1&baseurls=https://b.example.com/v1&protocol=openai_compatible
 ```
 
 A single parameter also works, separated by commas or `|`. `baseurl` and `baseurls` can be mixed and are merged in query-string order.

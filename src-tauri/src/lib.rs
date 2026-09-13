@@ -114,7 +114,7 @@ pub fn run() {
             #[cfg(all(target_os = "macos", debug_assertions))]
             {
                 if let Err(e) = macos_scheme::install_dev_url_handler() {
-                    tracing::warn!("failed to register macOS xiaobaiswitch:// handler: {e}");
+                    tracing::warn!("failed to register macOS anyswitch:// handler: {e}");
                 }
             }
             Ok(())
@@ -207,7 +207,7 @@ pub fn run() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("error while building XiaoBaiSwitch")
+        .expect("error while building AnySwitch")
         .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { api, .. } = &event {
                 let state = app.state::<AppState>();

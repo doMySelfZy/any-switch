@@ -17,7 +17,7 @@ export interface SiteDeepLinkPayload {
   keyName: string | null;
 }
 
-export const SITE_DEEP_LINK_SCHEME = "xiaobaiswitch:";
+export const SITE_DEEP_LINK_SCHEME = "anyswitch:";
 export const SITE_DEEP_LINK_TARGET = "sites";
 export const MAX_SITE_DEEP_LINK_NAME = 128;
 export const MAX_SITE_DEEP_LINK_NOTES = 2000;
@@ -108,7 +108,7 @@ export function buildSiteDeepLink(payload: SiteDeepLinkPayload): string {
   if (payload.hasCapabilityParams) {
     appendCapabilitiesToSearchParams(params, payload.capabilities);
   }
-  return `xiaobaiswitch://sites?${params.toString()}`;
+  return `anyswitch://sites?${params.toString()}`;
 }
 
 export function getSiteDeepLinkKeyPrefix(apiKey: string | null): string {

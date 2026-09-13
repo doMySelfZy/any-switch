@@ -131,6 +131,7 @@ CREATE TABLE IF NOT EXISTS webdav_config (
   base_url TEXT NOT NULL,
   username TEXT NOT NULL,
   password_encrypted TEXT NOT NULL,
+  -- 远端目录名是跨机同步的内部协议路径，与 manifest 文件名绑定：保持旧值以兼容既有机器。
   remote_path TEXT NOT NULL DEFAULT 'xiaobai-switch',
   accept_invalid_certs INTEGER NOT NULL DEFAULT 0,
   auto_sync_enabled INTEGER NOT NULL DEFAULT 0,
@@ -582,7 +583,7 @@ fn maybe_backup(conn: &Connection, mode: BackupMode) -> AppResult<()> {
 fn backup_pre_migration(conn: &Connection) -> AppResult<()> {
     let dest_dir = app_backups_dir()?.join("pre_migration_site_api_keys");
     fs::create_dir_all(&dest_dir)?;
-    let dest_db = dest_dir.join("xiaobai-switch.db");
+    let dest_db = dest_dir.join("any-switch.db");
     if dest_db.exists() {
         fs::remove_file(&dest_db)?;
     }

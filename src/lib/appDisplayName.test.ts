@@ -6,25 +6,25 @@ import zh from "@/i18n/locales/zh-CN.json";
 import { APP_NAME } from "./constants";
 
 const root = resolve(import.meta.dirname, "../..");
-const DISPLAY_NAME = "XiaoBaiSwitch";
+const DISPLAY_NAME = "AnySwitch";
 
 function readRepoFile(rel: string): string {
   return readFileSync(resolve(root, rel), "utf8");
 }
 
 describe("user-facing app display name", () => {
-  it("is XiaoBaiSwitch in UI constants and i18n", () => {
+  it("is AnySwitch in UI constants and i18n", () => {
     expect(APP_NAME).toBe(DISPLAY_NAME);
     expect(zh.app.name).toBe(DISPLAY_NAME);
     expect(en.app.name).toBe(DISPLAY_NAME);
   });
 
-  it("is XiaoBaiSwitch in HTML / README titles", () => {
-    expect(readRepoFile("index.html")).toMatch(/<title>XiaoBaiSwitch<\/title>/);
-    expect(readRepoFile("README.md")).toMatch(/^# XiaoBaiSwitch$/m);
+  it("is AnySwitch in HTML / README titles", () => {
+    expect(readRepoFile("index.html")).toMatch(/<title>AnySwitch<\/title>/);
+    expect(readRepoFile("README.md")).toMatch(/^# AnySwitch$/m);
   });
 
-  it("is XiaoBaiSwitch in Tauri window, bundle, and binary metadata", () => {
+  it("is AnySwitch in Tauri window, bundle, and binary metadata", () => {
     const tauri = JSON.parse(readRepoFile("src-tauri/tauri.conf.json")) as {
       productName: string;
       mainBinaryName: string;
@@ -42,21 +42,21 @@ describe("user-facing app display name", () => {
     expect(windows.app.windows[0]?.title).toBe(DISPLAY_NAME);
   });
 
-  it("uses XiaoBaiSwitch as the cargo binary while keeping kebab-case crate identity", () => {
+  it("uses AnySwitch as the cargo binary while keeping kebab-case crate identity", () => {
     const cargo = readRepoFile("src-tauri/Cargo.toml");
-    expect(cargo).toMatch(/^name = "xiaobai-switch"$/m);
-    expect(cargo).toMatch(/^default-run = "XiaoBaiSwitch"$/m);
+    expect(cargo).toMatch(/^name = "any-switch"$/m);
+    expect(cargo).toMatch(/^default-run = "AnySwitch"$/m);
     const binSection = cargo.split("[[bin]]")[1] ?? "";
-    expect(binSection).toMatch(/^name = "XiaoBaiSwitch"$/m);
+    expect(binSection).toMatch(/^name = "AnySwitch"$/m);
   });
 
-  it("declares XiaoBaiSwitch as the macOS Finder / menu bar name", () => {
+  it("declares AnySwitch as the macOS Finder / menu bar name", () => {
     const plist = readRepoFile("src-tauri/Info.plist");
     expect(plist).toMatch(
-      /<key>CFBundleName<\/key>\s*<string>XiaoBaiSwitch<\/string>/,
+      /<key>CFBundleName<\/key>\s*<string>AnySwitch<\/string>/,
     );
     expect(plist).toMatch(
-      /<key>CFBundleDisplayName<\/key>\s*<string>XiaoBaiSwitch<\/string>/,
+      /<key>CFBundleDisplayName<\/key>\s*<string>AnySwitch<\/string>/,
     );
   });
 });

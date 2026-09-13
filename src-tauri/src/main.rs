@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    xiaobai_switch_lib::run();
+    any_switch_lib::run();
 }

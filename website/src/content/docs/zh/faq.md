@@ -6,7 +6,7 @@ order: 14
 
 ## macOS 说应用已损坏
 
-见 [安装](../install/)。执行 `xattr -cr /Applications/XiaoBaiSwitch.app` 后右键打开。
+见 [安装](../install/)。执行 `xattr -cr /Applications/AnySwitch.app` 后右键打开。
 
 ## 应用成功了，CLI 还是旧地址
 
@@ -24,6 +24,10 @@ order: 14
 
 当前发布包是 macOS 与 Windows。
 
+## 升级后需要卸载旧版 XiaoBaiSwitch 吗？
+
+需要。旧版可能仍被开机自启拉起，两版并行会写同一套目标 CLI 配置且各自持有独立同步记账，可能出现「旧版把过期数据上传、新版又拉回」的反复覆盖。请卸载旧版或至少关闭它的开机自启。另外回滚不再对称：新版备份前缀是 `any-switch-backup-*`，旧版只认旧前缀、看不到新版备份，要回滚新版备份请在 AnySwitch 内操作。
+
 ## 官网地址是什么？
 
-[https://xiaobaiswitch.com](https://xiaobaiswitch.com)（GitHub Pages 自定义域名）。文档在 `/docs/`，英文在 `/en/`。
+[https://any-switch.example.com](https://any-switch.example.com)（GitHub Pages 自定义域名）。文档在 `/docs/`，英文在 `/en/`。

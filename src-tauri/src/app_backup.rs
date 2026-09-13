@@ -13,8 +13,15 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use zip::write::SimpleFileOptions;
 
-pub const BACKUP_PREFIX: &str = "xiaobai-switch-backup-";
+/// 新生成的本地备份文件前缀。
+pub const BACKUP_PREFIX: &str = "any-switch-backup-";
+/// 识别备份文件时接受的全部前缀。更名前的 `xiaobai-switch-backup-` 必须继续支持，
+/// 否则用户历史备份会从列表/恢复/清理中消失。
+pub const BACKUP_PREFIXES: [&str; 2] = [BACKUP_PREFIX, "xiaobai-switch-backup-"];
 pub const BACKUP_SUFFIX: &str = ".zip";
+/// 备份 ZIP 内数据库条目名。属于内部归档协议，保持更名前的名字，
+/// 以便旧版本创建的备份可恢复，且新备份仍可被旧版本读取（支持回滚）。
+pub const BUNDLE_DATABASE_FILE_NAME: &str = "xiaobai-switch.db";
 const FORMAT_VERSION: u32 = 1;
 const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
@@ -69,7 +76,7 @@ pub fn create_backup_in(
         .prefix(".snapshot-")
         .tempdir_in(destination_dir)
         .map_err(|e| AppError::new("backup_failed", e.to_string()))?;
-    let snapshot_path = temp_dir.path().join("xiaobai-switch.db");
+    let snapshot_path = temp_dir.path().join(BUNDLE_DATABASE_FILE_NAME);
     let escaped = snapshot_path.to_string_lossy().replace('\'', "''");
     conn.execute_batch(&format!("VACUUM INTO '{escaped}'"))
         .map_err(|e| AppError::new("backup_failed", format!("database snapshot failed: {e}")))?;
@@ -135,7 +142,7 @@ fn write_bundle(
         SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     let stored = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
-    zip.start_file("xiaobai-switch.db", compressed)
+    zip.start_file(BUNDLE_DATABASE_FILE_NAME, compressed)
         .map_err(zip_error)?;
     let mut database = fs::File::open(database_path)?;
     std::io::copy(&mut database, &mut zip).map_err(|e| {
@@ -171,7 +178,7 @@ pub fn validate_and_extract_bundle(
     let file = fs::File::open(archive_path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| AppError::new("backup_invalid", format!("invalid ZIP archive: {e}")))?;
-    let allowed = ["xiaobai-switch.db", "master.key", "manifest.json"];
+    let allowed = [BUNDLE_DATABASE_FILE_NAME, "master.key", "manifest.json"];
     let mut seen = HashSet::new();
 
     for index in 0..archive.len() {
@@ -220,7 +227,7 @@ pub fn validate_and_extract_bundle(
         ));
     }
 
-    let database_path = destination_dir.join("xiaobai-switch.db");
+    let database_path = destination_dir.join(BUNDLE_DATABASE_FILE_NAME);
     let key_path = destination_dir.join("master.key");
     let manifest: AppBackupManifest =
         serde_json::from_slice(&fs::read(destination_dir.join("manifest.json"))?)
@@ -399,10 +406,16 @@ fn stage_local_backup_in(dir: &Path, file_name: &str, destination: &Path) -> App
     Ok(())
 }
 
+fn has_backup_prefix(file_name: &str) -> bool {
+    BACKUP_PREFIXES
+        .iter()
+        .any(|prefix| file_name.starts_with(prefix))
+}
+
 fn resolve_local_backup_in(dir: &Path, file_name: &str) -> AppResult<PathBuf> {
     let name = Path::new(file_name);
     if name.file_name().and_then(|value| value.to_str()) != Some(file_name)
-        || !file_name.starts_with(BACKUP_PREFIX)
+        || !has_backup_prefix(file_name)
         || !file_name.ends_with(BACKUP_SUFFIX)
     {
         return Err(AppError::new(
@@ -464,7 +477,17 @@ pub fn prune_backups_in(dir: &Path, max_copies: u32) -> AppResult<usize> {
         .flatten()
         .filter(|entry| is_backup_file(&entry.path()))
         .collect::<Vec<_>>();
-    backups.sort_by_key(|entry| std::cmp::Reverse(entry.file_name()));
+    // 排序键去掉前缀：新旧前缀混存时仍按时间戳顺序保留最新备份。
+    backups.sort_by_key(|entry| {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let rest = BACKUP_PREFIXES
+            .iter()
+            .find_map(|prefix| name.strip_prefix(prefix))
+            .map(str::to_string)
+            .unwrap_or_else(|| name.clone().into_owned());
+        std::cmp::Reverse(rest)
+    });
     let mut removed = 0;
     for entry in backups.into_iter().skip(max_copies) {
         fs::remove_file(entry.path())?;
@@ -476,12 +499,13 @@ pub fn prune_backups_in(dir: &Path, max_copies: u32) -> AppResult<usize> {
 pub fn is_backup_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.starts_with(BACKUP_PREFIX) && name.ends_with(BACKUP_SUFFIX))
+        .is_some_and(|name| has_backup_prefix(name) && name.ends_with(BACKUP_SUFFIX))
 }
 
 pub fn parse_device_from_filename(file_name: &str) -> String {
-    let Some(rest) = file_name
-        .strip_prefix(BACKUP_PREFIX)
+    let Some(rest) = BACKUP_PREFIXES
+        .iter()
+        .find_map(|prefix| file_name.strip_prefix(prefix))
         .and_then(|name| name.strip_suffix(BACKUP_SUFFIX))
     else {
         return "unknown".into();
@@ -584,7 +608,7 @@ mod tests {
             entries.insert(entry.name().to_string(), bytes);
         }
         if let Some(database) = replacement_database {
-            entries.insert("xiaobai-switch.db".into(), database.to_vec());
+            entries.insert(BUNDLE_DATABASE_FILE_NAME.into(), database.to_vec());
         }
         if let Some(key) = replacement_key {
             entries.insert("master.key".into(), key.to_vec());
@@ -592,8 +616,8 @@ mod tests {
         if update_manifest {
             let mut manifest: AppBackupManifest =
                 serde_json::from_slice(&entries["manifest.json"]).unwrap();
-            manifest.database_size = entries["xiaobai-switch.db"].len() as u64;
-            manifest.database_sha256 = sha256_bytes(&entries["xiaobai-switch.db"]);
+            manifest.database_size = entries[BUNDLE_DATABASE_FILE_NAME].len() as u64;
+            manifest.database_sha256 = sha256_bytes(&entries[BUNDLE_DATABASE_FILE_NAME]);
             manifest.master_key_size = entries["master.key"].len() as u64;
             manifest.master_key_sha256 = sha256_bytes(&entries["master.key"]);
             entries.insert(
@@ -602,7 +626,7 @@ mod tests {
             );
         }
         let mut output = zip::ZipWriter::new(fs::File::create(destination).unwrap());
-        for name in ["xiaobai-switch.db", "master.key", "manifest.json"] {
+        for name in [BUNDLE_DATABASE_FILE_NAME, "master.key", "manifest.json"] {
             output
                 .start_file(name, SimpleFileOptions::default())
                 .unwrap();
@@ -715,12 +739,12 @@ mod tests {
         let output = temp.path().join("out");
         let created = create_backup_in(&conn, &key_path, &output, "manual").unwrap();
         fs::write(
-            output.join("xiaobai-switch-backup-20260101_000000.host.00000001.zip"),
+            output.join("any-switch-backup-20260101_000000.host.00000001.zip"),
             b"old",
         )
         .unwrap();
         fs::write(
-            output.join("xiaobai-switch-backup-20260102_000000.host.00000002.zip"),
+            output.join("any-switch-backup-20260102_000000.host.00000002.zip"),
             b"older",
         )
         .unwrap();
@@ -744,7 +768,7 @@ mod tests {
     fn parses_device_name_from_generated_shape() {
         assert_eq!(
             parse_device_from_filename(
-                "xiaobai-switch-backup-20260827_120000.mac-mini.12345678.zip"
+                "any-switch-backup-20260827_120000.mac-mini.12345678.zip"
             ),
             "mac-mini"
         );
@@ -755,7 +779,7 @@ mod tests {
         let (temp, conn, key_path) = fixture();
         let output = temp.path().join("out");
         let created = create_backup_in(&conn, &key_path, &output, "manual").unwrap();
-        let broken_name = "xiaobai-switch-backup-20260827_120000.test-device.broken01.zip";
+        let broken_name = "any-switch-backup-20260827_120000.test-device.broken01.zip";
         fs::write(output.join(broken_name), b"not a zip archive").unwrap();
 
         let backups = list_local_backups_in(&output).unwrap();
@@ -787,7 +811,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().join("backups");
         fs::create_dir(&dir).unwrap();
-        let name = "xiaobai-switch-backup-20260827_120000.host.12345678.zip";
+        let name = "any-switch-backup-20260827_120000.host.12345678.zip";
         fs::write(dir.join(name), b"archive").unwrap();
 
         assert!(resolve_local_backup_in(&dir, "../master.key").is_err());
@@ -806,5 +830,58 @@ mod tests {
             symlink(&outside, dir.join(name)).unwrap();
             assert!(resolve_local_backup_in(&dir, name).is_err());
         }
+    }
+
+    #[test]
+    fn creates_backups_with_the_new_prefix() {
+        let (temp, conn, key_path) = fixture();
+        let output = temp.path().join("out");
+        let created = create_backup_in(&conn, &key_path, &output, "manual").unwrap();
+        assert!(created.file_name.starts_with(BACKUP_PREFIX));
+        assert!(created.file_name.ends_with(BACKUP_SUFFIX));
+    }
+
+    #[test]
+    fn recognizes_legacy_backup_prefix_for_listing_parsing_and_restore() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("backups");
+        fs::create_dir(&dir).unwrap();
+        let legacy = "xiaobai-switch-backup-20260827_120000.legacy-mac.87654321.zip";
+        let current = "any-switch-backup-20260827_130000.new-mac.12345678.zip";
+        fs::write(dir.join(legacy), b"legacy").unwrap();
+        fs::write(dir.join(current), b"current").unwrap();
+
+        assert!(is_backup_file(&dir.join(legacy)));
+        assert!(is_backup_file(&dir.join(current)));
+        assert_eq!(parse_device_from_filename(legacy), "legacy-mac");
+
+        let backups = list_local_backups_in(&dir).unwrap();
+        assert_eq!(backups.len(), 2, "legacy backups must stay visible");
+        let legacy_info = backups
+            .iter()
+            .find(|backup| backup.file_name == legacy)
+            .unwrap();
+        assert_eq!(legacy_info.device_name, "legacy-mac");
+
+        let staged = temp.path().join("staged.zip");
+        stage_local_backup_in(&dir, legacy, &staged).unwrap();
+        assert_eq!(fs::read(&staged).unwrap(), b"legacy");
+        delete_local_backup_in(&dir, legacy).unwrap();
+        assert!(!dir.join(legacy).exists());
+    }
+
+    #[test]
+    fn pruning_keeps_the_newest_across_prefixes() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("backups");
+        fs::create_dir(&dir).unwrap();
+        let legacy_old = "xiaobai-switch-backup-20260101_000000.host.00000001.zip";
+        let new_new = "any-switch-backup-20260102_000000.host.00000002.zip";
+        fs::write(dir.join(legacy_old), b"old").unwrap();
+        fs::write(dir.join(new_new), b"new").unwrap();
+
+        assert_eq!(prune_backups_in(&dir, 1).unwrap(), 1);
+        assert!(dir.join(new_new).exists());
+        assert!(!dir.join(legacy_old).exists());
     }
 }

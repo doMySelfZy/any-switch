@@ -1,9 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "XiaoBaiSwitch",
-  "mainBinaryName": "XiaoBaiSwitch",
-  "version": "0.0.11",
-  "identifier": "com.domyselfzy.xiaobai-switch.app",
+  "productName": "AnySwitch",
+  "mainBinaryName": "AnySwitch",
+  "version": "0.1.0",
+  "identifier": "com.domyselfzy.any-switch.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -14,7 +14,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "XiaoBaiSwitch",
+        "title": "AnySwitch",
         "width": 1100,
         "height": 720,
         "minWidth": 900,
@@ -43,7 +43,7 @@
     ],
     "macOS": {
       "minimumSystemVersion": "11.0",
-      "bundleName": "XiaoBaiSwitch",
+      "bundleName": "AnySwitch",
       "signingIdentity": "-",
       "hardenedRuntime": false
     },
@@ -58,14 +58,14 @@
     "deep-link": {
       "desktop": {
         "schemes": [
-          "xiaobaiswitch"
+          "anyswitch"
         ]
       }
     },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRGRTQ2MUMzMUVCNEZGMkUKUldRdS83UWV3MkhrVDJTRkVuaHlNZldtZnJIYmk2YitmYmZDaHJDQTJsQmpXcDNLWUhMTnV0R0gK",
       "endpoints": [
-        "https://github.com/doMySelfZy/xiaobai-switch/releases/latest/download/latest.json"
+        "https://github.com/doMySelfZy/any-switch/releases/latest/download/latest.json"
       ]
     }
   }

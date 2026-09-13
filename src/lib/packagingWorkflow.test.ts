@@ -108,7 +108,7 @@ describe("shipped GitHub workflows", () => {
     };
     expect(tauri.bundle.createUpdaterArtifacts).toBe(true);
     expect(tauri.plugins.updater?.endpoints).toEqual([
-      "https://github.com/doMySelfZy/xiaobai-switch/releases/latest/download/latest.json",
+      "https://github.com/doMySelfZy/any-switch/releases/latest/download/latest.json",
     ]);
     expect(tauri.plugins.updater?.pubkey).toMatch(/^dW50cnVzdGVk/);
     // "-" makes Tauri codesign the .app bundle. Without it, only the linker
@@ -146,7 +146,7 @@ describe("shipped GitHub workflows", () => {
     expect(cliff).toMatch(/\^feat/);
     expect(cliff).toMatch(/\^fix/);
     expect(cliff).toContain("^chore\\\\(version\\\\)");
-    expect(cliff).toMatch(/xattr -cr \/Applications\/XiaoBaiSwitch\.app/);
+    expect(cliff).toMatch(/xattr -cr \/Applications\/AnySwitch\.app/);
     expect(cliff).toMatch(/updater-notes-end/);
   });
 
@@ -154,11 +154,19 @@ describe("shipped GitHub workflows", () => {
     const release = readRepoFile(".github/workflows/release.yml");
     // `Join-Path $dir "a.exe", Join-Path $dir "b.exe"` is one call, not two paths.
     expect(release).not.toMatch(
-      /Join-Path \$releaseDir ["'](?:xiaobai-switch|XiaoBaiSwitch)\.exe["'],/,
+      /Join-Path \$releaseDir ["'](?:any-switch|AnySwitch|xiaobai-switch|XiaoBaiSwitch)\.exe["'],/,
     );
     expect(release).toMatch(
-      /foreach \(\$name in @\(["']XiaoBaiSwitch\.exe["']/,
+      /foreach \(\$name in @\(["']AnySwitch\.exe["'],\s*["']XiaoBaiSwitch\.exe["']/,
     );
+  });
+
+  it("fails the website build while the Pages domain is still a placeholder", () => {
+    const website = readRepoFile(".github/workflows/website.yml");
+
+    expect(website).toMatch(/CNAME is still a placeholder/);
+    expect(website).toMatch(/\*\.example\.com/);
+    expect(website).not.toMatch(/grep -qx 'any-switch\.example\.com'/);
   });
 
   it("rebuilds the website after Release publishes, not on the version tag", () => {

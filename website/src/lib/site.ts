@@ -1,12 +1,14 @@
-export const SITE_ORIGIN = "https://xiaobaiswitch.com";
-export const SITE_HOST = "xiaobaiswitch.com";
-export const APP_NAME = "XiaoBaiSwitch";
-export const GITHUB_REPO_URL = "https://github.com/doMySelfZy/xiaobai-switch";
+// 域名占位：`any-switch.example.com` 不是真实域名，需替换为 AnySwitch 自己的域名。
+// 原 xiaobaiswitch.com 属于上游原作者，不可继续使用（见 website/README.md）。
+export const SITE_ORIGIN = "https://any-switch.example.com";
+export const SITE_HOST = "any-switch.example.com";
+export const APP_NAME = "AnySwitch";
+export const GITHUB_REPO_URL = "https://github.com/doMySelfZy/any-switch";
 export const GITHUB_RELEASES_URL = `${GITHUB_REPO_URL}/releases`;
 export const GITHUB_LATEST_RELEASE_URL = `${GITHUB_RELEASES_URL}/latest`;
 export const GITHUB_ISSUES_URL = `${GITHUB_REPO_URL}/issues`;
-export const THEME_STORAGE_KEY = "xiaobaiswitch-theme";
-export const LOCALE_STORAGE_KEY = "xiaobaiswitch-locale";
+export const THEME_STORAGE_KEY = "anyswitch-theme";
+export const LOCALE_STORAGE_KEY = "anyswitch-locale";
 
 export const LOCALES = ["zh", "en"] as const;
 export type Locale = (typeof LOCALES)[number];

@@ -8,7 +8,7 @@ The model list belongs to the site, not a global catalog. Changing sites changes
 
 ## Fetch
 
-On the site detail, “Fetch models” calls the site’s models endpoint and stores the result locally. That only updates XiaoBaiSwitch until you apply in Apply Center.
+On the site detail, “Fetch models” calls the site’s models endpoint and stores the result locally. That only updates AnySwitch until you apply in Apply Center.
 
 ## Manual add
 

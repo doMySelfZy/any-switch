@@ -3,12 +3,12 @@
 </p>
 
 <p align="center">
-  <img src="assets/brand/app-icon-1024.png" alt="XiaoBaiSwitch" width="160" height="160">
+  <img src="assets/brand/app-icon-1024.png" alt="AnySwitch" width="160" height="160">
 </p>
 
-# XiaoBaiSwitch
+# AnySwitch
 
-Website: [https://xiaobaiswitch.com](https://xiaobaiswitch.com)
+Website: TBD (placeholder — replace with your own domain; the old domain belongs to the upstream author)
 
 A beginner-friendly, site-driven desktop app for wiring Claude Code, Codex, and Pi to an upstream API.
 
@@ -21,7 +21,7 @@ Everything starts from an upstream site: enter a Base URL and API key, fetch or 
 - **Apply Center**: write Claude Code, Codex, and Pi separately, with their own site, model, and target options
 - **Route switching**: after a switch, already-applied tool URLs can be updated to match
 - **Backups**: configs are backed up before apply, and can be restored in Apply Center
-- **Link import**: import a site with a `xiaobaiswitch://` link; it is not applied to tools automatically
+- **Link import**: import a site with a `anyswitch://` link; it is not applied to tools automatically
 - **Desktop extras**: tray, launch at login, light / dark theme, Simplified Chinese and English
 
 ## Screenshots
@@ -43,7 +43,7 @@ A site can have multiple routes; the first one is the current default, and you c
 
 ## Import a site from a link
 
-After the desktop app is installed, a browser or another app can open a `xiaobaiswitch://` link to launch XiaoBaiSwitch and import an upstream site; import does not apply to Claude Code / Codex / Pi automatically, so you still confirm in Apply Center.
+After the desktop app is installed, a browser or another app can open a `anyswitch://` link to launch AnySwitch and import an upstream site; import does not apply to Claude Code / Codex / Pi automatically, so you still confirm in Apply Center.
 
 1. Install and open the desktop app
 2. Click the import link; the app switches to Sites and shows a confirm dialog
@@ -55,7 +55,7 @@ The same protocol plus the same set of routes (order does not matter) counts as 
 ### Link format
 
 ```text
-xiaobaiswitch://sites?name=<name>&baseurls=<url>[&baseurls=<url>…][&apikey=<key>][&protocol=openai_compatible|anthropic][&notes=<notes>][&codex-compact=1][&codex-vision=1][&codex-imagegen=1][&codex-search=1]
+anyswitch://sites?name=<name>&baseurls=<url>[&baseurls=<url>…][&apikey=<key>][&protocol=openai_compatible|anthropic][&notes=<notes>][&codex-compact=1][&codex-vision=1][&codex-imagegen=1][&codex-search=1]
 ```
 
 | Parameter | Required | Description |
@@ -77,35 +77,45 @@ Aliases: `baseurl` = `baseurls`, `type=openai` / `type=anthropic` = `protocol`; 
 The first item is the current / default route; prefer repeating `baseurls` so a URL that contains a comma is not split by mistake:
 
 ```text
-xiaobaiswitch://sites?name=Example%20Relay&baseurls=https://a.example.com/v1&baseurls=https://b.example.com/v1&apikey=sk-xxx&protocol=openai_compatible
+anyswitch://sites?name=Example%20Relay&baseurls=https://a.example.com/v1&baseurls=https://b.example.com/v1&apikey=sk-xxx&protocol=openai_compatible
 ```
 
 A single parameter also works, separated by commas or `|`:
 
 ```text
-xiaobaiswitch://sites?name=Example&baseurls=https://a.example.com/v1,https://b.example.com/v1
-xiaobaiswitch://sites?name=Example&baseurls=https://a.example.com/v1|https://b.example.com/v1
+anyswitch://sites?name=Example&baseurls=https://a.example.com/v1,https://b.example.com/v1
+anyswitch://sites?name=Example&baseurls=https://a.example.com/v1|https://b.example.com/v1
 ```
 
 `baseurl` and `baseurls` can be mixed, and are merged in query-string order:
 
 ```text
-xiaobaiswitch://sites?name=Mix&baseurl=https://first.example.com/v1&baseurls=https://second.example.com/v1
+anyswitch://sites?name=Mix&baseurl=https://first.example.com/v1&baseurls=https://second.example.com/v1
 ```
 
 Putting an API key in a URL can leave it in browser history, extensions, or system logs, so do not put a real key on a public page; generate the link from a private, signed-in console, or omit `apikey` and let the user finish it in the app.
 
 ## Download and install
 
-macOS (Apple Silicon / Intel) and Windows (x64 / ARM64) are supported; get the matching installer from [Releases](https://github.com/doMySelfZy/xiaobai-switch/releases).
+macOS (Apple Silicon / Intel) and Windows (x64 / ARM64) are supported; get the matching installer from [Releases](https://github.com/doMySelfZy/any-switch/releases).
 
 The macOS build is ad-hoc signed (no Apple Developer ID, not notarized); after a browser download, macOS may say the app is “damaged” — that is the quarantine flag, not a broken file, and **Privacy & Security will not show “Open Anyway”**; drag the app to Applications, then run:
 
 ```bash
-xattr -cr /Applications/XiaoBaiSwitch.app
+xattr -cr /Applications/AnySwitch.app
 ```
 
 Then right-click the app → Open.
+
+## Upgrading from XiaoBaiSwitch
+
+AnySwitch continues XiaoBaiSwitch. On first launch after upgrading, the app copies your data from `~/.xiaobai-switch/` to `~/.any-switch/` (sites, API keys, backup history) and verifies the database and `master.key`. **The old directory is kept as-is**; delete it yourself once you are confident. Existing local backups, WebDAV sync, and applied Claude Code / Codex / Pi / Prime configs keep working — no re-configuration needed.
+
+> **Uninstall or disable the old XiaoBaiSwitch after upgrading** (especially its launch-at-login). Running both versions means two processes writing the same target CLI configs while each keeps its own WebDAV sync bookkeeping: the old version may upload stale data and the new version may pull it back, causing repeated overwrites or target configs flapping between states.
+>
+> **Rollback is no longer symmetric**: new backups are named `any-switch-backup-*`, while the old version only accepts `xiaobai-switch-backup-*`. The old version therefore cannot see or restore new backups. Roll back to a new backup inside AnySwitch itself; the old build can only read the old directory and old-prefix backups.
+
+> The deep-link scheme changed to `anyswitch://`; old `xiaobaiswitch://` links no longer work.
 
 ## Credits
 
@@ -119,7 +129,7 @@ Official desktop builds can check for updates and install them in-app; check man
 
 API keys are encrypted inside the app; after apply they may be written in plaintext to Claude Code config, Codex environment files, `~/.pi/agent/auth.json`, or `~/.prime/agent/auth.json`, so do not sync those configs to untrusted cloud storage.
 
-Pi and Prime use their official `models.json`, `auth.json`, and `settings.json` interfaces. XiaoBaiSwitch manages only `xiaobai_` providers and preserves other custom providers, OAuth logins, and unknown settings. You can write only the default model or the whole site catalog. Prime writes `~/.prime/agent` by default, not `~/.pi/agent`.
+Pi and Prime use their official `models.json`, `auth.json`, and `settings.json` interfaces. AnySwitch manages only `xiaobai_` providers and preserves other custom providers, OAuth logins, and unknown settings. You can write only the default model or the whole site catalog. Prime writes `~/.prime/agent` by default, not `~/.pi/agent`.
 
 ## License
 

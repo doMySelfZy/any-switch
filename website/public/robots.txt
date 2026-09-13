@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://xiaobaiswitch.com/sitemap-index.xml
+Sitemap: https://any-switch.example.com/sitemap-index.xml

@@ -3,11 +3,15 @@ use crate::paths::home_dir;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const BEGIN: &str = "# >>> XiaoBaiSwitch >>>";
-const END: &str = "# <<< XiaoBaiSwitch <<<";
-/// Legacy markers (pre-rename) — still recognized so we replace instead of duplicating.
-const BEGIN_LEGACY: &str = "# >>> Xiaobai Switch >>>";
-const END_LEGACY: &str = "# <<< Xiaobai Switch <<<";
+const BEGIN: &str = "# >>> AnySwitch >>>";
+const END: &str = "# <<< AnySwitch <<<";
+/// Managed-block markers written by earlier brand names. They are still
+/// recognized so an upgrade replaces the existing block instead of appending a
+/// duplicate (which would source the env file twice).
+const LEGACY_MARKERS: [(&str, &str); 2] = [
+    ("# >>> XiaoBaiSwitch >>>", "# <<< XiaoBaiSwitch <<<"),
+    ("# >>> Xiaobai Switch >>>", "# <<< Xiaobai Switch <<<"),
+];
 
 pub fn ensure_source_block(env_file: &Path) -> AppResult<String> {
     let home = home_dir()?;
@@ -35,7 +39,9 @@ pub fn ensure_source_block(env_file: &Path) -> AppResult<String> {
 }
 
 fn find_managed_block(content: &str) -> Option<(usize, usize)> {
-    for (begin, end) in [(BEGIN, END), (BEGIN_LEGACY, END_LEGACY)] {
+    let mut markers: Vec<(&str, &str)> = vec![(BEGIN, END)];
+    markers.extend(LEGACY_MARKERS.iter().copied());
+    for (begin, end) in markers {
         if let (Some(start), Some(end_at)) = (content.find(begin), content.find(end)) {
             if end_at >= start {
                 return Some((start, end_at + end.len()));
@@ -47,7 +53,7 @@ fn find_managed_block(content: &str) -> Option<(usize, usize)> {
 
 fn upsert_block(rc_path: &PathBuf, env_file: &Path) -> AppResult<bool> {
     let block = format!(
-        "{BEGIN}\n# Managed by XiaoBaiSwitch\n[ -f \"{}\" ] && . \"{}\"\n{END}\n",
+        "{BEGIN}\n# Managed by AnySwitch\n[ -f \"{}\" ] && . \"{}\"\n{END}\n",
         env_file.display(),
         env_file.display()
     );
@@ -87,5 +93,45 @@ fn upsert_block(rc_path: &PathBuf, env_file: &Path) -> AppResult<bool> {
         Ok(true)
     } else {
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replaces_the_legacy_managed_block_instead_of_duplicating_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let rc = temp.path().join(".zshrc");
+        let env_file = temp.path().join("env").join("codex.env");
+        fs::write(
+            &rc,
+            "# user config\n# >>> XiaoBaiSwitch >>>\n# Managed by XiaoBaiSwitch\n[ -f \"/old/path\" ] && . \"/old/path\"\n# <<< XiaoBaiSwitch <<<\nexport KEEP=1\n",
+        )
+        .unwrap();
+
+        assert!(upsert_block(&rc, &env_file).unwrap());
+
+        let content = fs::read_to_string(&rc).unwrap();
+        assert_eq!(content.matches("# >>> AnySwitch >>>").count(), 1);
+        assert!(!content.contains("XiaoBaiSwitch"));
+        assert!(content.contains("export KEEP=1"));
+        assert!(content.contains("# user config"));
+        assert!(content.contains(&env_file.display().to_string()));
+    }
+
+    #[test]
+    fn appends_the_managed_block_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let rc = temp.path().join(".zshrc");
+        let env_file = temp.path().join("env").join("codex.env");
+        fs::write(&rc, "export A=1\n").unwrap();
+
+        assert!(upsert_block(&rc, &env_file).unwrap());
+        assert!(!upsert_block(&rc, &env_file).unwrap());
+
+        let content = fs::read_to_string(&rc).unwrap();
+        assert_eq!(content.matches("# >>> AnySwitch >>>").count(), 1);
     }
 }

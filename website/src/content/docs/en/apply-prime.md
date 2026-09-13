@@ -8,7 +8,7 @@ Choose **Prime** in the Apply Center. Its config directory resolves in this orde
 
 ## Files written
 
-XiaoBaiSwitch uses Prime's official config interfaces and does not install an extension:
+AnySwitch uses Prime's official config interfaces and does not install an extension:
 
 - `models.json`: one managed `xiaobai_` provider, Base URL, protocol, and model list
 - `auth.json`: the matching API key
@@ -24,11 +24,11 @@ Model IDs, display names, and image input are written to the catalog. Thinking s
 
 ## Preservation and single-active behavior
 
-Prime keeps one XiaoBaiSwitch-managed provider at a time. Switching sites replaces only the `xiaobai_` namespace; custom providers, OAuth logins, comments, trailing commas, and unknown settings are preserved.
+Prime keeps one AnySwitch-managed provider at a time. Switching sites replaces only the `xiaobai_` namespace; custom providers, OAuth logins, comments, trailing commas, and unknown settings are preserved.
 
 Project `.prime/agent/settings.json`, CLI flags, or a restored session can override the global default. That does not make the managed provider stale.
 
-## Remove XiaoBai config
+## Remove AnySwitch config
 
 This removes only the managed provider and credential. Pre-apply defaults are restored only while Prime still points at the managed provider, so later user choices are not overwritten.
 

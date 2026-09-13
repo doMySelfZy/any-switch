@@ -11,6 +11,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
+/// WebDAV 同步版本指针文件名。属于跨机内部协议标识：更名前后必须保持一致，
+/// 否则新旧版本机器互相读不到版本指针，会误判并相互覆盖。
 pub const SYNC_MANIFEST_FILE_NAME: &str = "xiaobai-switch-sync.json";
 pub const SYNC_FORMAT_VERSION: u32 = 1;
 pub const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
@@ -508,7 +510,7 @@ mod tests {
             revision,
             device_name: "work-pc".into(),
             updated_at: 1_000,
-            bundle_file_name: "xiaobai-switch-backup-20260912_000000.work-pc.abcdef01.zip".into(),
+            bundle_file_name: "any-switch-backup-20260912_000000.work-pc.abcdef01.zip".into(),
             database_sha256: sha64(db),
             master_key_sha256: sha64(key),
             app_version: "0.0.0".into(),

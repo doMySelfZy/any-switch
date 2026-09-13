@@ -50,8 +50,8 @@ describe("BackupQuickPopover", () => {
   });
 
   it("restores the newest remote snapshot from the title-bar popover", async () => {
-    const latestFile = "xiaobai-switch-backup-20260829_090000.browser.aaaaaaaa.zip";
-    const olderFile = "xiaobai-switch-backup-20260827_120000.browser.12345678.zip";
+    const latestFile = "any-switch-backup-20260829_090000.browser.aaaaaaaa.zip";
+    const olderFile = "any-switch-backup-20260827_120000.browser.12345678.zip";
     seedWebDavMock(
       {
         baseUrl: "https://dav.example.com/",

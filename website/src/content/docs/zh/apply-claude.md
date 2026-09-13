@@ -33,7 +33,7 @@ order: 6
 
 Effort 等级写入顶层 `effortLevel`，可选 Low / Medium / High / Extra High（`xhigh`）。这不会锁定 Claude Code 的交互式选择，仍可使用 `/effort` 修改并保存支持的等级；`max` 只用于当前会话，不会持久化。
 
-重新应用旧配置时，XiaoBaiSwitch 会迁移旧 binding，并移除 `settings.json` 中会覆盖交互式选择的 `ANTHROPIC_MODEL` 与 `CLAUDE_CODE_EFFORT_LEVEL`。应用不会删除用户在 shell 或其他外部环境中设置的同名变量。
+重新应用旧配置时，AnySwitch 会迁移旧 binding，并移除 `settings.json` 中会覆盖交互式选择的 `ANTHROPIC_MODEL` 与 `CLAUDE_CODE_EFFORT_LEVEL`。应用不会删除用户在 shell 或其他外部环境中设置的同名变量。
 
 ## 应用之后
 

@@ -10,7 +10,7 @@ use tauri::{
     AppHandle, Emitter, Manager,
 };
 
-pub const TRAY_ID: &str = "xiaobai-switch-tray";
+pub const TRAY_ID: &str = "any-switch-tray";
 pub const TITLE_MAX_CHARS: usize = 40;
 pub const QUICK_SITE_LIMIT: usize = 6;
 const APPLY_PREFIX: &str = "apply:site:";
@@ -38,8 +38,8 @@ pub fn tray_labels(language: &str) -> TrayLabels {
     let lang = language.to_ascii_lowercase();
     if lang == "en" || lang.starts_with("en-") {
         TrayLabels {
-            header: "XiaoBaiSwitch",
-            quit: "Quit XiaoBaiSwitch",
+            header: "AnySwitch",
+            quit: "Quit AnySwitch",
             apply_header: "Apply to…",
             open_apply: "Open Apply Center",
             open_settings: "Open Settings",
@@ -57,8 +57,8 @@ pub fn tray_labels(language: &str) -> TrayLabels {
         }
     } else {
         TrayLabels {
-            header: "XiaoBaiSwitch",
-            quit: "退出 XiaoBaiSwitch",
+            header: "AnySwitch",
+            quit: "退出 AnySwitch",
             apply_header: "应用到…",
             open_apply: "打开应用中心",
             open_settings: "打开设置",
@@ -659,7 +659,7 @@ mod tests {
         assert_eq!(zh.open_apply, "打开应用中心");
         assert_eq!(zh.check_update, "检查更新");
         assert_eq!(zh.applied, "已应用");
-        assert_eq!(tray_labels("zh").quit, "退出 XiaoBaiSwitch");
+        assert_eq!(tray_labels("zh").quit, "退出 AnySwitch");
         assert_eq!(tray_labels("fr-FR").open_settings, "打开设置");
     }
 
@@ -739,7 +739,7 @@ mod tests {
             "Pi · 已应用",
             "Prime · 未应用",
         );
-        assert!(tip.starts_with("XiaoBaiSwitch"));
+        assert!(tip.starts_with("AnySwitch"));
         assert!(tip.contains("Claude Code"));
         assert!(tip.contains("Codex"));
         assert!(tip.contains("Pi"));

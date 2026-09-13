@@ -6,7 +6,7 @@ import icon from "astro-icon";
 import tailwindcss from "@tailwindcss/vite";
 import rehypeSlug from "rehype-slug";
 
-const site = "https://xiaobaiswitch.com";
+const site = "https://any-switch.example.com";
 
 export default defineConfig({
   site,

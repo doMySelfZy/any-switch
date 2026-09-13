@@ -1,7 +1,7 @@
 import { invoke } from "@/lib/invoke";
 import type { UrlProbeResult } from "@/types/domain";
 
-const STORAGE_KEY = "xiaobai-switch.route-probe.v1";
+const STORAGE_KEY = "any-switch.route-probe.v1";
 
 export type ProbeColor = "green" | "yellow" | "red";
 

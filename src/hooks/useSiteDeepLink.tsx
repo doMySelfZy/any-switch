@@ -207,7 +207,7 @@ export function useSiteDeepLink({ modal, message }: { modal: ModalLike; message:
         rememberHandledDeepLink(raw);
         const payload = parseSiteDeepLink(raw);
         if (!payload) {
-          if (raw.startsWith("xiaobaiswitch:")) {
+          if (raw.startsWith("anyswitch:")) {
             message.error(translate("sites.deepLinkInvalid"));
           }
           continue;
