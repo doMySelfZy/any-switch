@@ -217,6 +217,17 @@ export function isBalanceQuotaSummary(
   );
 }
 
+/**
+ * 进度条分母是**本地推算**（`quota + used_quota`）而非站点自报的判定。
+ *
+ * `/api/user/self` 只给剩余与已用两个数，总额是两者相加得来的：界面上必须把
+ * 「已用」一并显示，否则只有一根条和一个剩余金额，用户无从判断条按什么比例画。
+ * 其余来源（token / credit_grants）的总额由站点返回，不需要补这一项。
+ */
+export function isDerivedBalanceTotal(quota: SiteQuota): boolean {
+  return quota.source === "user_self";
+}
+
 /** Formats an amount with its unit (i18n key resolved through `t`). */
 export function formatQuotaAmountLocalized(
   amount: number,

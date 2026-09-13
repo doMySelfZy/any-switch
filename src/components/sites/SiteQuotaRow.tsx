@@ -6,6 +6,7 @@ import {
   formatExpiryDate,
   formatQuotaAmountLocalized,
   formatQuotaUpdatedText,
+  isDerivedBalanceTotal,
   quotaRemainingPercent,
   quotaRemainingTone,
   quotaTone,
@@ -211,6 +212,7 @@ export function SiteQuotaRow({
   }
 
   const tone = quotaTone(quota);
+  const derivedTotal = isDerivedBalanceTotal(quota);
   // 进度条只在剩余金额已知时才画：没有剩余金额却用「总额 - 已用」推一个
   // 百分比，会和「额度未知」的文案自相矛盾。
   const percent = quota.remainingUsd != null ? quotaRemainingPercent(quota) : null;
@@ -270,6 +272,16 @@ export function SiteQuotaRow({
           </div>
         )}
         <div className="mt-0.5 text-xs opacity-50">
+          {/* 分母是本地推算（剩余 + 已用）时，把已用一并摆出来，用户才能还原
+              进度条的比例；站点自报总额的来源不需要这项，避免重复信息。 */}
+          {derivedTotal && quota.usedUsd != null && (
+            <>
+              <span>
+                {t("sites.quotaUsed", { amount: formatMoney(quota.usedUsd) })}
+              </span>
+              <span> · </span>
+            </>
+          )}
           {showExpiry && quota.expiresAt != null && (
             <span>
               {t("sites.quotaExpires", {

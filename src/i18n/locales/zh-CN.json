@@ -72,6 +72,7 @@
     "usageWindow": "用量窗口",
     "quotaRefresh": "刷新额度",
     "quotaRemaining": "剩余 {{amount}}",
+    "quotaUsed": "已用 {{amount}}",
     "quotaUnlimited": "此 Key 不限额",
     "quotaUnknown": "额度未知",
     "quotaUnitRaw": "额度点数",

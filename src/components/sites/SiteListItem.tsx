@@ -13,6 +13,7 @@ import {
   formatQuotaAmountLocalized,
   formatQuotaUpdatedText,
   isBalanceQuotaSummary,
+  isDerivedBalanceTotal,
   quotaRemainingTone,
   quotaWindowLabelKey,
   quotaWindowShortLabelKey,
@@ -134,11 +135,16 @@ export function SiteListItem({ site, active, onSelect, onEdit, onDelete }: Props
     } else if (isBalanceQuotaSummary(quota)) {
       const amount = formatQuotaAmountLocalized(quota.remainingUsd, quota.unit, t);
       const updatedText = formatQuotaUpdatedText(quota.fetchedAt, t);
+      const usedText =
+        isDerivedBalanceTotal(quota) && quota.usedUsd != null
+          ? formatQuotaAmountLocalized(quota.usedUsd, quota.unit, t)
+          : null;
       quotaSummary = (
         <Tooltip
           title={
             <div className="text-xs">
               <div>{t("sites.quotaRemaining", { amount })}</div>
+              {usedText && <div>{t("sites.quotaUsed", { amount: usedText })}</div>}
               <div>{updatedText}</div>
             </div>
           }

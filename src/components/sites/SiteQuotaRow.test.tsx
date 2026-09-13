@@ -55,6 +55,50 @@ describe("SiteQuotaRow", () => {
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the used amount when the total is derived locally (user_self source)", () => {
+    // /api/user/self 只给剩余与已用，进度条分母是两者相加推算的，
+    // 因此必须把「已用」也摆出来，用户才能还原条按什么比例画。
+    render(
+      <Wrapper>
+        <SiteQuotaRow
+          quota={quota({
+            source: "user_self",
+            remainingUsd: 211.59,
+            usedUsd: 388.41,
+            totalUsd: 600,
+            unit: "USD",
+          })}
+          loading={false}
+          onRefresh={() => undefined}
+        />
+      </Wrapper>,
+    );
+
+    expect(screen.getByText("剩余 $211.59")).toBeInTheDocument();
+    expect(screen.getByText("已用 $388.41")).toBeInTheDocument();
+  });
+
+  it("does not repeat the used amount when the site reported the total itself", () => {
+    render(
+      <Wrapper>
+        <SiteQuotaRow
+          quota={quota({
+            source: "token_usage",
+            remainingUsd: 27.57,
+            usedUsd: 172.75,
+            totalUsd: 200.32,
+            unit: "CNY",
+          })}
+          loading={false}
+          onRefresh={() => undefined}
+        />
+      </Wrapper>,
+    );
+
+    expect(screen.getByText("剩余 ¥27.57")).toBeInTheDocument();
+    expect(screen.queryByText(/已用/)).toBeNull();
+  });
+
   it("shows an actionable status when automatic quota lookup is unsupported", () => {
     const onRefresh = vi.fn();
     render(

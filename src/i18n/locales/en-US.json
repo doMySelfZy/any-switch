@@ -72,6 +72,7 @@
     "usageWindow": "Usage window",
     "quotaRefresh": "Refresh quota",
     "quotaRemaining": "{{amount}} remaining",
+    "quotaUsed": "{{amount}} used",
     "quotaUnlimited": "No limit for this key",
     "quotaUnknown": "Quota unknown",
     "quotaUnitRaw": "quota credits",
