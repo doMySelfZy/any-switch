@@ -615,4 +615,102 @@ command = "user-cmd"
         apply_to_pi(&[server("demo", true)], Some(pi_dir.to_str().unwrap()), &backup).unwrap();
         assert!(!pi_dir.join("mcp.json.lock").exists());
     }
+
+    #[test]
+    fn renaming_a_server_removes_the_old_key_from_every_target() {
+        // 端到端回归：改名后旧键必须从所有已应用的客户端里消失，
+        // 用户自己的条目要全程保留。这是「托管命名空间」契约的核心行为。
+        let (dir, backup) = temp_backup_root();
+        let claude_dir = dir.path().join("claude");
+        let codex_dir = dir.path().join("codex");
+        let pi_dir = dir.path().join("pi");
+        let prime_dir = dir.path().join("prime");
+
+        let apply_all = |servers: &[McpServer]| {
+            apply_to_claude(servers, Some(claude_dir.to_str().unwrap()), &backup).unwrap();
+            apply_to_codex(servers, Some(codex_dir.to_str().unwrap()), &backup).unwrap();
+            apply_to_pi(servers, Some(pi_dir.to_str().unwrap()), &backup).unwrap();
+            apply_to_prime(servers, Some(prime_dir.to_str().unwrap()), &backup).unwrap();
+        };
+
+        // 预置用户自己的条目，它必须在所有操作后原样存在。
+        fs::create_dir_all(&claude_dir).unwrap();
+        fs::write(
+            claude_dir.join(".claude.json"),
+            serde_json::to_string_pretty(&json!({
+                "mcpServers": {"user-server": {"command": "user-cmd"}}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        apply_all(&[server("before-rename", true)]);
+        for path in [
+            claude_dir.join(".claude.json"),
+            codex_dir.join("config.toml"),
+            pi_dir.join("mcp.json"),
+            prime_dir.join("settings.json"),
+        ] {
+            let text = fs::read_to_string(&path).unwrap();
+            assert!(
+                text.contains("xiaobai_before-rename"),
+                "{path:?} should hold the old key"
+            );
+        }
+
+        apply_all(&[server("after-rename", true)]);
+        for path in [
+            claude_dir.join(".claude.json"),
+            codex_dir.join("config.toml"),
+            pi_dir.join("mcp.json"),
+            prime_dir.join("settings.json"),
+        ] {
+            let text = fs::read_to_string(&path).unwrap();
+            assert!(
+                !text.contains("before-rename"),
+                "old key must be swept from {path:?}: {text}"
+            );
+            assert!(text.contains("xiaobai_after-rename"), "{path:?}");
+        }
+
+        let claude = fs::read_to_string(claude_dir.join(".claude.json")).unwrap();
+        assert!(claude.contains("user-server"), "user entries survive rename");
+        assert!(claude.contains("numStartups") || claude.contains("mcpServers"));
+    }
+
+    #[test]
+    fn deleting_the_last_server_clears_managed_entries_but_keeps_user_config() {
+        let (dir, backup) = temp_backup_root();
+        let claude_dir = dir.path().join("claude");
+        fs::create_dir_all(&claude_dir).unwrap();
+        fs::write(
+            claude_dir.join(".claude.json"),
+            serde_json::to_string(&json!({
+                "theme": "dark",
+                "mcpServers": {"user-server": {"command": "user-cmd"}}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        apply_to_claude(
+            &[server("demo", true)],
+            Some(claude_dir.to_str().unwrap()),
+            &backup,
+        )
+        .unwrap();
+        // 删除 MCP 后应用空清单，托管条目应清空。
+        apply_to_claude(&[], Some(claude_dir.to_str().unwrap()), &backup).unwrap();
+
+        let root: Value = serde_json::from_str(
+            &fs::read_to_string(claude_dir.join(".claude.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            root["mcpServers"]["xiaobai_demo"].is_null(),
+            "managed entry must be gone"
+        );
+        assert_eq!(root["mcpServers"]["user-server"]["command"], "user-cmd");
+        assert_eq!(root["theme"], "dark", "unrelated keys survive");
+    }
 }
