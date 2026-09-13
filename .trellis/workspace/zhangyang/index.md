@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
+- **Total Sessions**: 3
 - **Last Active**: 2026-09-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~58 | Active |
+| `journal-1.md` | ~81 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-09-13 | MCP 统一管控与跨设备同步 | `f5ef700`, `6eb9e80` | `main` |
 | 2 | 2026-09-13 | 品牌回退为 XiaoBaiSwitch Plus + 账户余额统一 + v0.1.2 发布 | `ea7935a`, `6abb441`, `a92408a`, `11915c7` | `main` |
 | 1 | 2026-09-12 | 真同步落地与品牌独立化 | `c46b143`, `45c49f5`, `7f85908`, `c5c0751`, `8d74284` | `main` |
 <!-- @@@/auto:session-history -->

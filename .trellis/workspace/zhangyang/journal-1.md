@@ -56,3 +56,26 @@ WebDAV 真同步全链路落地：逻辑内容指纹引擎+变更驱动守护任
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: MCP 统一管控与跨设备同步
+<!-- trellis-session: v=2 fp=636b5511401b1469 -->
+
+**Date**: 2026-09-13
+**Task**: MCP 统一管控与跨设备同步
+**Branch**: `main`
+
+### Summary
+
+为 Claude Code/Codex/Pi/Prime 增加统一 MCP 管控：一份定义可勾选应用，按各客户端原生位置写入（Claude 用 ~/.claude.json，Codex 用 config.toml 的 mcp_servers，Pi 用 mcp.json，Prime 用 settings.json）。托管条目限定 xiaobai_ 前缀，改名/禁用/删除后清理孤儿；写入前备份+原子替换+.lock 互斥。env/headers 加密存储，mcp_servers 纳入同步内容指纹。schema 升级到 v2 并修复 apply_schema 增量补齐漏分支的老库问题。cargo test 399 绿、pnpm typecheck 绿、前端 310 绿（2 个 updater 用例为既有失败）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f5ef700` | feat(mcp): 统一管控四个 Agent 的 MCP 配置并纳入跨设备同步 |
+| `6eb9e80` | test(mcp): 覆盖改名/删除后跨四个客户端的托管条目清理 |
+
+### Status
+
+[OK] **Completed**
