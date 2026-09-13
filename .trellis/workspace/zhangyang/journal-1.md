@@ -101,3 +101,25 @@ WebDAV 真同步全链路落地：逻辑内容指纹引擎+变更驱动守护任
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: 额度探测读站点自报倍率 + Sub2API /v1/usage 支持
+<!-- trellis-session: v=2 fp=3b61b80c6df1d54a -->
+
+**Date**: 2026-09-13
+**Task**: 额度探测读站点自报倍率 + Sub2API /v1/usage 支持
+**Branch**: `main`
+
+### Summary
+
+补齐两处额度探测缺口。①账户余额链路（/api/user/self）原先硬编码 quota_per_unit=500000 与单位 USD，改为与余额请求并发取一次站点自报的 /api/status 换算参数（quota_per_unit 作除数、quota_display_type 决定 CNY/USD/Custom），失败或缺失回退 500000/USD；乘数（token 链路）与除数（账户余额）语义严格分离并各加锚点测试。顺带修掉站点编辑「测试」按钮硬编码 $ 的符号分叉（NewApiAccessProbe 增 unit 字段，CNY 站点不再出现列表 ¥ / 测试 $）。②新增 Sub2API 风格站点的 /v1/usage（API Key Bearer）探测：实测 AiHub 的 billing 端点返回 HTTP 200 但是 65KB HTML 兜底页（被 looks_like_html 判为不支持），而 /v1/usage 返回钱包余额；探测只在标准链最终 Unsupported 后尝试，new-api 站点零额外请求；used/total 一律留空（钱包模式无此语义，避免前端算出误导进度条）；404/HTML/非法 JSON/isValid:false 全部安静降级为「不支持」。验证：cargo test 394 绿（复核子代理做变异验证证明新断言非空转）、pnpm typecheck 绿、前端 310 绿（2 个既有 updater 用例失败）；真机安装后 UIA 读取确认 AiHub 从「不支持」变为「剩余 $31.32」，SHUAI ￥27.57（CNY 正确）、JustWoker/AgentRouter 正常、OpenCode 三窗口 0%/24%/53%。本轮同时核验并归档两个已完成任务：09-13-opencode-go-quota（OpenCode 三窗口真机验证通过）、09-12-newapi-token-quota（令牌余额与模型兜底已上线）。打包踩坑：只设 TAURI_SIGNING_PRIVATE_KEY 而缺密码变量会永久挂起等 stdin，需同时设空密码或事后单独 signer sign。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9218d45` | feat(quota): 账户余额读站点自报倍率，新增 Sub2API /v1/usage 探测 |
+
+### Status
+
+[OK] **Completed**
