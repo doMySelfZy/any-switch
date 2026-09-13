@@ -223,3 +223,25 @@ WebDAV 真同步全链路落地：逻辑内容指纹引擎+变更驱动守护任
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: 全局约束：Agent 指令统一注入
+<!-- trellis-session: v=2 fp=a2641b1175840934 -->
+
+**Date**: 2026-09-13
+**Task**: 全局约束：Agent 指令统一注入
+
+### Summary
+
+新增全局约束功能：一段 Markdown 用户级约束 + 目标勾选，分别写入 Claude Code 的 ~/.claude/CLAUDE.md 与 Codex/Pi/Prime 的 AGENTS.md；采用托管块只维护块内内容，块外用户内容逐字节保留，取消勾选/清空正文时清理；Pi/Prime 在目录内已有用户 CLAUDE.md 时不新建 AGENTS.md 以免遮蔽；新增单行表 agent_rules（SCHEMA_VERSION 2→3）并加入同步指纹。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4b6add3` | feat(rules): 全局约束统一注入到四个 Agent 的用户级指令文件 |
+| `fa237fb` | chore(task): archive 09-13-global-agent-rules |
+
+### Status
+
+[OK] **Completed**
