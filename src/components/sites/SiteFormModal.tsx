@@ -20,6 +20,8 @@ import {
   type CodexCapabilityFlags,
 } from "@/lib/siteCapabilities";
 import { CodexCapabilitySwitchList } from "@/components/apply/CodexCapabilitySwitchList";
+import { ProxyHeaderEditor, parseProxyHeadersJson } from "./ProxyHeaderEditor";
+import type { ProxyHeader } from "@/types/proxy";
 
 function toActiveKeys(keys: string | string[]): string[] {
   return Array.isArray(keys) ? keys.map(String) : [String(keys)];
@@ -64,6 +66,8 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
   const [capOpen, setCapOpen] = useState<string[]>([]);
   const [newapiTokenLoadFailed, setNewapiTokenLoadFailed] = useState(false);
   const [newapiTesting, setNewapiTesting] = useState(false);
+  const [proxyHeadersJson, setProxyHeadersJson] = useState("");
+  const [proxyHeadersError, setProxyHeadersError] = useState<string | null>(null);
   const [newapiTestResult, setNewapiTestResult] = useState<{
     ok: boolean;
     amount?: string;
@@ -92,10 +96,24 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
       setNewapiTokenLoadFailed(false);
       setNewapiTestResult(null);
       setAdvancedOpen(
-        shouldOpenAdvanced(protocol, notes) || site.newapiConfigured || forceAdvancedOpen
+        shouldOpenAdvanced(protocol, notes) ||
+          site.newapiConfigured ||
+          (site.proxyHeaderCount ?? 0) > 0 ||
+          forceAdvancedOpen
           ? ["advanced"]
           : [],
       );
+      setProxyHeadersError(null);
+      // 请求头密文按需解密：只在编辑时取一次，失败不阻塞表单其余部分。
+      void invoke<ProxyHeader[]>("get_site_proxy_headers", { siteId: site.id })
+        .then((headers) => {
+          if (!cancelled) {
+            setProxyHeadersJson(headers.length ? JSON.stringify(headers, null, 2) : "");
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setProxyHeadersJson("");
+        });
       form.setFieldsValue({
         name: site.name,
         baseUrls: siteBaseUrls(site),
@@ -153,6 +171,8 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
         newapiAccessToken: "",
         newapiUserId: "",
       });
+      setProxyHeadersJson("");
+      setProxyHeadersError(null);
     }
     return () => {
       cancelled = true;
@@ -223,6 +243,13 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
         message.error(t("sites.apiKey"));
         return;
       }
+      const parsedHeaders = parseProxyHeadersJson(proxyHeadersJson);
+      if (parsedHeaders.error) {
+        setProxyHeadersError(parsedHeaders.error);
+        message.error(t("sites.proxyHeadersInvalid", { detail: parsedHeaders.error }));
+        return;
+      }
+      setProxyHeadersError(null);
       // 已配置令牌但解密回填失败时省略字段，避免把令牌意外清空。
       const omitNewapiToken = site?.newapiConfigured === true && newapiTokenLoadFailed;
       const newapiAccessToken = omitNewapiToken
@@ -242,6 +269,7 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
           capabilities,
           newapiAccessToken,
           newapiUserId: values.newapiUserId?.trim() || "",
+          proxyHeaders: parsedHeaders.headers ?? [],
         });
         invalidateSiteIconCache(site.id);
       } else {
@@ -260,6 +288,7 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
           capabilities,
           newapiAccessToken: values.newapiAccessToken?.trim() || null,
           newapiUserId: values.newapiUserId?.trim() || null,
+          proxyHeaders: parsedHeaders.headers ?? [],
         });
       }
       message.success(isCreate ? t("sites.createSuccess") : t("sites.updateSuccess"));
@@ -360,6 +389,14 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
                     >
                       <Input allowClear placeholder="1" inputMode="numeric" />
                     </Form.Item>
+                    <ProxyHeaderEditor
+                      value={proxyHeadersJson}
+                      onChange={(next) => {
+                        setProxyHeadersJson(next);
+                        if (proxyHeadersError) setProxyHeadersError(null);
+                      }}
+                      error={proxyHeadersError}
+                    />
                     <div className="mt-3 flex items-center gap-3">
                       <Button
                         size="small"

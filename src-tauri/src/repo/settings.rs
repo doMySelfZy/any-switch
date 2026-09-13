@@ -1,6 +1,7 @@
 use crate::domain::{
-    clamp_max_backup_copies, clamp_route_probe_ttl, clamp_update_check_interval,
-    normalize_proxy_mode, normalize_proxy_protocol, AppSettings,
+    clamp_local_proxy_port, clamp_max_backup_copies, clamp_route_probe_ttl,
+    clamp_update_check_interval, normalize_local_proxy_targets, normalize_proxy_mode,
+    normalize_proxy_protocol, AppSettings,
 };
 use crate::error::{AppError, AppResult};
 use rusqlite::Connection;
@@ -11,6 +12,9 @@ fn normalize(mut s: AppSettings) -> AppSettings {
     s.update_check_interval = clamp_update_check_interval(s.update_check_interval);
     s.proxy_mode = normalize_proxy_mode(&s.proxy_mode);
     s.proxy_protocol = normalize_proxy_protocol(&s.proxy_protocol);
+    s.local_proxy_port = clamp_local_proxy_port(s.local_proxy_port);
+    s.local_proxy_targets =
+        normalize_local_proxy_targets(std::mem::take(&mut s.local_proxy_targets));
     if let Some(host) = s.proxy_host.as_mut() {
         let trimmed = host.trim().to_string();
         s.proxy_host = if trimmed.is_empty() {
@@ -95,6 +99,48 @@ mod tests {
         assert_eq!(s.language, "en-US");
         assert!(s.close_to_tray);
         assert!(!s.start_in_tray);
+    }
+
+    #[test]
+    fn local_proxy_settings_are_normalized() {
+        let conn = conn();
+        let merged = merge_settings(
+            &conn,
+            serde_json::json!({
+                "localProxyPort": 80,
+                "localProxyTargets": ["claude_code", "claude_code", "pi"],
+            }),
+        )
+        .unwrap();
+        assert_eq!(merged.local_proxy_port, 1024, "特权端口要夹到非特权区间");
+        assert_eq!(
+            merged.local_proxy_targets,
+            vec![
+                crate::domain::TargetKind::ClaudeCode,
+                crate::domain::TargetKind::Pi
+            ],
+            "接管目标必须去重且保持顺序"
+        );
+
+        // 超出 u16 的值在反序列化阶段就被拒（前端会先夹到 65535 再提交）。
+        let err =
+            merge_settings(&conn, serde_json::json!({ "localProxyPort": 99999 })).unwrap_err();
+        assert_eq!(err.code(), "validation_failed");
+        assert_eq!(get_settings(&conn).unwrap().local_proxy_port, 1024);
+    }
+
+    #[test]
+    fn old_settings_json_gets_local_proxy_defaults() {
+        let conn = conn();
+        conn.execute(
+            "INSERT INTO settings (id, json) VALUES (1, ?1)",
+            rusqlite::params![r##"{"language":"zh-CN","themeMode":"system","primaryColor":"#1677ff","autoStart":false,"alwaysOnTop":false,"claudeHomeOverride":null,"codexHomeOverride":null,"codexEnvInjectMode":"auto","forceExclusiveClaudeAuthKey":false,"autoCheckUpdate":true,"maxBackupCopies":30}"##],
+        )
+        .unwrap();
+        let s = get_settings(&conn).unwrap();
+        assert!(!s.local_proxy_enabled, "旧库不应默认开启代理");
+        assert_eq!(s.local_proxy_port, 18087);
+        assert!(s.local_proxy_targets.is_empty());
     }
 
     #[test]

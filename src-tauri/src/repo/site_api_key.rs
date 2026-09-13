@@ -486,6 +486,7 @@ mod tests {
                 claude_auth_key_style: None,
                 notes: None,
                 capabilities: None,
+                proxy_headers: None,
             },
         )
         .unwrap();
@@ -532,6 +533,7 @@ mod tests {
                 claude_auth_key_style: None,
                 notes: None,
                 capabilities: None,
+                proxy_headers: None,
             },
         )
         .unwrap();

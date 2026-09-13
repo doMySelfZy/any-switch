@@ -37,6 +37,11 @@ import type {
 } from "@/types/domain";
 import type { McpApplyResult, McpApplyTargetResult, McpServer, McpServerInput, RegistryCandidate } from "@/types/mcp";
 import type { AgentRules, AgentRulesApplyResult } from "@/types/rules";
+import type {
+  LocalProxyRequestLogEntry,
+  LocalProxyStatus,
+  ProxyHeader,
+} from "@/types/proxy";
 import { keyPrefix, normalizeBaseUrl } from "./urlNormalize";
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -59,6 +64,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   proxyHost: null,
   proxyPort: null,
   routeProbeTtlMinutes: 10,
+  localProxyEnabled: false,
+  localProxyPort: 18087,
+  localProxyTargets: [],
   closeToTray: true,
   startInTray: false,
 };
@@ -135,6 +143,42 @@ function defaultTargetStatuses(): TargetLiveStatus[] {
 
 let settings: AppSettings = { ...DEFAULT_SETTINGS };
 let sites: Site[] = [];
+/** 浏览器 mock 的代理请求头：与 Rust 侧一样按站点加密存储，列表只回计数。 */
+let siteProxyHeaders = new Map<string, ProxyHeader[]>();
+/** 浏览器 mock 的代理运行态：只为让页面在无 Tauri 环境下可交互。 */
+let proxyRuntime: { running: boolean; startedAt: number | null; total: number; success: number; failed: number; lastError: string | null } | null = null;
+let proxyRequests: LocalProxyRequestLogEntry[] = [];
+const MOCK_PROXY_PATH_TOKEN = "0123456789abcdef0123456789abcdef";
+
+function mockProxyStatus(): LocalProxyStatus {
+  const running = proxyRuntime?.running ?? false;
+  const targets = (["claude_code", "codex", "pi", "prime"] as TargetKind[]).map((target) => {
+    const takeover = settings.localProxyTargets.includes(target);
+    const binding = targetStatuses.find((item) => item.kind === target);
+    const suffix = target === "codex" || target === "pi" || target === "prime" ? "/v1" : "";
+    return {
+      target,
+      takeover,
+      siteId: binding?.appliedSiteId ?? null,
+      siteName: binding?.appliedSiteName ?? null,
+      clientBaseUrl: `http://127.0.0.1:${settings.localProxyPort}/${MOCK_PROXY_PATH_TOKEN}/t/${target}${suffix}`,
+    };
+  });
+  return {
+    running,
+    address: `127.0.0.1:${settings.localProxyPort}`,
+    port: settings.localProxyPort,
+    pathToken: MOCK_PROXY_PATH_TOKEN,
+    startedAt: proxyRuntime?.startedAt ?? null,
+    uptimeSeconds: proxyRuntime?.startedAt ? Math.floor((Date.now() - proxyRuntime.startedAt) / 1000) : 0,
+    totalRequests: proxyRuntime?.total ?? 0,
+    successRequests: proxyRuntime?.success ?? 0,
+    failedRequests: proxyRuntime?.failed ?? 0,
+    activeConnections: 0,
+    lastError: proxyRuntime?.lastError ?? null,
+    targets,
+  };
+}
 let backups: BackupInfo[] = [];
 let targetStatuses: TargetLiveStatus[] = defaultTargetStatuses();
 let webdavConfig: WebDavConfigView = {
@@ -276,6 +320,9 @@ function initialInstalledSkillSources(): Map<string, string> {
 export function resetBrowserMock() {
   settings = { ...DEFAULT_SETTINGS };
   sites = [];
+  siteProxyHeaders = new Map();
+  proxyRuntime = null;
+  proxyRequests = [];
   backups = [];
   targetStatuses = defaultTargetStatuses();
   webdavConfig = {
@@ -1680,6 +1727,58 @@ export async function handleBrowserCommand<T>(
       mcpServers = mcpServers.filter((item) => item.id !== id);
       return { results: [], appliedAt: now() } as T;
     }
+    case "local_proxy_status":
+      return mockProxyStatus() as T;
+
+    case "start_local_proxy": {
+      proxyRuntime = { running: true, startedAt: Date.now(), total: 0, success: 0, failed: 0, lastError: null };
+      return mockProxyStatus() as T;
+    }
+
+    case "stop_local_proxy": {
+      if (proxyRuntime) proxyRuntime.running = false;
+      // 与后端一致：停止代理会把接管目标改回直连。
+      settings.localProxyTargets = [];
+      return mockProxyStatus() as T;
+    }
+
+    case "set_local_proxy_takeover": {
+      const target = args?.target as TargetKind;
+      const enabled = Boolean(args?.enabled);
+      if (enabled && !(proxyRuntime?.running ?? false)) {
+        throw { code: "proxy_not_running", message: "start the local proxy first" };
+      }
+      const next = new Set(settings.localProxyTargets);
+      if (enabled) next.add(target);
+      else next.delete(target);
+      settings.localProxyTargets = [...next];
+      return mockProxyStatus() as T;
+    }
+
+    case "set_local_proxy_port": {
+      const port = Number(args?.port ?? 0);
+      if (!Number.isFinite(port) || port < 1024 || port > 65535) {
+        throw { code: "validation_failed", message: "port must be between 1024 and 65535" };
+      }
+      settings.localProxyPort = Math.round(port);
+      return mockProxyStatus() as T;
+    }
+
+    case "list_local_proxy_requests": {
+      const limit = (args?.limit as number | undefined) ?? 100;
+      return proxyRequests.slice(0, limit) as T;
+    }
+
+    case "clear_local_proxy_requests": {
+      proxyRequests = [];
+      return undefined as T;
+    }
+
+    case "get_site_proxy_headers": {
+      const siteId = args?.siteId as string;
+      return (siteProxyHeaders.get(siteId) ?? []) as T;
+    }
+
     case "apply_mcp_servers": {
       const targets = (args?.targets ?? []) as TargetKind[];
       const results: McpApplyTargetResult[] = targets.map((target) => ({

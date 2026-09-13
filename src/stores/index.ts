@@ -6,3 +6,4 @@ export { useApplyStore } from "./applyStore";
 export { useSkillStore } from "./skillStore";
 export { useMcpStore } from "./mcpStore";
 export { useRulesStore, resetRulesStore } from "./rulesStore";
+export { useProxyStore } from "./proxyStore";

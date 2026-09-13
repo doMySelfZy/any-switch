@@ -192,9 +192,12 @@ pub fn apply_site(
             .db
             .with_conn(|c| repo::binding::get_binding(c, target))?;
 
+        // 接管开启时本站点的可写地址换成代理地址；数据库里始终保留真实上游。
+        let effective = crate::local_proxy::routing::effective_site(&site, target, &settings);
+
         if target == TargetKind::Pi {
             match crate::adapters::pi::apply(
-                &site,
+                &effective,
                 &api_key,
                 &model_id,
                 &pi_opts,
@@ -283,7 +286,7 @@ pub fn apply_site(
 
         if target == TargetKind::Prime {
             match crate::adapters::prime::apply(
-                &site,
+                &effective,
                 &api_key,
                 &model_id,
                 &prime_opts,
@@ -372,7 +375,7 @@ pub fn apply_site(
 
         if target == TargetKind::Codex {
             match crate::adapters::codex::apply(
-                &site,
+                &effective,
                 &api_key,
                 &model_id,
                 &codex_opts,
@@ -463,7 +466,7 @@ pub fn apply_site(
 
         // Claude Code
         match crate::adapters::claude_code::apply(
-            &site,
+            &effective,
             &api_key,
             &model_id,
             auth.clone(),

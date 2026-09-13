@@ -2864,6 +2864,8 @@ mod tests {
             },
             newapi_access_token_encrypted: Some("encrypted".into()),
             newapi_user_id: Some("42".into()),
+            proxy_headers_encrypted: None,
+            proxy_header_count: 0,
         }
     }
 

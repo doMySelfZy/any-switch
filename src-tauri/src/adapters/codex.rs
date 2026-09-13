@@ -962,6 +962,8 @@ wire_api = "responses"
             keys: Default::default(),
             newapi_access_token_encrypted: None,
             newapi_user_id: None,
+            proxy_headers_encrypted: None,
+            proxy_header_count: 0,
         };
         let bak = dir.path().join("bak");
         fs::create_dir_all(&bak).unwrap();
@@ -1042,6 +1044,8 @@ image_generation = false
             keys: Default::default(),
             newapi_access_token_encrypted: None,
             newapi_user_id: None,
+            proxy_headers_encrypted: None,
+            proxy_header_count: 0,
         };
         let bak = dir.path().join("bak");
         fs::create_dir_all(&bak).unwrap();

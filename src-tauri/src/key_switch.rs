@@ -284,9 +284,12 @@ pub fn sync_applied_keys(
             .join(format!("{}", applied_at));
         fs::create_dir_all(&backup_root)?;
 
+        // 接管开启时把可写地址换成代理地址；数据库与后续状态检测仍用真实上游。
+        let effective_site = crate::local_proxy::routing::effective_site(site, target, &settings);
+
         let rewrite = match target {
             TargetKind::ClaudeCode => apply_claude(
-                site,
+                &effective_site,
                 &api_key,
                 &binding,
                 claude_values
@@ -295,11 +298,16 @@ pub fn sync_applied_keys(
                 &settings,
                 &backup_root,
             ),
-            TargetKind::Codex => {
-                apply_codex(site, &api_key, &binding, models, &settings, &backup_root)
-            }
+            TargetKind::Codex => apply_codex(
+                &effective_site,
+                &api_key,
+                &binding,
+                models,
+                &settings,
+                &backup_root,
+            ),
             TargetKind::Pi => apply_pi(
-                site,
+                &effective_site,
                 &api_key,
                 &binding,
                 models,
@@ -308,7 +316,7 @@ pub fn sync_applied_keys(
                 &pi_thinking,
             ),
             TargetKind::Prime => apply_prime(
-                site,
+                &effective_site,
                 &api_key,
                 &binding,
                 models,

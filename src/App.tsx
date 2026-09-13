@@ -10,6 +10,7 @@ import { ApplyPage } from "@/pages/ApplyPage";
 import { SkillsPage } from "@/pages/SkillsPage";
 import { McpPage } from "@/pages/McpPage";
 import { RulesPage } from "@/pages/RulesPage";
+import { ProxyPage } from "@/pages/ProxyPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { useSettingsStore, useUIStore, type AppPage } from "@/stores";
 import { useResolvedDarkMode } from "@/hooks/useResolvedDarkMode";
@@ -104,6 +105,17 @@ function KeepAlivePages({ activePage }: { activePage: AppPage }) {
         >
           <div className="flex h-full min-h-0 w-full flex-col">
             <RulesPage />
+          </div>
+        </div>
+      )}
+      {mounted.has("proxy") && (
+        <div
+          className="h-full min-h-0"
+          style={{ display: activePage === "proxy" ? "flex" : "none" }}
+          aria-hidden={activePage !== "proxy"}
+        >
+          <div className="flex h-full min-h-0 w-full flex-col">
+            <ProxyPage />
           </div>
         </div>
       )}

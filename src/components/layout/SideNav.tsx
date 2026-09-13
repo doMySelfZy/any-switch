@@ -1,5 +1,5 @@
 import { Tooltip, theme } from "antd";
-import { Layers, Rocket, Sparkles, Plug, ScrollText } from "lucide-react";
+import { Layers, Rocket, Sparkles, Plug, ScrollText, Network } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useUIStore, type AppPage } from "@/stores/uiStore";
 
@@ -9,6 +9,7 @@ const ITEMS: { key: AppPage; icon: React.ReactNode; labelKey: string }[] = [
   { key: "skills", icon: <Sparkles size={18} />, labelKey: "nav.skills" },
   { key: "mcp", icon: <Plug size={18} />, labelKey: "nav.mcp" },
   { key: "rules", icon: <ScrollText size={18} />, labelKey: "nav.rules" },
+  { key: "proxy", icon: <Network size={18} />, labelKey: "nav.proxy" },
 ];
 
 export function SideNav() {

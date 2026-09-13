@@ -1,3 +1,5 @@
+import type { ProxyHeader } from "./proxy";
+
 /** Model list / probe protocol */
 export type SiteProtocol = "openai_compatible" | "anthropic";
 
@@ -110,6 +112,8 @@ export interface Site {
   /** NewAPI 访问令牌是否已配置（令牌本身不回传前端）。 */
   newapiConfigured?: boolean;
   newapiUserId?: string | null;
+  /** 已配置的代理请求头条数（不透出请求头内容）。 */
+  proxyHeaderCount?: number;
 }
 
 export interface SiteModel {
@@ -154,6 +158,8 @@ export interface CreateSiteInput {
   capabilities?: SiteCapabilities;
   newapiAccessToken?: string | null;
   newapiUserId?: string | null;
+  /** 本地代理请求头覆盖；缺省表示不改动。 */
+  proxyHeaders?: ProxyHeader[];
 }
 
 export interface UpsertSiteApiKeyInput {
@@ -177,6 +183,8 @@ export interface UpdateSiteInput {
   capabilities?: SiteCapabilities;
   newapiAccessToken?: string | null;
   newapiUserId?: string | null;
+  /** 本地代理请求头覆盖；缺省表示不改动。 */
+  proxyHeaders?: ProxyHeader[];
 }
 
 export interface FetchModelsResult {
@@ -340,10 +348,24 @@ export interface AppSettings {
   proxyHost: string | null;
   proxyPort: number | null;
   routeProbeTtlMinutes: number;
+  /** 本地代理总开关；应用启动时按它自动拉起代理。 */
+  localProxyEnabled: boolean;
+  /** 本地代理监听端口（仅回环），默认 18087。 */
+  localProxyPort: number;
+  /** 接管目标集合：这些目标写入客户端的 Base URL 指向本地代理。 */
+  localProxyTargets: TargetKind[];
   /** Hide to the menu bar / tray instead of quitting on window close. */
   closeToTray: boolean;
   /** Keep the main window hidden on launch. Disabled when closeToTray is off. */
   startInTray: boolean;
+  /** Floating window settings */
+  floatingWindow?: {
+    enabled: boolean;
+    autoRefreshSeconds: number;
+    positionX: number;
+    positionY: number;
+    collapsed: boolean;
+  };
 }
 
 export interface WebDavConfigView {
@@ -509,6 +531,14 @@ export interface SiteQuota {
   error: string | null;
   /** OpenCode Go usage windows; empty/absent for other quota sources. */
   windows?: QuotaWindow[];
+}
+
+export interface SiteQuotaSummary {
+  siteId: string;
+  siteName: string;
+  enabled: boolean;
+  sortOrder: number;
+  quota: SiteQuota | null;
 }
 
 export interface HttpBytesResult {

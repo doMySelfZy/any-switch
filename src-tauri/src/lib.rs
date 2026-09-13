@@ -14,6 +14,7 @@ mod error;
 mod http_client;
 mod key_switch;
 mod lock;
+mod local_proxy;
 mod macos_scheme;
 mod mcp_registry;
 mod model_probe;
@@ -89,6 +90,23 @@ pub fn run() {
             });
             autostart::sync_from_settings(app.handle());
             commands::apply_platform_window_chrome(app);
+            // 代理开关是"运行意图"：上次退出时是开的，启动就自动拉起。
+            let proxy_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let settings = proxy_app
+                    .state::<AppState>()
+                    .db
+                    .with_conn(repo::settings::get_settings);
+                let Ok(settings) = settings else {
+                    return;
+                };
+                if !settings.local_proxy_enabled || settings.local_proxy_targets.is_empty() {
+                    return;
+                }
+                if let Err(error) = crate::local_proxy::server::start(&proxy_app).await {
+                    tracing::warn!(error = %error, "failed to auto-start local proxy");
+                }
+            });
             if let Err(e) = tray::create_tray(app.handle(), &language) {
                 tracing::warn!("failed to create system tray: {e}");
                 app.state::<AppState>()
@@ -188,6 +206,14 @@ pub fn run() {
             commands::fetch_http_bytes,
             commands::probe_urls,
             commands::resolve_http_proxy,
+            commands::local_proxy_status,
+            commands::start_local_proxy,
+            commands::stop_local_proxy,
+            commands::set_local_proxy_takeover,
+            commands::set_local_proxy_port,
+            commands::list_local_proxy_requests,
+            commands::clear_local_proxy_requests,
+            commands::get_site_proxy_headers,
             commands::check_app_update,
             commands::take_pending_deep_link,
             commands::restore_main_window,
@@ -231,6 +257,21 @@ pub fn run() {
                         .unwrap_or(false)
                 {
                     api.prevent_exit();
+                    return;
+                }
+                // 真正退出：把接管目标改回直连并收掉运行意图，避免下次启动自动拉起
+                // 一个没人用的监听，或让客户端指向一个已消失的代理。
+                {
+                    let state = app.state::<AppState>();
+                    if let Err(error) = crate::local_proxy::disengage_takeover(&state, false) {
+                        tracing::warn!(error = %error, "local proxy exit restore failed");
+                    }
+                    let guard = state.local_proxy.try_lock();
+                    if let Ok(mut guard) = guard {
+                        if let Some(runtime) = guard.take() {
+                            let _ = runtime.shutdown.send(());
+                        }
+                    }
                 }
             }
             #[cfg(target_os = "macos")]

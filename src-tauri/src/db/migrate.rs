@@ -57,7 +57,9 @@ CREATE TABLE IF NOT EXISTS sites (
   base_urls_json TEXT,
   capabilities_json TEXT,
   newapi_access_token_encrypted TEXT,
-  newapi_user_id TEXT
+  newapi_user_id TEXT,
+  proxy_headers_encrypted TEXT,
+  proxy_header_count INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS site_api_keys (
@@ -209,10 +211,32 @@ fn ensure_agent_rules_schema(conn: &Connection) -> AppResult<()> {
     conn.execute_batch("CREATE TABLE IF NOT EXISTS agent_rules (id INTEGER PRIMARY KEY CHECK (id = 1), body TEXT NOT NULL DEFAULT '', targets_json TEXT NOT NULL DEFAULT '[]', updated_at INTEGER NOT NULL DEFAULT 0);")?;
     Ok(())
 }
+
+/// 本地代理请求头：密文列 + 明文计数列。
+fn ensure_sites_proxy_header_columns(conn: &Connection) -> AppResult<()> {
+    if !table_exists(conn, "sites")? {
+        return Ok(());
+    }
+    ensure_column(
+        conn,
+        "sites",
+        "proxy_headers_encrypted",
+        "ALTER TABLE sites ADD COLUMN proxy_headers_encrypted TEXT",
+    )?;
+    ensure_column(
+        conn,
+        "sites",
+        "proxy_header_count",
+        "ALTER TABLE sites ADD COLUMN proxy_header_count INTEGER NOT NULL DEFAULT 0",
+    )?;
+    Ok(())
+}
+
 /// 版本号之前的存量库增量补齐。`CREATE TABLE IF NOT EXISTS` 对已存在的表是空操作，
 /// 所以每一个「库已存在」的分支都必须走这里，否则升版本号会让老库永远拿不到新列/新表。
 fn ensure_incremental_schema(conn: &Connection) -> AppResult<()> {
     ensure_sites_newapi_columns(conn)?;
+    ensure_sites_proxy_header_columns(conn)?;
     ensure_mcp_schema(conn)?;
     ensure_agent_rules_schema(conn)?;
     Ok(())
@@ -881,6 +905,59 @@ mod tests {
         assert!(err.to_string().contains("cannot be decrypted"));
         assert_eq!(user_version(&conn).unwrap(), 0);
         assert!(!table_exists(&conn, "site_api_keys").unwrap());
+    }
+
+    #[test]
+    fn fresh_database_has_local_proxy_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+        apply_schema(&conn, None, BackupMode::Skip).unwrap();
+        assert!(column_exists(&conn, "sites", "proxy_headers_encrypted").unwrap());
+        assert!(column_exists(&conn, "sites", "proxy_header_count").unwrap());
+    }
+
+    #[test]
+    fn existing_database_gains_local_proxy_columns_on_upgrade() {
+        // 回归：存量库走「版本落后」分支时，CREATE TABLE IF NOT EXISTS 不会补列，
+        // 必须由 ensure_incremental_schema 的 ensure_column 补齐。
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sites (
+               id TEXT PRIMARY KEY,
+               name TEXT NOT NULL,
+               base_url TEXT NOT NULL,
+               protocol TEXT NOT NULL,
+               claude_auth_key_style TEXT NOT NULL,
+               notes TEXT,
+               enabled INTEGER NOT NULL,
+               sort_order INTEGER NOT NULL,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL,
+               base_urls_json TEXT,
+               capabilities_json TEXT
+             );
+             CREATE TABLE site_api_keys (
+               id TEXT PRIMARY KEY,
+               site_id TEXT NOT NULL,
+               label TEXT NOT NULL,
+               api_key_encrypted TEXT NOT NULL,
+               key_prefix TEXT NOT NULL,
+               is_active INTEGER NOT NULL DEFAULT 0,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL
+             );
+             CREATE TABLE settings (
+               id INTEGER PRIMARY KEY CHECK (id = 1),
+               json TEXT NOT NULL
+             );
+             PRAGMA user_version = 2;",
+        )
+        .unwrap();
+
+        apply_schema(&conn, None, BackupMode::Skip).unwrap();
+
+        assert!(column_exists(&conn, "sites", "proxy_headers_encrypted").unwrap());
+        assert!(column_exists(&conn, "sites", "proxy_header_count").unwrap());
+        assert_eq!(user_version(&conn).unwrap(), SCHEMA_VERSION);
     }
 
     #[test]

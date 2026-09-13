@@ -420,6 +420,35 @@ pub fn master_key_path() -> AppResult<PathBuf> {
     Ok(app_dir()?.join("master.key"))
 }
 
+/// 本地代理的路径口令。
+///
+/// 刻意放**文件**而不是 settings 表：settings 会随 WebDAV 同步到别的机器，而口令
+/// 必须与本机的 CLI 配置一致（配置由各机器分别写入）。同步来的口令会让本机代理
+/// 监听的口令与客户端配置里的口令不一致，表现为四个 CLI 全部 404。
+pub fn local_proxy_token_path() -> AppResult<PathBuf> {
+    Ok(app_dir()?.join("local-proxy-token"))
+}
+
+/// 本地代理的路径口令：按需生成并落盘（0600）。
+///
+/// 生成一次后跨重启稳定：CLI 配置里写的是它，换了它所有客户端都要重写。
+pub fn ensure_local_proxy_token() -> AppResult<String> {
+    let path = local_proxy_token_path()?;
+    if let Ok(existing) = std::fs::read_to_string(&path) {
+        let trimmed = existing.trim().to_ascii_lowercase();
+        if crate::domain::is_valid_local_proxy_token(&trimmed) {
+            return Ok(trimmed);
+        }
+    }
+    let token = crate::domain::generate_local_proxy_token();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, &token)?;
+    crate::paths::set_secret_permissions(&path);
+    Ok(token)
+}
+
 pub fn codex_env_path() -> AppResult<PathBuf> {
     Ok(app_dir()?.join("env").join("codex.env"))
 }

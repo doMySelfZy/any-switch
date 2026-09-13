@@ -22,6 +22,9 @@ const DEFAULT: AppSettings = {
   proxyHost: null,
   proxyPort: null,
   routeProbeTtlMinutes: 10,
+  localProxyEnabled: false,
+  localProxyPort: 18087,
+  localProxyTargets: [],
   closeToTray: true,
   startInTray: false,
 };

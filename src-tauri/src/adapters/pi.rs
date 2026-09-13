@@ -1002,6 +1002,8 @@ mod tests {
             keys: Default::default(),
             newapi_access_token_encrypted: None,
             newapi_user_id: None,
+            proxy_headers_encrypted: None,
+            proxy_header_count: 0,
         }
     }
 

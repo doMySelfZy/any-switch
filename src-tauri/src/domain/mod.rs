@@ -9,6 +9,8 @@ mod mcp;
 pub use mcp::*;
 mod rules;
 pub use rules::*;
+mod proxy;
+pub use proxy::*;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -152,6 +154,9 @@ pub struct SiteDto {
     pub newapi_configured: bool,
     #[serde(default)]
     pub newapi_user_id: Option<String>,
+    /// 已配置的代理请求头条数（明文计数，列表不返回请求头内容）。
+    #[serde(default)]
+    pub proxy_header_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -197,6 +202,9 @@ pub struct CreateSiteInput {
     pub newapi_access_token: Option<String>,
     #[serde(default)]
     pub newapi_user_id: Option<String>,
+    /// 本地代理请求头覆盖。`None` = 不改动既有值。
+    #[serde(default)]
+    pub proxy_headers: Option<Vec<ProxyHeader>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -261,6 +269,9 @@ pub struct UpdateSiteInput {
     pub newapi_access_token: Option<String>,
     #[serde(default)]
     pub newapi_user_id: Option<String>,
+    /// 本地代理请求头覆盖。`None` = 不改动既有值。
+    #[serde(default)]
+    pub proxy_headers: Option<Vec<ProxyHeader>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -566,6 +577,14 @@ pub struct AppSettings {
     pub proxy_port: Option<u16>,
     #[serde(default = "default_route_probe_ttl")]
     pub route_probe_ttl_minutes: u32,
+    /// 本地代理总开关（运行意图；应用启动时按它自动拉起）。
+    #[serde(default)]
+    pub local_proxy_enabled: bool,
+    #[serde(default = "default_local_proxy_port")]
+    pub local_proxy_port: u16,
+    /// 接管目标集合：列在这里的目标写入客户端的 Base URL 指向本地代理。
+    #[serde(default)]
+    pub local_proxy_targets: Vec<TargetKind>,
     /// Hide the main window instead of quitting when the user closes it.
     #[serde(default = "default_true")]
     pub close_to_tray: bool,
@@ -733,6 +752,40 @@ pub fn default_route_probe_ttl() -> u32 {
     10
 }
 
+pub fn default_local_proxy_port() -> u16 {
+    18087
+}
+
+/// 端口限制在非特权区间，避免与系统服务抢端口。
+pub fn clamp_local_proxy_port(port: u16) -> u16 {
+    port.clamp(1024, 65535)
+}
+
+/// 接管目标去重并保持用户勾选顺序；顺序只影响 UI 展示。
+pub fn normalize_local_proxy_targets(targets: Vec<TargetKind>) -> Vec<TargetKind> {
+    let mut out: Vec<TargetKind> = Vec::new();
+    for target in targets {
+        if !out.contains(&target) {
+            out.push(target);
+        }
+    }
+    out
+}
+
+/// 路径口令：32 位十六进制随机串，用于把"能用这个代理"限制在读过客户端配置的
+/// 进程。持久化在设备本地文件（见 `paths::ensure_local_proxy_token`），不进 settings
+/// ——settings 会随 WebDAV 同步到别的机器，而口令必须与本机 CLI 配置一致。
+pub fn generate_local_proxy_token() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 16];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    hex::encode(bytes)
+}
+
+pub fn is_valid_local_proxy_token(token: &str) -> bool {
+    token.len() == 32 && token.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 pub fn clamp_route_probe_ttl(n: u32) -> u32 {
     n.clamp(1, 1440)
 }
@@ -785,6 +838,9 @@ impl Default for AppSettings {
             proxy_host: None,
             proxy_port: None,
             route_probe_ttl_minutes: default_route_probe_ttl(),
+            local_proxy_enabled: false,
+            local_proxy_port: default_local_proxy_port(),
+            local_proxy_targets: Vec::new(),
             close_to_tray: true,
             start_in_tray: false,
         }
@@ -948,6 +1004,9 @@ pub struct SiteRow {
     pub keys: SiteKeyState,
     pub newapi_access_token_encrypted: Option<String>,
     pub newapi_user_id: Option<String>,
+    /// 加密存储的 `Vec<ProxyHeader>` JSON；UI 只在编辑时按需解密。
+    pub proxy_headers_encrypted: Option<String>,
+    pub proxy_header_count: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -1015,6 +1074,7 @@ impl SiteRow {
                 .as_deref()
                 .is_some_and(|token| !token.is_empty()),
             newapi_user_id: self.newapi_user_id.clone(),
+            proxy_header_count: self.proxy_header_count,
         }
     }
 
