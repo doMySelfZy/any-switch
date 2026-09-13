@@ -192,3 +192,34 @@ WebDAV 真同步全链路落地：逻辑内容指纹引擎+变更驱动守护任
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: 三窗口措辞澄清与 v0.1.4 发布状态确认
+<!-- trellis-session: v=2 fp=07b33c425a29bd92 -->
+
+**Date**: 2026-09-13
+**Task**: 三窗口措辞澄清与 v0.1.4 发布状态确认
+**Branch**: `main`
+
+### Summary
+
+收尾会话，无新代码提交。
+
+### Main Changes
+
+收尾会话，无新代码提交。
+
+1. 用户澄清：「三窗口」只是本次对话给 OpenCode 的 5 小时/周/月三个用量窗口起的简称，与其原话「OpenCode 不是有 5 小时、周和月吗」指的是同一件事。相关结论：用户原始观感（站点列表显示不全）成立，成因为①0.1.3 安装包不含展示三窗口的功能提交 f6882d4/7cce472（tag 与 Release 指向 bump 提交 25ba00d），②侧栏 256px 时文字区 137px 不足以容纳三值（最坏需 152px）。两者已在 0.1.4 修复，真机列表显示「5h 100% 周 76% 月 47%」完整。
+
+2. 待决事项（需用户决定后才能动作）：v0.1.3 的 GitHub Release 已公开发布但安装包缺上述两个功能提交。可选方案 A：把 tag 移到功能提交后重发 0.1.3；方案 B：用本地已构建并验证过的 0.1.4 覆盖发布。0.1.4（含侧栏 w-72 加宽，提交 b0a45fc + f593b1e）目前仅本地安装，尚未推送到 GitHub。
+
+3. 任务归档情况：09-13-site-sidebar-width 已于上轮归档；09-13-mcp-registry-install 验收标准全部勾选、代码已提交（95a7938），经用户确认本轮暂不归档；00-bootstrap-guidelines 未推进（.trellis/spec/ 仍为空模板），保留。
+
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**

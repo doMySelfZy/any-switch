@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
+- **Total Sessions**: 9
 - **Last Active**: 2026-09-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~194 | Active |
+| `journal-1.md` | ~225 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-09-13 | 三窗口措辞澄清与 v0.1.4 发布状态确认 | - | `main` |
 | 8 | 2026-09-13 | MCP 官方仓库搜索安装与表单简化 | `95a7938` | `main` |
 | 7 | 2026-09-13 | 额度口径统一为剩余 + 有进度条即显示已用 | `f6882d4`, `7cce472`, `e58bba3` | `main` |
 | 6 | 2026-09-13 | 站点列表侧栏加宽 + v0.1.4 打包安装 | `b0a45fc`, `f593b1e` | `main` |
