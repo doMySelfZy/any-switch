@@ -76,6 +76,47 @@ fn try_replace(tmp: &Path, dest: &Path) -> std::io::Result<()> {
 
 pub const BACKUP_ORIGINS_FILE: &str = ".origins.json";
 
+/// 目标 CLI 配置文件的互斥锁：`<file>.lock` 目录。与 Pi/Prime 适配器用的是同一套约定，
+/// 所以针对同一个文件（例如 Prime 的 settings.json）的读写会互相排他。
+/// 客户端可能在任意时刻改写自己的配置，读-改-写期间必须持锁，否则会丢掉它的并发更新。
+pub struct FileLock {
+    path: PathBuf,
+}
+
+impl FileLock {
+    pub fn acquire(file: &Path) -> AppResult<Self> {
+        let file_name = file
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| AppError::new("internal", "invalid config path"))?;
+        let path = file.with_file_name(format!("{file_name}.lock"));
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        for attempt in 0..10 {
+            match fs::create_dir(&path) {
+                Ok(()) => return Ok(Self { path }),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if attempt < 9 {
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(AppError::new(
+            "lock_busy",
+            format!("the target CLI is using {}", file.display()),
+        ))
+    }
+}
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir(&self.path);
+    }
+}
+
 pub fn backup_file(src: &Path, backup_dir: &Path) -> AppResult<PathBuf> {
     if !src.exists() {
         return Err(AppError::new(

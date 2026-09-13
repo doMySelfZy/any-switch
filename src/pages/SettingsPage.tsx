@@ -515,9 +515,12 @@ function AboutSection() {
             <li>{paths.appDir}</li>
             <li>{paths.codexEnvPath}</li>
             <li>~/.claude/settings.json</li>
+            <li>~/.claude.json</li>
             <li>~/.codex/config.toml</li>
             <li>~/.pi/agent/auth.json</li>
+            <li>~/.pi/agent/mcp.json</li>
             <li>~/.prime/agent/auth.json</li>
+            <li>~/.prime/agent/settings.json</li>
           </ul>
           <Button className="mt-3" onClick={() => void invoke("open_path", { path: paths.appDir })}>
             {t("settings.openAppDir")}

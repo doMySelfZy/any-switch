@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 pub mod migrate;
 
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 2;
 
 pub struct Db {
     pub conn: Mutex<Connection>,

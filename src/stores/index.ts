@@ -4,3 +4,4 @@ export { useSettingsStore } from "./settingsStore";
 export { useSiteStore } from "./siteStore";
 export { useApplyStore } from "./applyStore";
 export { useSkillStore } from "./skillStore";
+export { useMcpStore } from "./mcpStore";

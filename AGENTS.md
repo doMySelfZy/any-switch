@@ -27,12 +27,30 @@
   - WebDAV 远端目录默认值 `xiaobai-switch`（与 manifest 是同一套跨机协议路径）；
   - 本地备份前缀：新文件用 `xiaobai-switch-backup-`，AnySwitch 时期的 `any-switch-backup-` 必须继续识别（列表/恢复/清理/远端保留都要接受两种前缀，排序需先剥离前缀再按时间戳比较）；
   - 备份包内数据库条目名 `xiaobai-switch.db`（内部归档协议，保留才能旧备份可恢复 + 新备份可被旧版读取）；
-  - 已应用配置命名空间 `xiaobai_`：Pi/Prime provider id、Codex provider id 派生、`XIAOBAI_SITE_*` 环境变量、`__xiaobai_missing__`；
+  - 已应用配置命名空间 `xiaobai_`：Pi/Prime provider id、Codex provider id 派生、`XIAOBAI_SITE_*` 环境变量、`__xiaobai_missing__`、**MCP 服务器名（写入客户端 `mcpServers` / `[mcp_servers.*]` 的键）**；
   - 应用/备份痕迹识别文件名：`xiaobai-model-catalog.json`（Codex 模型目录）、`xiaobai-backup.json`（目标备份元数据）、`.xiaobai-skill.json` 与 `.xiaobai-skill-` 临时前缀（技能安装清单）、`atomic.rs` 的 `.xiaobai-` 临时文件前缀；
   - 深链解析继续接受 `anyswitch:` / `xiaobaiswitch:` 旧 scheme（写链接时用 `xiaobaiswitchplus:`）；
   - 更新签名公钥保持当前值；
   - `restore_official` / 孤儿清理的识别逻辑不得改动。
 - API key 在数据库中加密存储；**应用（Apply）** 之后，它们可能以明文出现在 `~/.claude` / `~/.codex` / `~/.pi/agent/auth.json` / `~/.prime/agent/auth.json` / `codex.env` / shell rc 中 —— 须在 UI 文案中说明这一点。
+
+## MCP 统一管控
+
+一份 MCP 定义存在应用数据库中，可勾选应用到 Claude Code / Codex / Pi / Prime，并按客户端分别写入。**每个客户端只写它自己的原生位置**：
+
+| 目标 | 文件 | 结构 |
+|------|------|------|
+| Claude Code | `~/.claude.json`（设 `CLAUDE_CONFIG_DIR` 时为该目录内同名文件；应用内覆盖同样映射到 `<覆盖目录>/.claude.json`） | 顶层 `mcpServers` |
+| Codex | `~/.codex/config.toml` | `[mcp_servers.*]`，用 `toml_edit` 保留注释与其他段 |
+| Pi | `<pi agent dir>/mcp.json` | `mcpServers` |
+| Prime | `<prime agent dir>/settings.json` | `mcpServers` |
+
+- **Claude Code 的 MCP 不在 `~/.claude/settings.json` 里** —— 该文件的 `mcpServers` 会被 Claude Code 忽略，写入必须落到 `~/.claude.json`。
+- 托管条目 = `xiaobai_<name>`。应用时只清理该前缀下已不在当前清单里的条目；改名、禁用、删除、改绑目标后都会触发清理。**不要**去动用户自己的 MCP 条目。
+- 写入前先备份、再原子替换，并用 `<文件名>.lock` 目录与目标 CLI 自己的写入互斥（Prime 的 `settings.json` 与 prime 适配器共用同一把锁）。
+- 既有配置形状不合法时（如 `mcpServers` 不是对象、Codex `mcp_servers` 不是表）必须**报错并原样保留文件**，不得覆盖。
+- `env` 与 `headers` 在数据库里加密存储，应用后以明文落到客户端配置；`config` 原样透传（因此不要把密钥写进 `config`）。UI 须同时说明这两点。
+- MCP 数据随应用数据库走既有 WebDAV/备份同步，`mcp_servers` 必须留在 `sync.rs` 的 `FINGERPRINT_TABLES` 里，否则 MCP 变更不会被判定为数据变更、永远不发同步。
 
 ## UI Shell
 
@@ -177,6 +195,7 @@
 - Prime 直接合并 `~/.prime/agent/{models,auth,settings}.json`：规则与 Pi 相同，只管理 `xiaobai_` 命名空间
 - Prime 配置目录按应用设置 → `PRIME_AGENT_CODING_AGENT_DIR` → `~/.prime/agent` 解析；`auth.json` 权限为 `0600`
 - 环境注入矩阵（shell rc / user env / file_only）必须与设置保持一致
+- 数据库 schema 版本号变更时，`apply_schema` 的**每个**「库已存在」分支都要跑一遍增量补齐（`ensure_incremental_schema`）：`CREATE TABLE IF NOT EXISTS` 不会给已有表补列/补表，漏掉分支会让老库拿不到新表新列且不报错
 
 ## 测试
 

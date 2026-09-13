@@ -1,4 +1,6 @@
 pub mod apply;
+pub mod mcp;
+pub use mcp::*;
 pub mod models;
 pub mod net;
 pub mod quota;

@@ -35,6 +35,7 @@ import type {
   UrlProbeResult,
   WebDavConfigView,
 } from "@/types/domain";
+import type { McpApplyResult, McpApplyTargetResult, McpServer, McpServerInput } from "@/types/mcp";
 import { keyPrefix, normalizeBaseUrl } from "./urlNormalize";
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -158,6 +159,7 @@ const keySecrets = new Map<string, string>();
 const exclusions = new Map<string, Set<string>>();
 let quotaProbeCallCount = 0;
 let quotaProbeHandler: ((site: Site) => SiteQuota | Promise<SiteQuota>) | null = null;
+let mcpServers: McpServer[] = [];
 
 type BrowserMarketplaceSkill = Omit<MarketplaceSkill, "installedTargets">;
 
@@ -288,6 +290,7 @@ export function resetBrowserMock() {
   exclusions.clear();
   quotaProbeCallCount = 0;
   quotaProbeHandler = null;
+  mcpServers = [];
   skills = INITIAL_SKILLS.map((skill) => ({ ...skill }));
   marketplaceTargets = new Map([
     ["demo/shared-tools", ["claude_code", "codex"]],
@@ -1605,6 +1608,85 @@ export async function handleBrowserCommand<T>(
       const result: SwitchRouteResult = { site, results: [] };
       return result as T;
     }
+    case "list_mcp_servers":
+      return mcpServers.map(({ config: _config, env: _env, headers: _headers, ...summary }) => ({
+        ...summary,
+      })) as T;
+    case "get_mcp_server": {
+      const id = String(args?.id ?? "");
+      const server = mcpServers.find((item) => item.id === id);
+      if (!server) throw { code: "not_found", message: "MCP server not found" };
+      return { ...server } as T;
+    }
+    case "save_mcp_server": {
+      const input = (args?.input ?? {}) as McpServerInput;
+      const name = (input.name ?? "").trim();
+      if (!name) throw { code: "validation_failed", message: "MCP server name is required" };
+      if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+        throw {
+          code: "validation_failed",
+          message: "MCP server name may only contain letters, numbers, '_' and '-'",
+        };
+      }
+      for (const [field, value] of Object.entries({
+        config: input.config,
+        env: input.env,
+        headers: input.headers,
+      })) {
+        if (value !== undefined && (typeof value !== "object" || value === null || Array.isArray(value))) {
+          throw { code: "validation_failed", message: `MCP ${field} must be a JSON object` };
+        }
+      }
+      if (
+        mcpServers.some(
+          (item) => item.name.toLowerCase() === name.toLowerCase() && item.id !== input.id,
+        )
+      ) {
+        throw { code: "validation_failed", message: "another MCP server is already named" };
+      }
+      const timestamp = now();
+      const saved: McpServer = {
+        id: input.id ?? uid(),
+        name,
+        kind: input.kind ?? "stdio",
+        enabled: input.enabled ?? false,
+        targets: input.targets ?? [],
+        config: input.config ?? {},
+        env: input.env ?? {},
+        headers: input.headers ?? {},
+        createdAt: mcpServers.find((item) => item.id === input.id)?.createdAt ?? timestamp,
+        updatedAt: timestamp,
+      };
+      mcpServers = mcpServers.map((item) => (item.id === saved.id ? saved : item));
+      if (!mcpServers.some((item) => item.id === saved.id)) mcpServers.push(saved);
+      return { server: saved, sweep: { results: [], appliedAt: timestamp } } as T;
+    }
+    case "delete_mcp_server": {
+      const id = String(args?.id ?? "");
+      if (!mcpServers.some((item) => item.id === id)) {
+        throw { code: "not_found", message: "MCP server not found" };
+      }
+      mcpServers = mcpServers.filter((item) => item.id !== id);
+      return { results: [], appliedAt: now() } as T;
+    }
+    case "apply_mcp_servers": {
+      const targets = (args?.targets ?? []) as TargetKind[];
+      const results: McpApplyTargetResult[] = targets.map((target) => ({
+        target,
+        ok: true,
+        backupPaths: [],
+        message: `Applied to ${target} (browser mock)`,
+      }));
+      const result: McpApplyResult = { results, appliedAt: now() };
+      return result as T;
+    }
+    case "mcp_target_paths":
+      return [
+        ["claude_code", "/Users/demo/.claude.json"],
+        ["codex", "/Users/demo/.codex/config.toml"],
+        ["pi", "/Users/demo/.pi/agent/mcp.json"],
+        ["prime", "/Users/demo/.prime/agent/settings.json"],
+      ] as T;
     case "preview_urls":
       return normalizeBaseUrl(String(args?.baseUrl ?? "")) as T;
     default:

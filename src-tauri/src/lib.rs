@@ -121,6 +121,12 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
+            commands::list_mcp_servers,
+            commands::get_mcp_server,
+            commands::save_mcp_server,
+            commands::delete_mcp_server,
+            commands::apply_mcp_servers,
+            commands::mcp_target_paths,
             commands::save_settings,
             commands::get_app_paths,
             commands::preview_urls,

@@ -38,7 +38,7 @@ impl DataFingerprint {
 }
 
 /// 参与内容指纹的业务表（引擎记账表与 WebDAV 配置不参与）。
-const FINGERPRINT_TABLES: [&str; 7] = [
+const FINGERPRINT_TABLES: [&str; 8] = [
     "settings",
     "sites",
     "site_api_keys",
@@ -46,6 +46,7 @@ const FINGERPRINT_TABLES: [&str; 7] = [
     "site_thinking_presets",
     "target_bindings",
     "apply_records",
+    "mcp_servers",
 ];
 
 /// 逻辑内容指纹：按表遍历全部业务行做稳定哈希。
@@ -636,6 +637,39 @@ mod tests {
         .unwrap();
         let changed = compute_logical_fingerprint(&conn, &key).unwrap();
         assert_ne!(fingerprint, changed);
+    }
+
+    #[test]
+    fn fingerprint_tracks_mcp_server_changes() {
+        // 回归：MCP 表不参与指纹时，新增/修改 MCP 不会被判定为数据变更，
+        // 跨设备同步就永远不会发布这份配置。
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        let key = [5_u8; 32];
+        let before = compute_logical_fingerprint(&conn, &key).unwrap();
+
+        conn.execute(
+            "INSERT INTO mcp_servers
+               (id, name, kind, enabled, targets_json, config_json, secrets_encrypted, created_at, updated_at)
+             VALUES ('m1', 'demo', 'stdio', 1, '[\"claude_code\"]', '{\"command\":\"x\"}', NULL, 1, 1)",
+            [],
+        )
+        .unwrap();
+        let added = compute_logical_fingerprint(&conn, &key).unwrap();
+        assert_ne!(before, added, "adding an MCP server must change the fingerprint");
+
+        conn.execute(
+            "UPDATE mcp_servers SET enabled = 0, updated_at = 2 WHERE id = 'm1'",
+            [],
+        )
+        .unwrap();
+        let updated = compute_logical_fingerprint(&conn, &key).unwrap();
+        assert_ne!(added, updated, "updating an MCP server must change the fingerprint");
+
+        conn.execute("DELETE FROM mcp_servers WHERE id = 'm1'", [])
+            .unwrap();
+        let removed = compute_logical_fingerprint(&conn, &key).unwrap();
+        assert_eq!(before, removed, "deleting back to the original state restores the fingerprint");
     }
 
     #[test]

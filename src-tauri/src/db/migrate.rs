@@ -17,6 +17,20 @@ pub enum BackupMode {
 }
 
 const V1_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS mcp_servers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'stdio',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  targets_json TEXT NOT NULL,
+  config_json TEXT NOT NULL,
+  secrets_encrypted TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_servers_updated ON mcp_servers(updated_at);
+
 CREATE TABLE IF NOT EXISTS settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   json TEXT NOT NULL
@@ -180,6 +194,18 @@ fn ensure_sites_newapi_columns(conn: &Connection) -> AppResult<()> {
     Ok(())
 }
 
+fn ensure_mcp_schema(conn: &Connection) -> AppResult<()> {
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS mcp_servers (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'stdio', enabled INTEGER NOT NULL DEFAULT 1, targets_json TEXT NOT NULL, config_json TEXT NOT NULL, secrets_encrypted TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS idx_mcp_servers_updated ON mcp_servers(updated_at);")?;
+    Ok(())
+}
+/// 版本号之前的存量库增量补齐。`CREATE TABLE IF NOT EXISTS` 对已存在的表是空操作，
+/// 所以每一个「库已存在」的分支都必须走这里，否则升版本号会让老库永远拿不到新列/新表。
+fn ensure_incremental_schema(conn: &Connection) -> AppResult<()> {
+    ensure_sites_newapi_columns(conn)?;
+    ensure_mcp_schema(conn)?;
+    Ok(())
+}
+
 pub fn apply_schema(
     conn: &Connection,
     crypto: Option<&Crypto>,
@@ -188,8 +214,7 @@ pub fn apply_schema(
     let version = user_version(conn)?;
     if version >= SCHEMA_VERSION {
         conn.execute_batch(V1_SCHEMA)?;
-        // 存量库不会因 CREATE TABLE IF NOT EXISTS 获得新列，必须显式补列。
-        ensure_sites_newapi_columns(conn)?;
+        ensure_incremental_schema(conn)?;
         return Ok(());
     }
 
@@ -203,11 +228,13 @@ pub fn apply_schema(
             }
         };
         migrate_legacy(conn, crypto, backup)?;
+        ensure_incremental_schema(conn)?;
         return Ok(());
     }
 
     conn.execute_batch(V1_SCHEMA)?;
     backfill_base_urls(conn)?;
+    ensure_incremental_schema(conn)?;
     set_user_version(conn, SCHEMA_VERSION)?;
     Ok(())
 }
@@ -846,7 +873,76 @@ mod tests {
 
     #[test]
     fn existing_database_gains_newapi_columns_on_upgrade() {
-        // 回归：加列前的存量库（user_version 已达标）必须通过 ALTER 补上 newapi 列。
+        // 回归：ensure_sites_newapi_columns 必须补齐 newapi 列。
+        // 测试场景：已完成 v1→v2 迁移（sites 已无 api_key_encrypted），但缺 newapi 列。
+        let conn = Connection::open_in_memory().unwrap();
+        
+        // 创建已迁移但缺 newapi 列的 sites 表
+        conn.execute_batch(
+            "CREATE TABLE sites (
+               id TEXT PRIMARY KEY,
+               name TEXT NOT NULL,
+               base_url TEXT NOT NULL,
+               protocol TEXT NOT NULL,
+               claude_auth_key_style TEXT NOT NULL,
+               notes TEXT,
+               enabled INTEGER NOT NULL,
+               sort_order INTEGER NOT NULL,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL,
+               base_urls_json TEXT,
+               capabilities_json TEXT
+             );
+             CREATE TABLE site_api_keys (
+               id TEXT PRIMARY KEY,
+               site_id TEXT NOT NULL,
+               label TEXT NOT NULL,
+               api_key_encrypted TEXT NOT NULL,
+               key_prefix TEXT NOT NULL,
+               is_active INTEGER NOT NULL DEFAULT 0,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL
+             );
+             PRAGMA user_version = 2;",
+        )
+        .unwrap();
+        
+        conn.execute(
+            "INSERT INTO sites (id, name, base_url, protocol, claude_auth_key_style, enabled, sort_order, created_at, updated_at)
+             VALUES ('s1', 'Test', 'https://api.test', 'openai_compatible', 'anthropic_auth_token', 1, 0, 1, 1)",
+            [],
+        )
+        .unwrap();
+        
+        // 确认初始状态：无 newapi 列
+        let columns_before: Vec<String> = conn
+            .prepare("PRAGMA table_info(sites)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(!columns_before.contains(&"newapi_access_token_encrypted".into()));
+        
+        // apply_schema 会调用 ensure_sites_newapi_columns
+        apply_schema(&conn, None, BackupMode::Skip).unwrap();
+        
+        // 验证 newapi 列已添加
+        let columns_after: Vec<String> = conn
+            .prepare("PRAGMA table_info(sites)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(columns_after.contains(&"newapi_access_token_encrypted".into()));
+        assert!(columns_after.contains(&"newapi_user_id".into()));
+    }
+
+    #[test]
+    fn v1_database_reaches_current_schema_with_mcp_table() {
+        // 回归：把 SCHEMA_VERSION 从 1 提到 2 时，user_version=1 的存量库会进入
+        // 「版本落后」分支；该分支必须补齐 MCP 表，同时不能丢掉 newapi 列的补齐。
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
             "CREATE TABLE sites (
@@ -863,18 +959,50 @@ mod tests {
                base_urls_json TEXT,
                capabilities_json TEXT
              );
+             CREATE TABLE site_api_keys (
+               id TEXT PRIMARY KEY,
+               site_id TEXT NOT NULL,
+               label TEXT NOT NULL,
+               api_key_encrypted TEXT NOT NULL,
+               key_prefix TEXT NOT NULL,
+               is_active INTEGER NOT NULL DEFAULT 0,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL
+             );
+             CREATE TABLE settings (
+               id INTEGER PRIMARY KEY CHECK (id = 1),
+               json TEXT NOT NULL
+             );
              PRAGMA user_version = 1;",
         )
         .unwrap();
+
         apply_schema(&conn, None, BackupMode::Skip).unwrap();
-        let columns: Vec<String> = conn
-            .prepare("PRAGMA table_info(sites)")
-            .unwrap()
-            .query_map([], |row| row.get::<_, String>(1))
-            .unwrap()
-            .collect::<Result<_, _>>()
-            .unwrap();
-        assert!(columns.contains(&"newapi_access_token_encrypted".into()));
-        assert!(columns.contains(&"newapi_user_id".into()));
+
+        assert!(table_exists(&conn, "mcp_servers").unwrap());
+        assert!(column_exists(&conn, "sites", "newapi_access_token_encrypted").unwrap());
+        assert_eq!(user_version(&conn).unwrap(), SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn legacy_database_keeps_newapi_columns_and_gains_mcp_table() {
+        // 回归：needs_legacy_migration 分支重建 sites 后，newapi 列不会由
+        // CREATE TABLE IF NOT EXISTS 自动补回，必须显式补齐；MCP 表同样要建出来。
+        let conn = Connection::open_in_memory().unwrap();
+        install_legacy_schema(&conn).unwrap();
+        let crypto = crypto();
+        conn.execute(
+            "INSERT INTO sites (id, name, base_url, api_key_encrypted, key_prefix, protocol, claude_auth_key_style, notes, enabled, sort_order, created_at, updated_at)
+             VALUES ('s1', 'Relay', 'https://api.example.com', ?1, 'sk-…', 'openai_compatible', 'anthropic_auth_token', NULL, 1, 0, 1, 1)",
+            params![crypto.encrypt("sk-legacy-secret").unwrap()],
+        )
+        .unwrap();
+
+        apply_schema(&conn, Some(&crypto), BackupMode::Skip).unwrap();
+
+        assert!(table_exists(&conn, "mcp_servers").unwrap());
+        assert!(column_exists(&conn, "sites", "newapi_access_token_encrypted").unwrap());
+        assert!(column_exists(&conn, "sites", "newapi_user_id").unwrap());
+        assert_eq!(user_version(&conn).unwrap(), SCHEMA_VERSION);
     }
 }

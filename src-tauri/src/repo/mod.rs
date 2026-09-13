@@ -1,4 +1,5 @@
 pub mod apply;
+pub mod mcp;
 pub mod binding;
 pub mod settings;
 pub mod sync_meta;

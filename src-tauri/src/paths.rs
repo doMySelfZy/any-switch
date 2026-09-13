@@ -476,6 +476,23 @@ pub fn resolve_claude_home(override_path: Option<&str>) -> AppResult<PathBuf> {
     default_claude_home()
 }
 
+/// Claude Code 的用户级 MCP 定义位于 `~/.claude.json` 顶层的 `mcpServers`。
+/// `~/.claude/settings.json` 里的同名键会被 Claude Code 忽略，因此 MCP 必须写这个文件。
+/// 设置了 `CLAUDE_CONFIG_DIR` 时该文件位于该目录内部。
+pub fn claude_mcp_json_path(claude_home_override: Option<&str>) -> AppResult<PathBuf> {
+    if let Some(p) = claude_home_override {
+        if !p.trim().is_empty() {
+            return Ok(PathBuf::from(p).join(".claude.json"));
+        }
+    }
+    if let Ok(v) = std::env::var("CLAUDE_CONFIG_DIR") {
+        if !v.trim().is_empty() {
+            return Ok(PathBuf::from(v).join(".claude.json"));
+        }
+    }
+    Ok(home_dir()?.join(".claude.json"))
+}
+
 pub fn resolve_codex_home(override_path: Option<&str>) -> AppResult<PathBuf> {
     if let Some(p) = override_path {
         if !p.trim().is_empty() {
@@ -648,6 +665,35 @@ mod tests {
         );
         std::env::remove_var("PRIME_AGENT_CODING_AGENT_DIR");
         assert!(default_prime_agent_dir().unwrap().ends_with(".prime/agent"));
+    }
+
+    #[test]
+    fn claude_mcp_path_follows_override_then_config_dir_then_home() {
+        // Claude Code 的用户级 MCP 在 ~/.claude.json；设了 CLAUDE_CONFIG_DIR 时
+        // 它读的是该目录里的 .claude.json，所以三条分支都要走对。
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("CLAUDE_CONFIG_DIR");
+
+        assert_eq!(
+            claude_mcp_json_path(Some("/tmp/claude-setting")).unwrap(),
+            PathBuf::from("/tmp/claude-setting").join(".claude.json")
+        );
+
+        std::env::set_var("CLAUDE_CONFIG_DIR", "/tmp/claude-env");
+        assert_eq!(
+            claude_mcp_json_path(None).unwrap(),
+            PathBuf::from("/tmp/claude-env").join(".claude.json")
+        );
+        // 应用内设置优先于环境变量。
+        assert_eq!(
+            claude_mcp_json_path(Some("/tmp/claude-setting")).unwrap(),
+            PathBuf::from("/tmp/claude-setting").join(".claude.json")
+        );
+
+        std::env::remove_var("CLAUDE_CONFIG_DIR");
+        assert!(claude_mcp_json_path(None)
+            .unwrap()
+            .ends_with(".claude.json"));
     }
 
     #[test]

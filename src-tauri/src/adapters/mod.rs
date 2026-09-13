@@ -1,6 +1,7 @@
 pub mod atomic;
 pub mod claude_code;
 pub mod codex;
+pub mod mcp;
 pub mod pi;
 pub mod prime;
 pub mod thinking;
