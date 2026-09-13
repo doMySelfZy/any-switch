@@ -443,6 +443,21 @@ function requireKey(site: Site, apiKeyId?: string | null): SiteApiKeySummary {
   return key;
 }
 
+/** Mirrors the Rust is_opencode_go_base gate: https + opencode.ai + `/zen/go` segments. */
+function isOpencodeGoBase(baseUrl: string): boolean {
+  try {
+    const url = new URL(baseUrl.trim());
+    if (url.protocol !== "https:") return false;
+    if (url.hostname !== "opencode.ai") return false;
+    const segments = url.pathname.split("/").filter(Boolean);
+    return segments.some(
+      (segment, index) => segment === "zen" && segments[index + 1] === "go",
+    );
+  } catch {
+    return false;
+  }
+}
+
 function normalizeSkillSource(source: string): string {
   const clean = source.trim().replace(/\/$/, "").replace(/\.git$/, "");
   const githubMarker = "github.com/";
@@ -1345,6 +1360,56 @@ export async function handleBrowserCommand<T>(
       const site = sites.find((s) => s.id === siteId);
       if (!site) throw { code: "not_found", message: "Site not found" };
       if (quotaProbeHandler) return (await quotaProbeHandler(site)) as T;
+      if (isOpencodeGoBase(site.baseUrl)) {
+        const fetchedAt = now();
+        const base: SiteQuota = {
+          status: "available",
+          remainingUsd: null,
+          usedUsd: null,
+          totalUsd: null,
+          unlimited: false,
+          unit: "USD",
+          expiresAt: null,
+          source: "opencode_go",
+          endpoint: "https://opencode.ai/zen/go/v1/usage",
+          fetchedAt,
+          latencyMs: 9,
+          error: null,
+        };
+        if (!site.hasKey) {
+          const unauthorized: SiteQuota = {
+            ...base,
+            status: "unauthorized",
+            source: null,
+            endpoint: null,
+          };
+          return unauthorized as T;
+        }
+        const result: SiteQuota = {
+          ...base,
+          windows: [
+            {
+              kind: "rolling",
+              usagePercent: 12.5,
+              resetAt: fetchedAt + 2 * 3600_000,
+              limitUsd: 12,
+            },
+            {
+              kind: "weekly",
+              usagePercent: 46.2,
+              resetAt: fetchedAt + 3 * 24 * 3600_000,
+              limitUsd: 30,
+            },
+            {
+              kind: "monthly",
+              usagePercent: 8.4,
+              resetAt: fetchedAt + 20 * 24 * 3600_000,
+              limitUsd: 60,
+            },
+          ],
+        };
+        return result as T;
+      }
       if (!site.hasKey || /no-quota/i.test(site.baseUrl) || /no-quota/i.test(site.name)) {
         const unsupported: SiteQuota = {
           status: "unsupported",

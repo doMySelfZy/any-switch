@@ -476,7 +476,20 @@ export type QuotaSource =
   | "subscription_only"
   | "usage_only"
   | "token_usage"
-  | "user_self";
+  | "user_self"
+  | "opencode_go";
+
+/** One OpenCode Go usage window (5-hour / weekly / monthly). */
+export interface QuotaWindow {
+  /** "rolling" (5-hour) | "weekly" | "monthly". */
+  kind: string;
+  /** Consumed percentage of the window limit, 0-100. */
+  usagePercent: number | null;
+  /** Absolute reset time in milliseconds since epoch. */
+  resetAt: number | null;
+  /** Window limit in USD, when reported upstream. */
+  limitUsd: number | null;
+}
 
 export interface SiteQuota {
   status: QuotaProbeStatus;
@@ -491,6 +504,8 @@ export interface SiteQuota {
   fetchedAt: number;
   latencyMs: number;
   error: string | null;
+  /** OpenCode Go usage windows; empty/absent for other quota sources. */
+  windows?: QuotaWindow[];
 }
 
 export interface HttpBytesResult {

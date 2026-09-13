@@ -284,4 +284,62 @@ describe("SiteQuotaRow", () => {
     expect(screen.getByText("额度未知")).toBeInTheDocument();
     expect(screen.queryByText("此 Key 不限额")).toBeNull();
   });
+
+  it("renders OpenCode Go usage windows with progress, reset countdown, and limits", () => {
+    const now = Date.now();
+    render(
+      <Wrapper>
+        <SiteQuotaRow
+          quota={quota({
+            source: "opencode_go",
+            remainingUsd: null,
+            usedUsd: null,
+            totalUsd: null,
+            unit: "USD",
+            windows: [
+              { kind: "rolling", usagePercent: 12.5, resetAt: now + 3 * 3600_000, limitUsd: 12 },
+              { kind: "weekly", usagePercent: 46.2, resetAt: now + 3 * 24 * 3600_000, limitUsd: 30 },
+              { kind: "monthly", usagePercent: 8.4, resetAt: now + 20 * 24 * 3600_000, limitUsd: 60 },
+            ],
+          })}
+          loading={false}
+          onRefresh={() => undefined}
+        />
+      </Wrapper>,
+    );
+
+    expect(screen.getByTestId("site-quota-windows")).toBeInTheDocument();
+    expect(screen.getByTestId("site-quota-window-rolling")).toBeInTheDocument();
+    expect(screen.getByText("5 小时")).toBeInTheDocument();
+    expect(screen.getByText("本周")).toBeInTheDocument();
+    expect(screen.getByText("本月")).toBeInTheDocument();
+    expect(screen.getByText("13%")).toBeInTheDocument();
+    expect(screen.getByText("46%")).toBeInTheDocument();
+    expect(screen.getByText("8%")).toBeInTheDocument();
+    expect(screen.getByText(/上限 \$12\.00/)).toBeInTheDocument();
+    expect(screen.getAllByText(/后重置/).length).toBe(3);
+  });
+
+  it("marks an elapsed OpenCode Go window as resetting soon", () => {
+    render(
+      <Wrapper>
+        <SiteQuotaRow
+          quota={quota({
+            source: "opencode_go",
+            remainingUsd: null,
+            usedUsd: null,
+            totalUsd: null,
+            unit: "USD",
+            windows: [
+              { kind: "rolling", usagePercent: 99, resetAt: Date.now() - 5_000, limitUsd: null },
+            ],
+          })}
+          loading={false}
+          onRefresh={() => undefined}
+        />
+      </Wrapper>,
+    );
+
+    expect(screen.getByText("即将重置")).toBeInTheDocument();
+  });
 });

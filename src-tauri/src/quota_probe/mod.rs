@@ -1,4 +1,4 @@
-use crate::domain::{AppSettings, QuotaProbeStatus, QuotaSource, SiteQuota, SiteRow};
+use crate::domain::{AppSettings, QuotaProbeStatus, QuotaSource, QuotaWindow, SiteQuota, SiteRow};
 use crate::error::AppResult;
 use crate::model_probe::sanitize_error;
 use crate::url_normalize::normalize_base_url;
@@ -157,6 +157,51 @@ pub fn token_usage_url(origin: &str) -> String {
 
 pub fn quota_status_url(origin: &str) -> String {
     format!("{}/api/status", strip_trailing_slash(origin))
+}
+
+/// `/zen/go` must match on path-segment boundaries, so `/zen/gopher` and
+/// `/zen/go-v2` are not treated as the Go channel.
+fn has_zen_go_segments(path: &str) -> bool {
+    let segments: Vec<&str> = path.split('/').filter(|segment| !segment.is_empty()).collect();
+    segments
+        .windows(2)
+        .any(|pair| pair[0] == "zen" && pair[1] == "go")
+}
+
+/// OpenCode Go 渠道识别：host 必须严格等于 `opencode.ai`，且路径含 `/zen/go` 段。
+/// 只接受 `https`（官方用量端点仅支持 TLS），避免把普通站点误判到该探测链。
+pub fn is_opencode_go_base(base_url: &str) -> bool {
+    let Ok(parsed) = Url::parse(base_url.trim()) else {
+        return false;
+    };
+    if parsed.scheme() != "https" {
+        return false;
+    }
+    if parsed.host_str() != Some("opencode.ai") {
+        return false;
+    }
+    has_zen_go_segments(parsed.path())
+}
+
+/// 固定官方用量端点：origin + `/zen/go/v1/usage`（只允许 https + opencode.ai）。
+pub fn opencode_go_usage_url(base_url: &str) -> Option<String> {
+    #[cfg(test)]
+    if let Some(url) = OPENCODE_GO_URL_OVERRIDE.with(|cell| cell.borrow().clone()) {
+        return Some(url);
+    }
+    let origin = site_origin(base_url)?;
+    let parsed = Url::parse(&origin).ok()?;
+    if parsed.scheme() != "https" || parsed.host_str() != Some("opencode.ai") {
+        return None;
+    }
+    Some(format!("{}/zen/go/v1/usage", strip_trailing_slash(&origin)))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam so the OpenCode Go probe can target a local mock server.
+    static OPENCODE_GO_URL_OVERRIDE: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 pub fn normalize_quota_unit(raw: &str) -> String {
@@ -346,6 +391,149 @@ pub fn parse_quota_status(value: &Value) -> Option<QuotaStatus> {
         custom_currency_exchange_rate: field_f64(data, "custom_currency_exchange_rate")
             .filter(|value| *value > 0.0),
     })
+}
+
+const OPENCODE_GO_WINDOW_KINDS: [&str; 3] = ["rolling", "weekly", "monthly"];
+
+fn opencode_go_window_keys(kind: &str) -> [&'static str; 3] {
+    match kind {
+        "rolling" => ["rollingUsage", "rolling_usage", "rolling"],
+        "weekly" => ["weeklyUsage", "weekly_usage", "weekly"],
+        _ => ["monthlyUsage", "monthly_usage", "monthly"],
+    }
+}
+
+/// Find one window object inside a container, tolerating camelCase / snake_case /
+/// bare kind keys (e.g. `windows.rolling`).
+fn opencode_go_window_in<'a>(container: &'a Value, kind: &str) -> Option<&'a Value> {
+    if !container.is_object() {
+        return None;
+    }
+    for key in opencode_go_window_keys(kind) {
+        if let Some(value) = container.get(key) {
+            if value.is_object() {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+fn opencode_go_window_object<'a>(root: &'a Value, kind: &str) -> Option<&'a Value> {
+    if let Some(found) = opencode_go_window_in(root, kind) {
+        return Some(found);
+    }
+    if let Some(found) = root
+        .get("windows")
+        .and_then(|container| opencode_go_window_in(container, kind))
+    {
+        return Some(found);
+    }
+    if let Some(found) = root
+        .get("data")
+        .and_then(|container| opencode_go_window_in(container, kind))
+    {
+        return Some(found);
+    }
+    if let Some(found) = root
+        .get("data")
+        .and_then(|data| data.get("windows"))
+        .and_then(|container| opencode_go_window_in(container, kind))
+    {
+        return Some(found);
+    }
+    root.get("usage")
+        .and_then(|container| opencode_go_window_in(container, kind))
+}
+
+/// Normalize an upstream absolute reset value to milliseconds since epoch.
+/// Values below the ms threshold are treated as epoch seconds.
+fn absolute_reset_ms(raw: i64) -> i64 {
+    if raw >= 100_000_000_000 {
+        raw
+    } else {
+        raw.saturating_mul(1000)
+    }
+}
+
+/// Parse an RFC3339 / ISO-8601 reset timestamp into milliseconds since epoch.
+/// Returns `None` on any parse failure (never panics, never coerces to 0).
+fn parse_rfc3339_ms(raw: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(raw.trim())
+        .ok()
+        .map(|value| value.timestamp_millis())
+}
+
+fn parse_opencode_go_window(kind: &str, obj: &Value, fetched_at: i64) -> Option<QuotaWindow> {
+    let usage_percent = field_f64(obj, "usagePercent")
+        .or_else(|| field_f64(obj, "usage_percent"))
+        .or_else(|| field_f64(obj, "percent"))
+        .or_else(|| field_f64(obj, "usedPercent"))
+        .or_else(|| field_f64(obj, "used_percent"));
+
+    // 生产响应（formatUsage）用 RFC3339 字符串 `resetsAt`；数值/相对秒数为兼容回退。
+    let rfc3339_reset = obj
+        .get("resetsAt")
+        .and_then(Value::as_str)
+        .or_else(|| obj.get("resets_at").and_then(Value::as_str))
+        .and_then(parse_rfc3339_ms);
+    let relative_secs = obj
+        .get("resetInSec")
+        .and_then(json_i64)
+        .or_else(|| obj.get("reset_in_sec").and_then(json_i64))
+        .or_else(|| obj.get("resetInSeconds").and_then(json_i64))
+        .or_else(|| obj.get("reset_in_seconds").and_then(json_i64))
+        .or_else(|| obj.get("resetsInSeconds").and_then(json_i64))
+        .or_else(|| obj.get("resets_in_seconds").and_then(json_i64));
+    let reset_at = rfc3339_reset
+        .or_else(|| {
+            relative_secs.map(|secs| fetched_at.saturating_add(secs.saturating_mul(1000)))
+        })
+        .or_else(|| {
+            obj.get("resetAt")
+                .and_then(json_i64)
+                .map(absolute_reset_ms)
+        })
+        .or_else(|| {
+            obj.get("reset_at")
+                .and_then(json_i64)
+                .map(absolute_reset_ms)
+        });
+
+    let limit_usd = field_f64(obj, "limitUsd")
+        .or_else(|| field_f64(obj, "limit_usd"))
+        .or_else(|| field_f64(obj, "limit"));
+
+    if usage_percent.is_none() && reset_at.is_none() && limit_usd.is_none() {
+        return None;
+    }
+    Some(QuotaWindow {
+        kind: kind.to_string(),
+        usage_percent,
+        reset_at,
+        limit_usd,
+    })
+}
+
+/// Parse the three OpenCode Go usage windows from a `/zen/go/v1/usage` body.
+/// Relative reset seconds are converted to absolute milliseconds using `fetched_at`.
+pub fn parse_opencode_go_windows(value: &Value, fetched_at: i64) -> Option<Vec<QuotaWindow>> {
+    if !value.is_object() {
+        return None;
+    }
+    let mut windows = Vec::new();
+    for kind in OPENCODE_GO_WINDOW_KINDS {
+        if let Some(obj) = opencode_go_window_object(value, kind) {
+            if let Some(window) = parse_opencode_go_window(kind, obj, fetched_at) {
+                windows.push(window);
+            }
+        }
+    }
+    if windows.is_empty() {
+        None
+    } else {
+        Some(windows)
+    }
 }
 
 fn raw_quota_scale(status: &QuotaStatus) -> Option<(f64, String)> {
@@ -563,6 +751,7 @@ fn quiet(
         fetched_at: Utc::now().timestamp_millis(),
         latency_ms,
         error,
+        windows: Vec::new(),
     }
 }
 
@@ -598,6 +787,7 @@ fn available(
         fetched_at,
         latency_ms,
         error: None,
+        windows: Vec::new(),
     })
 }
 
@@ -762,6 +952,7 @@ pub fn interpret_round(
 
 fn quota_source_rank(source: Option<QuotaSource>) -> u8 {
     match source {
+        Some(QuotaSource::OpencodeGo) => 6,
         Some(QuotaSource::TokenUsage) => 5,
         Some(QuotaSource::UserSelf) => 5,
         Some(QuotaSource::CreditGrants) => 4,
@@ -1105,7 +1296,116 @@ async fn fetch_user_self_quota(
         fetched_at,
         latency_ms: start.elapsed().as_millis() as u64,
         error: None,
+        windows: Vec::new(),
     })
+}
+
+/// Classify an OpenCode Go usage response into a `SiteQuota`.
+fn opencode_go_quota(
+    status: u16,
+    body: &str,
+    fetched_at: i64,
+    latency_ms: u64,
+    endpoint: &str,
+) -> SiteQuota {
+    let quiet_at = |probe_status: QuotaProbeStatus, error: Option<String>| {
+        quiet(probe_status, error, latency_ms, Some(endpoint.to_string()))
+    };
+    match status {
+        401 => quiet_at(QuotaProbeStatus::Unauthorized, None),
+        // 403 是「key 有效但无 Go 订阅」的 EntitlementError，提示换 key 会误导。
+        403 | 404 | 405 | 501 => quiet_at(QuotaProbeStatus::Unsupported, None),
+        200..=299 => {
+            if looks_like_html(body) {
+                return quiet_at(QuotaProbeStatus::Unsupported, None);
+            }
+            let Ok(value) = serde_json::from_str::<Value>(body) else {
+                return quiet_at(QuotaProbeStatus::Unsupported, None);
+            };
+            match parse_opencode_go_windows(&value, fetched_at) {
+                Some(windows) if !windows.is_empty() => SiteQuota {
+                    status: QuotaProbeStatus::Available,
+                    remaining_usd: None,
+                    used_usd: None,
+                    total_usd: None,
+                    unlimited: false,
+                    unit: Some("USD".into()),
+                    expires_at: None,
+                    source: Some(QuotaSource::OpencodeGo),
+                    endpoint: Some(endpoint.to_string()),
+                    fetched_at,
+                    latency_ms,
+                    error: None,
+                    windows,
+                },
+                _ => quiet_at(
+                    QuotaProbeStatus::InvalidData,
+                    Some("invalid quota data".into()),
+                ),
+            }
+        }
+        other => quiet_at(QuotaProbeStatus::Error, Some(format!("HTTP {other}"))),
+    }
+}
+
+/// Fetch the fixed OpenCode Go usage endpoint and map the response.
+async fn probe_opencode_go_usage(
+    client: &reqwest::Client,
+    base_url: &str,
+    api_key: &str,
+    start: Instant,
+    fetched_at: i64,
+) -> SiteQuota {
+    let latency = || start.elapsed().as_millis() as u64;
+    let Some(url) = opencode_go_usage_url(base_url) else {
+        return quiet(
+            QuotaProbeStatus::Unsupported,
+            None,
+            latency(),
+            None,
+        );
+    };
+    let response = client
+        .get(&url)
+        .bearer_auth(api_key)
+        .header("Accept", "application/json")
+        .send()
+        .await;
+    let response = match response {
+        Ok(response) => response,
+        Err(error) => {
+            let message = if error.is_timeout() {
+                "request timed out".to_string()
+            } else {
+                error.to_string()
+            };
+            return quiet(
+                QuotaProbeStatus::Error,
+                Some(sanitize_error(&message, api_key)),
+                latency(),
+                Some(url),
+            );
+        }
+    };
+    let status = response.status().as_u16();
+    let bytes = match response.bytes().await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return quiet(
+                QuotaProbeStatus::Error,
+                Some(sanitize_error(&error.to_string(), api_key)),
+                latency(),
+                Some(url),
+            );
+        }
+    };
+    let slice = if bytes.len() > MAX_BODY_BYTES {
+        &bytes[..MAX_BODY_BYTES]
+    } else {
+        &bytes
+    };
+    let body = String::from_utf8_lossy(slice).into_owned();
+    opencode_go_quota(status, &body, fetched_at, latency(), &url)
 }
 
 pub async fn probe_quota(
@@ -1116,6 +1416,25 @@ pub async fn probe_quota(
 ) -> AppResult<SiteQuota> {
     let start = Instant::now();
     let fetched_at = Utc::now().timestamp_millis();
+
+    // OpenCode Go 渠道只查官方用量端点，不走 billing/token/status 标准链。
+    if is_opencode_go_base(&site.base_url) {
+        if api_key.trim().is_empty() {
+            return Ok(quiet(
+                QuotaProbeStatus::Unauthorized,
+                None,
+                start.elapsed().as_millis() as u64,
+                None,
+            ));
+        }
+        let preview = normalize_base_url(&site.base_url)?;
+        let client = crate::http_client::build_client(settings, PROBE_TIMEOUT)?;
+        return Ok(
+            probe_opencode_go_usage(&client, &preview.codex_base_url, api_key, start, fetched_at)
+                .await,
+        );
+    }
+
     if api_key.trim().is_empty() {
         return Ok(empty_key_result());
     }
@@ -1174,7 +1493,74 @@ mod tests {
     use super::*;
     use crate::url_normalize::normalize_base_url;
     use serde_json::json;
+    use std::sync::{Arc, Mutex};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// Sets the OpenCode Go endpoint override for the current test thread.
+    struct OpencodeUrlGuard;
+
+    impl OpencodeUrlGuard {
+        fn set(url: String) -> Self {
+            OPENCODE_GO_URL_OVERRIDE.with(|cell| *cell.borrow_mut() = Some(url));
+            Self
+        }
+    }
+
+    impl Drop for OpencodeUrlGuard {
+        fn drop(&mut self) {
+            OPENCODE_GO_URL_OVERRIDE.with(|cell| *cell.borrow_mut() = None);
+        }
+    }
+
+    /// Records every request path and always answers with the same status/body.
+    async fn recording_server(
+        status: &'static str,
+        body: &'static str,
+    ) -> (String, Arc<Mutex<Vec<String>>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = requests.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let mut bytes = Vec::new();
+                let mut buffer = [0_u8; 2048];
+                loop {
+                    let Ok(read) = socket.read(&mut buffer).await else {
+                        break;
+                    };
+                    if read == 0 {
+                        break;
+                    }
+                    bytes.extend_from_slice(&buffer[..read]);
+                    if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let request = String::from_utf8_lossy(&bytes).to_string();
+                sink.lock().unwrap().push(request);
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+        (format!("http://{address}"), requests)
+    }
+
+    fn opencode_go_site(base_url: &str) -> SiteRow {
+        newapi_site(base_url)
+    }
+
+    fn opencode_settings() -> AppSettings {
+        let mut settings = AppSettings::default();
+        settings.proxy_mode = "none".into();
+        settings
+    }
 
     fn today() -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 8, 21).unwrap()
@@ -2250,5 +2636,257 @@ mod tests {
             .message
             .as_deref()
             .is_some_and(|message| message.contains("bad-token")));
+    }
+
+    #[test]
+    fn opencode_go_base_detection() {
+        assert!(is_opencode_go_base("https://opencode.ai/zen/go/v1"));
+        assert!(is_opencode_go_base("https://opencode.ai/zen/go"));
+        assert!(is_opencode_go_base("https://opencode.ai/zen/go/v1/"));
+        assert!(is_opencode_go_base("https://opencode.ai/zen/go?x=1"));
+        assert!(!is_opencode_go_base("https://opencode.ai/zen/v1"));
+        assert!(!is_opencode_go_base("https://opencode.ai"));
+        assert!(!is_opencode_go_base("https://api.opencode.ai/zen/go/v1"));
+        assert!(!is_opencode_go_base("https://opencode.ai.evil.com/zen/go/v1"));
+        assert!(!is_opencode_go_base("http://opencode.ai/zen/go/v1"));
+        assert!(!is_opencode_go_base("ftp://opencode.ai/zen/go/v1"));
+        assert!(!is_opencode_go_base("not a url"));
+        // `/zen/go` 必须按 path segment 边界匹配
+        assert!(!is_opencode_go_base("https://opencode.ai/zen/gopher"));
+        assert!(!is_opencode_go_base("https://opencode.ai/zen/go-v2/v1"));
+        assert!(!is_opencode_go_base("https://opencode.ai/zen/goose/v1"));
+    }
+
+    #[test]
+    fn opencode_go_usage_url_is_fixed_official_path() {
+        assert_eq!(
+            opencode_go_usage_url("https://opencode.ai/zen/go/v1").as_deref(),
+            Some("https://opencode.ai/zen/go/v1/usage")
+        );
+        // 固定路径：任何 opencode.ai origin 都拼到官方 usage 端点
+        assert_eq!(
+            opencode_go_usage_url("https://opencode.ai/zen/go").as_deref(),
+            Some("https://opencode.ai/zen/go/v1/usage")
+        );
+        assert_eq!(opencode_go_usage_url("https://api.opencode.ai/zen/go/v1"), None);
+        assert_eq!(opencode_go_usage_url("https://example.com/zen/go/v1"), None);
+        assert_eq!(opencode_go_usage_url("http://opencode.ai/zen/go/v1"), None);
+    }
+
+    #[test]
+    fn opencode_go_parses_camel_case_windows_and_relative_reset() {
+        let fetched_at = 1_767_000_000_000_i64;
+        let windows = parse_opencode_go_windows(
+            &json!({
+                "rollingUsage": {"usagePercent": 12.5, "resetInSec": 3600, "limit": 12},
+                "weeklyUsage": {"usagePercent": 46.2, "resetInSec": 86400, "limitUsd": 30},
+                "monthlyUsage": {"usagePercent": 8.4, "resetAt": 1_767_225_600_i64, "limit_usd": 60}
+            }),
+            fetched_at,
+        )
+        .unwrap();
+
+        assert_eq!(windows.len(), 3);
+        assert_eq!(windows[0].kind, "rolling");
+        assert_eq!(windows[0].usage_percent, Some(12.5));
+        assert_eq!(windows[0].reset_at, Some(fetched_at + 3_600_000));
+        assert_eq!(windows[0].limit_usd, Some(12.0));
+        assert_eq!(windows[1].kind, "weekly");
+        assert_eq!(windows[1].reset_at, Some(fetched_at + 86_400_000));
+        assert_eq!(windows[1].limit_usd, Some(30.0));
+        assert_eq!(windows[2].kind, "monthly");
+        // 绝对秒级时间戳被换算为毫秒
+        assert_eq!(windows[2].reset_at, Some(1_767_225_600_000));
+        assert_eq!(windows[2].limit_usd, Some(60.0));
+    }
+
+    #[test]
+    fn opencode_go_parses_snake_case_nested_windows() {
+        let fetched_at = 1_767_000_000_000_i64;
+        let windows = parse_opencode_go_windows(
+            &json!({
+                "windows": {
+                    "rolling": {"usage_percent": 10.0, "resets_in_seconds": 7200, "limit_usd": 12},
+                    "weekly": {"percent": 20.0, "reset_in_seconds": 3600},
+                    "monthly": {"usage_percent": 30.0, "reset_at": 1_767_225_600_i64}
+                }
+            }),
+            fetched_at,
+        )
+        .unwrap();
+
+        assert_eq!(windows.len(), 3);
+        assert_eq!(windows[0].kind, "rolling");
+        assert_eq!(windows[0].usage_percent, Some(10.0));
+        assert_eq!(windows[0].reset_at, Some(fetched_at + 7_200_000));
+        assert_eq!(windows[1].kind, "weekly");
+        assert_eq!(windows[1].usage_percent, Some(20.0));
+        assert_eq!(windows[1].reset_at, Some(fetched_at + 3_600_000));
+        assert_eq!(windows[2].usage_percent, Some(30.0));
+        assert_eq!(windows[2].reset_at, Some(1_767_225_600_000));
+    }
+
+    #[test]
+    fn opencode_go_parses_production_usage_shape_with_resets_at() {
+        // 精确复刻 formatUsage 产出：usage.rolling|weekly|monthly + percent + resetsAt(RFC3339)。
+        let windows = parse_opencode_go_windows(
+            &json!({
+                "usage": {
+                    "rolling": {
+                        "status": "ok",
+                        "percent": 12,
+                        "resetsAt": "2026-09-13T06:06:01.287Z"
+                    },
+                    "weekly": {
+                        "status": "ok",
+                        "percent": 30,
+                        "resetsAt": "2026-09-14T06:06:01.287Z"
+                    },
+                    "monthly": {
+                        "status": "ok",
+                        "percent": 55,
+                        "resetsAt": "2026-10-01T00:00:00.000Z"
+                    }
+                }
+            }),
+            1_700_000_000_000,
+        )
+        .unwrap();
+
+        assert_eq!(windows.len(), 3);
+        assert_eq!(windows[0].kind, "rolling");
+        assert_eq!(windows[0].usage_percent, Some(12.0));
+        assert_eq!(windows[0].reset_at, Some(1_789_279_561_287));
+        assert_eq!(windows[1].kind, "weekly");
+        assert_eq!(windows[1].usage_percent, Some(30.0));
+        assert_eq!(windows[1].reset_at, Some(1_789_365_961_287));
+        assert_eq!(windows[2].kind, "monthly");
+        assert_eq!(windows[2].usage_percent, Some(55.0));
+        assert_eq!(windows[2].reset_at, Some(1_790_812_800_000));
+    }
+
+    #[test]
+    fn opencode_go_unparseable_resets_at_is_ignored_not_zero() {
+        let windows = parse_opencode_go_windows(
+            &json!({
+                "usage": {
+                    "rolling": {"percent": 5, "resetsAt": "not-a-timestamp"},
+                    "weekly": {"percent": 6, "resets_at": ""},
+                    "monthly": {"percent": 7, "resetsAt": "2026-09-13T06:06:01.287Z"}
+                }
+            }),
+            1_700_000_000_000,
+        )
+        .unwrap();
+
+        assert_eq!(windows.len(), 3);
+        assert_eq!(windows[0].reset_at, None);
+        assert_eq!(windows[1].reset_at, None);
+        assert_eq!(windows[2].reset_at, Some(1_789_279_561_287));
+    }
+
+    #[test]
+    fn opencode_go_status_branches() {
+        let unauthorized = opencode_go_quota(401, "{}", 1, 5, "https://opencode.ai/zen/go/v1/usage");
+        assert_eq!(unauthorized.status, QuotaProbeStatus::Unauthorized);
+        assert!(unauthorized.windows.is_empty());
+
+        let not_found = opencode_go_quota(404, "", 1, 5, "https://opencode.ai/zen/go/v1/usage");
+        assert_eq!(not_found.status, QuotaProbeStatus::Unsupported);
+
+        let server_error = opencode_go_quota(502, "down", 1, 5, "u");
+        assert_eq!(server_error.status, QuotaProbeStatus::Error);
+        assert_eq!(server_error.error.as_deref(), Some("HTTP 502"));
+    }
+
+    #[test]
+    fn opencode_go_forbidden_is_unsupported_not_unauthorized() {
+        // 403 = key 有效但无 Go 订阅（EntitlementError），不能提示「换 key」。
+        let forbidden = opencode_go_quota(403, "{}", 1, 5, "https://opencode.ai/zen/go/v1/usage");
+        assert_eq!(forbidden.status, QuotaProbeStatus::Unsupported);
+        assert_ne!(forbidden.status, QuotaProbeStatus::Unauthorized);
+    }
+
+    #[tokio::test]
+    async fn opencode_go_probe_returns_three_windows_from_mock_server() {
+        let body = r#"{"rollingUsage":{"usagePercent":12.5,"resetInSec":3600,"limit":12},"weeklyUsage":{"usagePercent":46.2,"resetInSec":86400,"limitUsd":30},"monthlyUsage":{"usagePercent":8.4,"resetAt":1767225600,"limit_usd":60}}"#;
+        let (base, _requests) = recording_server("200 OK", body).await;
+        let _guard = OpencodeUrlGuard::set(format!("{base}/zen/go/v1/usage"));
+        let site = opencode_go_site("https://opencode.ai/zen/go/v1");
+        let before = Utc::now().timestamp_millis();
+        let quota = probe_quota(&site, "sk-opencode", &opencode_settings(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(quota.status, QuotaProbeStatus::Available);
+        assert_eq!(quota.source, Some(QuotaSource::OpencodeGo));
+        assert_eq!(quota.unit.as_deref(), Some("USD"));
+        assert_eq!(quota.windows.len(), 3);
+        assert_eq!(quota.windows[0].kind, "rolling");
+        assert_eq!(quota.windows[0].usage_percent, Some(12.5));
+        let rolling_reset = quota.windows[0].reset_at.unwrap();
+        assert!(
+            (rolling_reset - (before + 3_600_000)).abs() < 10_000,
+            "relative reset seconds should become an absolute timestamp"
+        );
+        assert_eq!(quota.windows[2].reset_at, Some(1_767_225_600_000));
+        assert!(quota
+            .endpoint
+            .as_deref()
+            .is_some_and(|endpoint| endpoint.ends_with("/zen/go/v1/usage")));
+    }
+
+    #[tokio::test]
+    async fn opencode_go_probe_reports_unauthorized_and_unsupported() {
+        let (base, _requests) = recording_server("401 Unauthorized", "{}").await;
+        let _guard = OpencodeUrlGuard::set(format!("{base}/zen/go/v1/usage"));
+        let site = opencode_go_site("https://opencode.ai/zen/go/v1");
+        let quota = probe_quota(&site, "sk-bad", &opencode_settings(), None)
+            .await
+            .unwrap();
+        assert_eq!(quota.status, QuotaProbeStatus::Unauthorized);
+        drop(_guard);
+
+        let (base, _requests) = recording_server("404 Not Found", "").await;
+        let _guard = OpencodeUrlGuard::set(format!("{base}/zen/go/v1/usage"));
+        let quota = probe_quota(&site, "sk-bad", &opencode_settings(), None)
+            .await
+            .unwrap();
+        assert_eq!(quota.status, QuotaProbeStatus::Unsupported);
+    }
+
+    #[tokio::test]
+    async fn opencode_go_route_skips_billing_probe_paths() {
+        let body = r#"{"rollingUsage":{"usagePercent":1,"resetInSec":60},"weeklyUsage":{"usagePercent":2,"resetInSec":120},"monthlyUsage":{"usagePercent":3,"resetInSec":180}}"#;
+        let (base, requests) = recording_server("200 OK", body).await;
+        let _guard = OpencodeUrlGuard::set(format!("{base}/zen/go/v1/usage"));
+        let site = opencode_go_site("https://opencode.ai/zen/go/v1");
+        let quota = probe_quota(&site, "sk-opencode", &opencode_settings(), Some(("token", "42")))
+            .await
+            .unwrap();
+
+        assert_eq!(quota.source, Some(QuotaSource::OpencodeGo));
+        let recorded = requests.lock().unwrap().clone();
+        assert_eq!(recorded.len(), 1, "only the usage endpoint should be requested");
+        assert!(recorded[0].starts_with("GET /zen/go/v1/usage "));
+        assert!(recorded[0].to_ascii_lowercase().contains("authorization: bearer sk-opencode"));
+        assert!(!recorded
+            .iter()
+            .any(|request| request.contains("/dashboard/billing")));
+        assert!(!recorded
+            .iter()
+            .any(|request| request.contains("/api/usage/token")));
+    }
+
+    #[tokio::test]
+    async fn opencode_go_empty_key_is_unauthorized_without_request() {
+        let (base, requests) = recording_server("200 OK", "{}").await;
+        let _guard = OpencodeUrlGuard::set(format!("{base}/zen/go/v1/usage"));
+        let site = opencode_go_site("https://opencode.ai/zen/go/v1");
+        let quota = probe_quota(&site, "  ", &opencode_settings(), None)
+            .await
+            .unwrap();
+        assert_eq!(quota.status, QuotaProbeStatus::Unauthorized);
+        assert!(requests.lock().unwrap().is_empty());
     }
 }

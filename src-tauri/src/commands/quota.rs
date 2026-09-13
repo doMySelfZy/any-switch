@@ -72,7 +72,7 @@ pub async fn probe_site_quota(state: State<'_, AppState>, site_id: String) -> Ap
         let settings = repo::settings::get_settings(c)?;
         Ok((site, secret, newapi, settings))
     })?;
-    if api_key.trim().is_empty() {
+    if api_key.trim().is_empty() && !crate::quota_probe::is_opencode_go_base(&site.base_url) {
         return Ok(crate::quota_probe::empty_key_result());
     }
     crate::quota_probe::probe_quota(

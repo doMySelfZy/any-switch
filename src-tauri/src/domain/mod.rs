@@ -320,6 +320,21 @@ pub enum QuotaSource {
     UsageOnly,
     TokenUsage,
     UserSelf,
+    OpencodeGo,
+}
+
+/// One usage window of an OpenCode Go plan (5-hour / weekly / monthly).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaWindow {
+    /// `rolling` (5-hour) | `weekly` | `monthly`.
+    pub kind: String,
+    /// Consumed percentage of the window limit, 0-100.
+    pub usage_percent: Option<f64>,
+    /// Absolute reset time in milliseconds since epoch.
+    pub reset_at: Option<i64>,
+    /// Window limit in USD, when the upstream reports it.
+    pub limit_usd: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -338,6 +353,9 @@ pub struct SiteQuota {
     pub fetched_at: i64,
     pub latency_ms: u64,
     pub error: Option<String>,
+    /// OpenCode Go usage windows; empty for every other quota source.
+    #[serde(default)]
+    pub windows: Vec<QuotaWindow>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
