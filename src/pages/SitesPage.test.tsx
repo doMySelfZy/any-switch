@@ -7,7 +7,7 @@ import {
   resetBrowserMock,
   seedTargetStatuses,
 } from "@/lib/browserMock";
-import { QUOTA_TTL_MS } from "@/lib/quotaProbe";
+import { QUOTA_TTL_MS, SITE_QUOTA_AUTO_REFRESH_MS } from "@/lib/quotaProbe";
 import { useApplyStore, useSiteStore, useUIStore } from "@/stores";
 import { resetQuotaInflight } from "@/stores/siteStore";
 import type { TargetLiveStatus } from "@/types/domain";
@@ -797,6 +797,53 @@ describe("SitesPage", () => {
       expect(probe).toHaveBeenCalledWith(id);
     }
     probe.mockRestore();
+  });
+
+  it("auto-refreshes list quota on an interval while visible, and skips hidden pages", async () => {
+    await act(async () => {
+      await useSiteStore.getState().createSite({
+        name: "Alpha",
+        baseUrl: "https://alpha.example.com",
+        apiKey: "sk-test",
+      });
+    });
+    // 捕获轮询回调而不是真的等 2 分钟：断言注册了正确间隔，再手动触发它。
+    const intervals: Array<{ fn: () => void; ms: number }> = [];
+    const setIntervalSpy = vi
+      .spyOn(window, "setInterval")
+      .mockImplementation(((fn: () => void, ms?: number) => {
+        intervals.push({ fn, ms: ms ?? 0 });
+        return 0 as unknown as ReturnType<typeof window.setInterval>;
+      }) as unknown as typeof window.setInterval);
+
+    render(
+      <Wrapper>
+        <SitesPage />
+      </Wrapper>,
+    );
+    await act(async () => {});
+    const afterMount = getBrowserQuotaProbeCallCount();
+    expect(afterMount).toBe(1);
+
+    const auto = intervals.find((entry) => entry.ms === SITE_QUOTA_AUTO_REFRESH_MS);
+    expect(auto).toBeDefined();
+
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("hidden");
+    await act(async () => {
+      auto!.fn();
+    });
+    expect(getBrowserQuotaProbeCallCount()).toBe(afterMount);
+
+    visibility.mockReturnValue("visible");
+    await act(async () => {
+      auto!.fn();
+    });
+    expect(getBrowserQuotaProbeCallCount()).toBeGreaterThan(afterMount);
+
+    visibility.mockRestore();
+    setIntervalSpy.mockRestore();
   });
 
   it("persists sidebar order through reorderSites after creating two sites", async () => {

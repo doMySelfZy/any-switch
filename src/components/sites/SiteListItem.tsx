@@ -97,7 +97,7 @@ export function SiteListItem({ site, active, onSelect, onEdit, onDelete }: Props
             }
           >
             <span
-              className="max-w-[6rem] shrink-0 truncate text-xs tabular-nums"
+              className="block truncate text-xs tabular-nums"
               style={{ color }}
               data-testid="site-quota-summary"
             >
@@ -119,7 +119,7 @@ export function SiteListItem({ site, active, onSelect, onEdit, onDelete }: Props
           }
         >
           <span
-            className="max-w-[6rem] shrink-0 truncate text-xs tabular-nums"
+            className="block truncate text-xs tabular-nums"
             style={{ color: token.colorTextTertiary }}
             data-testid="site-quota-summary"
           >
@@ -190,10 +190,8 @@ export function SiteListItem({ site, active, onSelect, onEdit, onDelete }: Props
                 />
                 <div className="truncate text-sm font-medium">{site.name}</div>
               </div>
-              <div className="flex min-w-0 items-center gap-2">
-                <div className="min-w-0 flex-1 truncate text-xs opacity-50">{site.baseUrl}</div>
-                {quotaSummary}
-              </div>
+              {/* 第二行固定高度：站点没有额度摘要时也占位，列表行高保持整齐 */}
+              <div className="min-h-5 min-w-0">{quotaSummary}</div>
             </div>
           </button>
           <Dropdown trigger={["click"]} destroyOnHidden menu={menu} placement="bottomRight">

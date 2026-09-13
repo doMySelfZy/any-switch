@@ -32,7 +32,7 @@ import { SiteApiKeySwitcher } from "@/components/sites/SiteApiKeySwitcher";
 import { SiteQuotaRow } from "@/components/sites/SiteQuotaRow";
 import type { Site } from "@/types/domain";
 import { isAppError } from "@/lib/invoke";
-import { quotaCacheKey } from "@/lib/quotaProbe";
+import { SITE_QUOTA_AUTO_REFRESH_MS, quotaCacheKey } from "@/lib/quotaProbe";
 import { useDeferredReady } from "@/hooks/useDeferredReady";
 import { targetKindLabelKey, targetsAppliedForSite } from "@/components/apply/TargetStatusCard";
 
@@ -83,15 +83,34 @@ export function SitesPage() {
     void loadSites({ soft: useSiteStore.getState().hydrated });
   }, [loadSites]);
 
-  // 列表额度摘要预取：probeQuota 自带 5 分钟 TTL + in-flight 去重，就是节流层，
-  // 不要再包一层缓存。失败静默（错误态只在右侧详情展示）。依赖用站点 id 串，
-  // 避免对象引用变化导致重复触发。
+  // 列表额度摘要预取 + 自动刷新：probeQuota 自带 5 分钟 TTL + in-flight 去重，
+  // 就是节流层，不要再包一层缓存。失败静默（错误态只在右侧详情展示）。依赖用
+  // 站点 id 串，避免对象引用变化导致重复触发。轮询只在页面可见时跑——窗口最小化
+  // 或应用在后台时不打请求；重新可见时立即补一次，避免展示陈旧金额。
   const siteIdsKey = sites.map((s) => s.id).join(",");
   useEffect(() => {
     if (!siteIdsKey) return;
-    for (const site of useSiteStore.getState().sites) {
-      void probeQuota(site.id).catch(() => undefined);
-    }
+    const refreshAll = (force: boolean) => {
+      for (const site of useSiteStore.getState().sites) {
+        // 非强制刷新只传 siteId，保持与手动调用一致的签名（TTL 缓存会挡住重复请求）。
+        const run = force
+          ? probeQuota(site.id, { force: true })
+          : probeQuota(site.id);
+        void run.catch(() => undefined);
+      }
+    };
+    if (document.visibilityState === "visible") refreshAll(false);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") refreshAll(true);
+    }, SITE_QUOTA_AUTO_REFRESH_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshAll(true);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [siteIdsKey, probeQuota]);
 
   useEffect(() => {
