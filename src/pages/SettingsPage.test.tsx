@@ -155,12 +155,12 @@ describe("SettingsPage backup center", () => {
     expect(await screen.findByText("本地备份")).toBeInTheDocument();
     expect(screen.getByText("WebDAV")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "创建备份" }));
-    expect(await screen.findByText(/any-switch-backup-.*browser.*\.zip/)).toBeInTheDocument();
+    expect(await screen.findByText(/xiaobai-switch-backup-.*browser.*\.zip/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "备份设置" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("最大保留数量")).toBeInTheDocument();
-    expect(within(dialog).getByDisplayValue("~/.any-switch/backups/app")).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue("~/.xiaobai-switch/backups/app")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: /取\s*消/ }));
 
     fireEvent.click(screen.getByText("WebDAV"));
@@ -168,7 +168,7 @@ describe("SettingsPage backup center", () => {
   });
 
   it("restores and batch deletes local snapshots with confirmation", async () => {
-    const fileName = "any-switch-backup-20260827_120000.browser.12345678.zip";
+    const fileName = "xiaobai-switch-backup-20260827_120000.browser.12345678.zip";
     seedLocalBackups([
       {
         fileName,
@@ -244,7 +244,7 @@ describe("SettingsPage backup center", () => {
       },
       [
         {
-          fileName: "any-switch-backup-20260827_120000.browser.12345678.zip",
+          fileName: "xiaobai-switch-backup-20260827_120000.browser.12345678.zip",
           size: 1024,
           lastModified: new Date().toUTCString(),
           deviceName: "browser",
@@ -259,7 +259,7 @@ describe("SettingsPage backup center", () => {
     fireEvent.click(await screen.findByText("WebDAV"));
     const remoteTable = await screen.findByRole("table");
     expect(
-      await within(remoteTable).findByText(/any-switch-backup-.*browser.*\.zip/),
+      await within(remoteTable).findByText(/xiaobai-switch-backup-.*browser.*\.zip/),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "恢复" }));
     expect((await screen.findAllByText("恢复这份应用快照？")).length).toBeGreaterThan(0);
@@ -278,7 +278,7 @@ describe("SettingsPage backup center", () => {
       },
       [
         {
-          fileName: "any-switch-backup-20260827_120000.browser.12345678.zip",
+          fileName: "xiaobai-switch-backup-20260827_120000.browser.12345678.zip",
           size: 1024,
           lastModified: new Date().toUTCString(),
           deviceName: "browser",
@@ -293,7 +293,7 @@ describe("SettingsPage backup center", () => {
     fireEvent.click(await screen.findByText("WebDAV"));
     const remoteTable = await screen.findByRole("table");
     expect(
-      await within(remoteTable).findByText(/any-switch-backup-.*browser.*\.zip/),
+      await within(remoteTable).findByText(/xiaobai-switch-backup-.*browser.*\.zip/),
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
@@ -302,7 +302,7 @@ describe("SettingsPage backup center", () => {
       within(screen.getByRole("dialog")).getByRole("button", { name: /删\s*除/ }),
     );
     await waitFor(() => {
-      expect(within(remoteTable).queryByText(/any-switch-backup-.*browser.*\.zip/)).toBeNull();
+      expect(within(remoteTable).queryByText(/xiaobai-switch-backup-.*browser.*\.zip/)).toBeNull();
     });
   }, 10_000);
 });
@@ -334,7 +334,7 @@ describe("SettingsPage about", () => {
     await waitFor(() => {
       expect(useSettingsStore.getState().loaded).toBe(true);
       expect(screen.getByText(pkg.version)).toBeInTheDocument();
-      expect(screen.getByText("~/.any-switch")).toBeInTheDocument();
+      expect(screen.getByText("~/.xiaobai-switch")).toBeInTheDocument();
     });
   });
 
@@ -348,7 +348,7 @@ describe("SettingsPage about", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("img", { name: "AnySwitch" })).toBeInTheDocument();
+      expect(screen.getByRole("img", { name: "XiaoBaiSwitch Plus" })).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: /GitHub 仓库/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /问题反馈/ })).toBeInTheDocument();

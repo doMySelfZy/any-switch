@@ -173,7 +173,7 @@ const INITIAL_SKILLS: Skill[] = [
   {
     name: "find-skills",
     description: "Shared agent skills installed under ~/.agents/skills",
-    author: "AnySwitch",
+    author: "XiaoBaiSwitch Plus",
     version: "1.0.0",
     target: "agents",
     sourcePath: "/Users/demo/.agents/skills/find-skills/SKILL.md",
@@ -184,7 +184,7 @@ const INITIAL_SKILLS: Skill[] = [
   {
     name: "shared-tools",
     description: "Shared workflows installed for Claude Code",
-    author: "AnySwitch",
+    author: "XiaoBaiSwitch Plus",
     version: "1.0.0",
     target: "claude_code",
     sourcePath: "/Users/demo/.claude/skills/shared-tools/SKILL.md",
@@ -195,7 +195,7 @@ const INITIAL_SKILLS: Skill[] = [
   {
     name: "shared-tools",
     description: "The same skill installed independently for Codex",
-    author: "AnySwitch",
+    author: "XiaoBaiSwitch Plus",
     version: "1.0.0",
     target: "codex",
     sourcePath: "/Users/demo/.codex/skills/shared-tools/SKILL.md",
@@ -206,7 +206,7 @@ const INITIAL_SKILLS: Skill[] = [
   {
     name: "pi-workflow",
     description: "Example Pi workflow skill",
-    author: "AnySwitch",
+    author: "XiaoBaiSwitch Plus",
     version: "1.1.0",
     target: "pi",
     sourcePath: "/Users/demo/.pi/agent/skills/pi-workflow/SKILL.md",
@@ -217,7 +217,7 @@ const INITIAL_SKILLS: Skill[] = [
   {
     name: "prime-workflow",
     description: "Example Prime workflow skill",
-    author: "AnySwitch",
+    author: "XiaoBaiSwitch Plus",
     version: "1.2.0",
     target: "prime",
     sourcePath: "/Users/demo/.prime/agent/skills/prime-workflow/SKILL.md",
@@ -1169,7 +1169,7 @@ export async function handleBrowserCommand<T>(
     case "create_app_backup": {
       const destination = String(args?.destination ?? "");
       const createdAt = now();
-      const fileName = `any-switch-backup-20260827_120000.browser.12345678.zip`;
+      const fileName = `xiaobai-switch-backup-20260827_120000.browser.12345678.zip`;
       if (destination === "local") {
         latestLocalBackupAt = createdAt;
         localBackups = [
@@ -1204,7 +1204,7 @@ export async function handleBrowserCommand<T>(
       const result: BackupOperationResult = {
         fileName,
         localPath:
-          destination === "local" ? `~/.any-switch/backups/app/${fileName}` : null,
+          destination === "local" ? `~/.xiaobai-switch/backups/app/${fileName}` : null,
         uploaded: destination === "webdav",
         warning: null,
       };
@@ -1221,7 +1221,7 @@ export async function handleBrowserCommand<T>(
       const outcome: SyncOutcome = {
         action: "upload",
         revision: webdavSyncRevision,
-        bundleFileName: "any-switch-backup-20260827_120000.browser.12345678.zip",
+        bundleFileName: "xiaobai-switch-backup-20260827_120000.browser.12345678.zip",
         conflict: false,
         pendingRestart: false,
         warning: null,
@@ -1275,13 +1275,13 @@ export async function handleBrowserCommand<T>(
     }
     case "get_app_paths": {
       const paths: AppPaths = {
-        appDir: "~/.any-switch",
-        dbPath: "~/.any-switch/any-switch.db",
-        masterKeyPath: "~/.any-switch/master.key",
-        backupsDir: "~/.any-switch/backups",
-        appBackupsDir: "~/.any-switch/backups/app",
-        codexEnvPath: "~/.any-switch/env/codex.env",
-        logsDir: "~/.any-switch/logs",
+        appDir: "~/.xiaobai-switch",
+        dbPath: "~/.xiaobai-switch/xiaobai-switch.db",
+        masterKeyPath: "~/.xiaobai-switch/master.key",
+        backupsDir: "~/.xiaobai-switch/backups",
+        appBackupsDir: "~/.xiaobai-switch/backups/app",
+        codexEnvPath: "~/.xiaobai-switch/env/codex.env",
+        logsDir: "~/.xiaobai-switch/logs",
       };
       return paths as T;
     }

@@ -164,7 +164,7 @@ fn build_model_catalog(
             json!({
                 "slug": id,
                 "display_name": display,
-                "description": format!("From AnySwitch · {site_name}"),
+                "description": format!("From XiaoBaiSwitch Plus · {site_name}"),
                 "context_window": 128000,
                 "max_context_window": 128000,
                 "visibility": "list",
@@ -311,7 +311,7 @@ pub fn apply(
         read_env_file(&env_path)?
     } else {
         vec![
-            "# Managed by AnySwitch — do not commit".into(),
+            "# Managed by XiaoBaiSwitch Plus — do not commit".into(),
             String::new(),
         ]
     };

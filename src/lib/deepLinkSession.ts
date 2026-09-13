@@ -1,4 +1,4 @@
-const STORAGE_KEY = "any-switch.deepLink.handledStartupUrls";
+const STORAGE_KEY = "xiaobai-switch-plus.deepLink.handledStartupUrls";
 
 function readHandled(): Set<string> {
   if (typeof sessionStorage === "undefined") return new Set();

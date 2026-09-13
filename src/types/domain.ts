@@ -43,7 +43,7 @@ export type ProxyProtocol = "http" | "https" | "socks5";
 
 export type ApplyStatus = "applied" | "stale" | "orphan" | "not_applied" | "failed";
 
-/** Kebab capability flags shared by site JSON and anyswitch:// query keys. */
+/** Kebab capability flags shared by site JSON and xiaobaiswitchplus:// query keys. */
 export type SiteCapabilities = Record<string, boolean>;
 
 export type CodexCapabilitySource = "site" | "custom";

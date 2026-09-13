@@ -17,11 +17,11 @@ function assetPair(name: string, id: number) {
 }
 
 const assets = [
-  ...assetPair("AnySwitch_aarch64.app.tar.gz", 1),
-  ...assetPair("AnySwitch_x64.app.tar.gz", 3),
-  ...assetPair("AnySwitch_0.0.1_arm64-setup.exe", 5),
-  ...assetPair("AnySwitch_0.0.1_x64_en-US.msi", 7),
-  ...assetPair("AnySwitch_0.0.1_x64-setup.exe", 9),
+  ...assetPair("XiaoBaiSwitchPlus_aarch64.app.tar.gz", 1),
+  ...assetPair("XiaoBaiSwitchPlus_x64.app.tar.gz", 3),
+  ...assetPair("XiaoBaiSwitchPlus_0.0.1_arm64-setup.exe", 5),
+  ...assetPair("XiaoBaiSwitchPlus_0.0.1_x64_en-US.msi", 7),
+  ...assetPair("XiaoBaiSwitchPlus_0.0.1_x64-setup.exe", 9),
 ];
 
 const signatures = new Map(
@@ -57,17 +57,17 @@ describe("updater notes from release body", () => {
 
 describe("updater manifest generation", () => {
   it("classifies supported updater signature assets", () => {
-    expect(classifySignature("AnySwitch_aarch64.app.tar.gz.sig")).toEqual({
+    expect(classifySignature("XiaoBaiSwitchPlus_aarch64.app.tar.gz.sig")).toEqual({
       os: "darwin",
       arch: "aarch64",
       bundle: "app",
     });
-    expect(classifySignature("AnySwitch_0.0.1_x64-setup.exe.sig")).toEqual({
+    expect(classifySignature("XiaoBaiSwitchPlus_0.0.1_x64-setup.exe.sig")).toEqual({
       os: "windows",
       arch: "x86_64",
       bundle: "nsis",
     });
-    expect(classifySignature("AnySwitch_v0.0.1_windows-x64-portable.zip.sig")).toBeNull();
+    expect(classifySignature("XiaoBaiSwitchPlus_v0.0.1_windows-x64-portable.zip.sig")).toBeNull();
   });
 
   it("builds one complete updater manifest after all platform uploads", () => {
@@ -75,7 +75,7 @@ describe("updater manifest generation", () => {
       version: "0.0.1",
       notes: "release notes",
       pubDate: "2026-08-19T15:00:00.000Z",
-      repository: "doMySelfZy/any-switch",
+      repository: "doMySelfZy/xiaobai-switch-plus",
       serverUrl: "https://github.com",
       tag: "v0.0.1",
       assets,
@@ -85,16 +85,16 @@ describe("updater manifest generation", () => {
     expect(manifest.version).toBe("0.0.1");
     expect(manifest.notes).toBe("release notes");
     expect(manifest.platforms["windows-aarch64"].url).toBe(
-      "https://github.com/doMySelfZy/any-switch/releases/download/v0.0.1/AnySwitch_0.0.1_arm64-setup.exe",
+      "https://github.com/doMySelfZy/xiaobai-switch-plus/releases/download/v0.0.1/XiaoBaiSwitchPlus_0.0.1_arm64-setup.exe",
     );
     expect(manifest.platforms["windows-aarch64-nsis"].signature).toBe(
-      "signature:AnySwitch_0.0.1_arm64-setup.exe.sig",
+      "signature:XiaoBaiSwitchPlus_0.0.1_arm64-setup.exe.sig",
     );
     expect(manifest.platforms["darwin-x86_64-app"].url).toBe(
-      "https://github.com/doMySelfZy/any-switch/releases/download/v0.0.1/AnySwitch_x64.app.tar.gz",
+      "https://github.com/doMySelfZy/xiaobai-switch-plus/releases/download/v0.0.1/XiaoBaiSwitchPlus_x64.app.tar.gz",
     );
     expect(manifest.platforms["windows-x86_64"].url).toBe(
-      "https://github.com/doMySelfZy/any-switch/releases/download/v0.0.1/AnySwitch_0.0.1_x64_en-US.msi",
+      "https://github.com/doMySelfZy/xiaobai-switch-plus/releases/download/v0.0.1/XiaoBaiSwitchPlus_0.0.1_x64_en-US.msi",
     );
     expect(Object.keys(manifest.platforms)).toHaveLength(9);
   });
@@ -105,10 +105,10 @@ describe("updater manifest generation", () => {
         version: "0.0.1",
         notes: "",
         pubDate: "2026-08-19T15:00:00.000Z",
-        repository: "doMySelfZy/any-switch",
+        repository: "doMySelfZy/xiaobai-switch-plus",
         serverUrl: "https://github.com",
         tag: "v0.0.1",
-        assets: assets.filter(({ name }) => !name.includes("AnySwitch_x64.app.tar.gz")),
+        assets: assets.filter(({ name }) => !name.includes("XiaoBaiSwitchPlus_x64.app.tar.gz")),
         signatures,
       }),
     ).toThrow("missing updater platforms: darwin-x86_64, darwin-x86_64-app");

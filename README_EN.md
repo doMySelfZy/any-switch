@@ -3,134 +3,47 @@
 </p>
 
 <p align="center">
-  <img src="assets/brand/app-icon-1024.png" alt="AnySwitch" width="160" height="160">
+  <img src="assets/brand/app-icon-1024.png" alt="XiaoBaiSwitch Plus" width="160" height="160">
 </p>
 
-# AnySwitch
+# XiaoBaiSwitch Plus
 
-Website: TBD (placeholder — replace with your own domain; the old domain belongs to the upstream author)
+> **This project is a fork of [XiaoBaiSwitch](https://github.com/Licoy/xiaobai-switch) by [Licoy](https://github.com/Licoy).**
+> The original project, authorship, and MIT license belong to the original author. This repository only adds enhancements (real sync, etc.) and publishes downloads and auto-updates from our own GitHub.
 
-A beginner-friendly, site-driven desktop app for wiring Claude Code, Codex, and Pi to an upstream API.
+## Download & Update
 
-Everything starts from an upstream site: enter a Base URL and API key, fetch or type model ids, then apply to Claude Code, Codex, or Pi in one click.
+- **Downloads and auto-updates come only from GitHub Releases**: <https://github.com/doMySelfZy/xiaobai-switch-plus/releases>
+- The updater endpoint is that release's `latest.json`.
+- **There is no website, and nothing is published on Gitee.**
 
-## Features
+## Features (brief)
 
-- **Sites**: manage multiple upstream relays, with extra routes, speed tests, and one-click switching
-- **Models**: fetch models from a site, or add and test them yourself
-- **Apply Center**: write Claude Code, Codex, and Pi separately, with their own site, model, and target options
-- **Route switching**: after a switch, already-applied tool URLs can be updated to match
-- **Backups**: configs are backed up before apply, and can be restored in Apply Center
-- **Link import**: import a site with a `anyswitch://` link; it is not applied to tools automatically
-- **Desktop extras**: tray, launch at login, light / dark theme, Simplified Chinese and English
+- Site-first: Base URL + API key → models → target presets → apply to targets.
+- Targets: Claude Code, Codex, Pi, and Prime, each with its own form.
+- Local backups + real WebDAV sync: one dataset across machines, synced on change, pulled on open.
+- `xiaobaiswitchplus://` deep links import a site in one click; legacy `anyswitch://` and `xiaobaiswitch://` links still work.
+- API keys are encrypted at rest, configs are backed up before apply, and official configs can be restored.
 
-## Screenshots
+See the [upstream project](https://github.com/Licoy/xiaobai-switch) for full documentation.
 
-| Welcome | Model test |
-|:---:|:---:|
-| <img src="assets/screenshot/1.webp" alt="Welcome"> | <img src="assets/screenshot/2.webp" alt="Model test"> |
-| Sites | Apply Center |
-| <img src="assets/screenshot/3.webp" alt="Sites"> | <img src="assets/screenshot/4.webp" alt="Apply Center"> |
+## Data directory
 
-## Quick start
+- Current directory: `~/.xiaobai-switch/` (`xiaobai-switch.db`, `master.key`, `backups/`).
+- When upgrading from an AnySwitch build, the first launch **automatically takes over** the data in `~/.any-switch/`: it compares database modification times, copies the newer dataset, verifies it, then uses the new directory.
+- The old `~/.any-switch/` directory is **kept as-is** as a rollback point and is never deleted; remove it yourself once you are confident.
 
-1. Add an upstream site with a name, Base URL, and API key
-2. Fetch models, or type the model ids you need
-3. Open Apply Center, pick Claude Code, Codex, or Pi, confirm the model and options, then apply
-4. Restart the terminal or reopen the matching CLI so the change takes effect
-
-A site can have multiple routes; the first one is the current default, and you can probe and switch at any time.
-
-## Import a site from a link
-
-After the desktop app is installed, a browser or another app can open a `anyswitch://` link to launch AnySwitch and import an upstream site; import does not apply to Claude Code / Codex / Pi automatically, so you still confirm in Apply Center.
-
-1. Install and open the desktop app
-2. Click the import link; the app switches to Sites and shows a confirm dialog
-3. Check the name, routes, protocol, notes, and API key prefix, then confirm
-4. If the link has no `apikey`, confirm opens a prefilled add-site form so you can finish the key and save
-
-The same protocol plus the same set of routes (order does not matter) counts as the same site: a matching key is reused, a different key updates the stored key; adding or removing a route creates a new site instead of merging.
-
-### Link format
-
-```text
-anyswitch://sites?name=<name>&baseurls=<url>[&baseurls=<url>…][&apikey=<key>][&protocol=openai_compatible|anthropic][&notes=<notes>][&codex-compact=1][&codex-vision=1][&codex-imagegen=1][&codex-search=1]
-```
-
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `name` | Yes | Site name, up to 128 characters |
-| `baseurls` | Yes | Route Base URL; repeatable, up to 20 |
-| `apikey` | No | API key; if omitted, confirm opens a prefilled form for the user to finish |
-| `protocol` | No | `openai_compatible` (default) or `anthropic` |
-| `notes` | No | Notes, up to 2000 characters |
-| `codex-compact` | No | Codex remote compaction preset; `1` / `true` / `on` / `yes` turns it on |
-| `codex-vision` | No | Codex vision preset |
-| `codex-imagegen` | No | Codex image-generation preset |
-| `codex-search` | No | Codex built-in search preset |
-
-Aliases: `baseurl` = `baseurls`, `type=openai` / `type=anthropic` = `protocol`; other `platform-capability` kebab keys are stored as-is, and the current UI only shows the four Codex ones; if the link includes any capability parameter, it is treated as a full Codex preset (omitted known keys are off); older links without these parameters will not overwrite presets already on the site.
-
-### Multiple routes
-
-The first item is the current / default route; prefer repeating `baseurls` so a URL that contains a comma is not split by mistake:
-
-```text
-anyswitch://sites?name=Example%20Relay&baseurls=https://a.example.com/v1&baseurls=https://b.example.com/v1&apikey=sk-xxx&protocol=openai_compatible
-```
-
-A single parameter also works, separated by commas or `|`:
-
-```text
-anyswitch://sites?name=Example&baseurls=https://a.example.com/v1,https://b.example.com/v1
-anyswitch://sites?name=Example&baseurls=https://a.example.com/v1|https://b.example.com/v1
-```
-
-`baseurl` and `baseurls` can be mixed, and are merged in query-string order:
-
-```text
-anyswitch://sites?name=Mix&baseurl=https://first.example.com/v1&baseurls=https://second.example.com/v1
-```
-
-Putting an API key in a URL can leave it in browser history, extensions, or system logs, so do not put a real key on a public page; generate the link from a private, signed-in console, or omit `apikey` and let the user finish it in the app.
-
-## Download and install
-
-macOS (Apple Silicon / Intel) and Windows (x64 / ARM64) are supported; get the matching installer from [Releases](https://github.com/doMySelfZy/any-switch/releases).
-
-The macOS build is ad-hoc signed (no Apple Developer ID, not notarized); after a browser download, macOS may say the app is “damaged” — that is the quarantine flag, not a broken file, and **Privacy & Security will not show “Open Anyway”**; drag the app to Applications, then run:
+## Development
 
 ```bash
-xattr -cr /Applications/AnySwitch.app
+pnpm install
+pnpm tauri dev        # dev run
+pnpm typecheck        # type check
+pnpm test:run         # frontend tests
+cd src-tauri && cargo test   # Rust tests
+pnpm tauri build      # bundle
 ```
-
-Then right-click the app → Open.
-
-## Upgrading from XiaoBaiSwitch
-
-AnySwitch continues XiaoBaiSwitch. On first launch after upgrading, the app copies your data from `~/.xiaobai-switch/` to `~/.any-switch/` (sites, API keys, backup history) and verifies the database and `master.key`. **The old directory is kept as-is**; delete it yourself once you are confident. Existing local backups, WebDAV sync, and applied Claude Code / Codex / Pi / Prime configs keep working — no re-configuration needed.
-
-> **Uninstall or disable the old XiaoBaiSwitch after upgrading** (especially its launch-at-login). Running both versions means two processes writing the same target CLI configs while each keeps its own WebDAV sync bookkeeping: the old version may upload stale data and the new version may pull it back, causing repeated overwrites or target configs flapping between states.
->
-> **Rollback is no longer symmetric**: new backups are named `any-switch-backup-*`, while the old version only accepts `xiaobai-switch-backup-*`. The old version therefore cannot see or restore new backups. Roll back to a new backup inside AnySwitch itself; the old build can only read the old directory and old-prefix backups.
-
-> The deep-link scheme changed to `anyswitch://`; old `xiaobaiswitch://` links no longer work.
-
-## Credits
-
-This project is based on [Licoy/xiaobai-switch](https://github.com/Licoy/xiaobai-switch); thanks to the original author.
-
-## Automatic updates
-
-Official desktop builds can check for updates and install them in-app; check manually in **Settings → About**, or turn on automatic checks.
-
-## Security
-
-API keys are encrypted inside the app; after apply they may be written in plaintext to Claude Code config, Codex environment files, `~/.pi/agent/auth.json`, or `~/.prime/agent/auth.json`, so do not sync those configs to untrusted cloud storage.
-
-Pi and Prime use their official `models.json`, `auth.json`, and `settings.json` interfaces. AnySwitch manages only `xiaobai_` providers and preserves other custom providers, OAuth logins, and unknown settings. You can write only the default model or the whole site catalog. Prime writes `~/.prime/agent` by default, not `~/.pi/agent`.
 
 ## License
 
-MIT
+MIT. Original copyright, authorship, and attribution belong to the upstream [Licoy/xiaobai-switch](https://github.com/Licoy/xiaobai-switch).

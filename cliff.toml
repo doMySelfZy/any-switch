@@ -8,11 +8,11 @@ body = """
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group | upper_first }}
 {% for commit in commits %}
-- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}{{ commit.message | split(pat="\n") | first | trim }}{% if commit.remote.pr_number %} (#{{ commit.remote.pr_number }}){% endif %} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/doMySelfZy/any-switch/commit/{{ commit.id }}))
+- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}{{ commit.message | split(pat="\n") | first | trim }}{% if commit.remote.pr_number %} (#{{ commit.remote.pr_number }}){% endif %} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/doMySelfZy/xiaobai-switch-plus/commit/{{ commit.id }}))
 {%- endfor %}
 {% endfor %}
 {% if previous.version %}
-**Full Changelog**: https://github.com/doMySelfZy/any-switch/compare/{{ previous.version }}...{{ version }}
+**Full Changelog**: https://github.com/doMySelfZy/xiaobai-switch-plus/compare/{{ previous.version }}...{{ version }}
 {% endif %}
 """
 footer = """
@@ -30,7 +30,7 @@ footer = """
 
 - macOS 安装包是 **ad-hoc 签名**（无 Apple Developer ID / 公证）。
 - 浏览器下载后，Gatekeeper 可能提示应用 **已损坏**。这是隔离属性，不是文件损坏。**「隐私与安全性」不会出现「仍要打开」**。
-- 把应用复制到「应用程序」后执行 `xattr -cr /Applications/AnySwitch.app`，然后右键应用 → 打开。
+- 把应用复制到「应用程序」后执行 `xattr -cr "/Applications/XiaoBaiSwitch Plus.app"`，然后右键应用 → 打开。
 - Windows 若缺少 WebView2 系统组件会提示安装（安装包已内嵌引导程序）。
 """
 trim = true

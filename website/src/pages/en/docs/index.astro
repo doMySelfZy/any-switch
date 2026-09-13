@@ -1,8 +1,0 @@
----
-import DocsIndexPage from "../../../templates/DocsIndexPage.astro";
-import { docsForLocale } from "../../../lib/docs";
-
-const docs = await docsForLocale("en");
----
-
-<DocsIndexPage locale="en" docs={docs} />

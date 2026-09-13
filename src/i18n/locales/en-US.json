@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "AnySwitch",
+    "name": "XiaoBaiSwitch Plus",
     "tagline": "Site-driven setup for Claude Code, Codex & Pi"
   },
   "nav": {
@@ -321,16 +321,16 @@
     "thinkingNeedMapping": "Set the provider value for that extended level before using it as the default",
     "thinkingNeedAdaptive": "Enable Adaptive thinking on the default model for Pi Anthropic",
     "thinkingPrimeAnthropicNoExtended": "Prime Anthropic does not support xhigh / max",
-    "removePi": "Remove AnySwitch config",
-    "removePiConfirm": "Remove the AnySwitch config from Pi?",
+    "removePi": "Remove XiaoBaiSwitch Plus config",
+    "removePiConfirm": "Remove the XiaoBaiSwitch Plus config from Pi?",
     "removePiHint": "Only the managed provider and its API key are removed. Other custom providers, OAuth logins, and unknown settings are preserved. Current files are backed up first.",
     "removePiOk": "Remove config",
-    "removePiSuccess": "AnySwitch config removed",
+    "removePiSuccess": "XiaoBaiSwitch Plus config removed",
     "removePiDone": "Removed the managed Pi provider and restored the pre-apply defaults when it was safe to do so.",
     "groupPrimeModels": "Prime model catalog",
     "primeWriteAllModels": "Write all site models into Prime",
     "primeWriteAllModelsHint": "When off, only the default model is written. Turn it on to switch with Prime’s /model command.",
-    "removePrimeConfirm": "Remove the AnySwitch config from Prime?",
+    "removePrimeConfirm": "Remove the XiaoBaiSwitch Plus config from Prime?",
     "removePrimeHint": "Only the managed provider and its API key are removed. Other custom providers, OAuth logins, and unknown settings are preserved. Current files are backed up first. The plaintext key is written to ~/.prime/agent/auth.json.",
     "removePrimeDone": "Removed the managed Prime provider and restored the pre-apply defaults when it was safe to do so.",
     "groupReasoning": "Reasoning",
@@ -482,7 +482,7 @@
     "githubIssues": "Issues",
     "githubReleases": "Releases",
     "securityTitle": "Security",
-    "securityBody": "API keys are encrypted in-app. After apply they are written in plaintext to Claude settings.json, codex.env, ~/.pi/agent/auth.json, or ~/.prime/agent/auth.json. Do not sync ~/.any-switch, ~/.claude, ~/.codex, ~/.pi, or ~/.prime to untrusted cloud storage.",
+    "securityBody": "API keys are encrypted in-app. After apply they are written in plaintext to Claude settings.json, codex.env, ~/.pi/agent/auth.json, or ~/.prime/agent/auth.json. Do not sync ~/.xiaobai-switch, ~/.claude, ~/.codex, ~/.pi, or ~/.prime to untrusted cloud storage.",
     "plaintextPaths": "Paths that may contain plaintext secrets",
     "save": "Save settings",
     "saved": "Settings saved",
@@ -556,7 +556,7 @@
       "intervalExtra": "Changes sync immediately; this interval is only a fallback safety net.",
       "retentionExtra": "Recent bundles kept per device on the cloud for rollback.",
       "cloudRevision": "Cloud revision",
-      "syncNote": "Changes sync immediately; opening AnySwitch on another machine pulls the latest data automatically."
+      "syncNote": "Changes sync immediately; opening XiaoBaiSwitch Plus on another machine pulls the latest data automatically."
     }
   },
   "skills": {
@@ -598,7 +598,7 @@
     "next": "Next",
     "back": "Back",
     "finish": "Finish",
-    "welcome": "Welcome to AnySwitch",
+    "welcome": "Welcome to XiaoBaiSwitch Plus",
     "welcomeDesc": "Three steps to configure an AI upstream site for Claude Code, Codex, or Pi."
   },
   "desktop": {

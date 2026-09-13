@@ -10,12 +10,20 @@ pub fn pending_deep_link_path() -> AppResult<PathBuf> {
     Ok(app_dir()?.join("pending-deeplink.url"))
 }
 
+/// 当前深链 scheme；同时接受改名前后用过的 legacy scheme，避免旧链接失效。
+pub fn accepted_deep_link_schemes() -> [&'static str; 3] {
+    ["xiaobaiswitchplus", "anyswitch", "xiaobaiswitch"]
+}
+
 pub fn parse_pending_deep_link_file(raw: &str) -> Option<String> {
     let url = raw.trim();
     if url.is_empty() || url.len() > MAX_PENDING_LEN {
         return None;
     }
-    if !url.starts_with("anyswitch:") {
+    let has_accepted_scheme = accepted_deep_link_schemes()
+        .iter()
+        .any(|scheme| url.starts_with(&format!("{scheme}:")));
+    if !has_accepted_scheme {
         return None;
     }
     Some(url.to_string())
@@ -37,15 +45,15 @@ pub fn install_dev_url_handler() -> AppResult<PathBuf> {
     ensure_app_dirs()?;
     let apps = home_dir()?.join("Applications");
     fs::create_dir_all(&apps)?;
-    let dest = apps.join("AnySwitch Dev.app");
+    let dest = apps.join("XiaoBaiSwitch Plus Dev.app");
 
     let script = r#"on open location theURL
-	set dest to (POSIX path of (path to home folder)) & ".any-switch/pending-deeplink.url"
-	do shell script "mkdir -p \"$HOME/.any-switch\" && umask 077 && printf '%s' " & quoted form of theURL & " > " & quoted form of dest & ".tmp && mv " & quoted form of dest & ".tmp " & quoted form of dest
+	set dest to (POSIX path of (path to home folder)) & ".xiaobai-switch/pending-deeplink.url"
+	do shell script "mkdir -p \"$HOME/.xiaobai-switch\" && umask 077 && printf '%s' " & quoted form of theURL & " > " & quoted form of dest & ".tmp && mv " & quoted form of dest & ".tmp " & quoted form of dest
 end open location
 "#;
 
-    let tmp = std::env::temp_dir().join("AnySwitch-Dev-url-handler.applescript");
+    let tmp = std::env::temp_dir().join("XiaoBaiSwitch-Plus-Dev-url-handler.applescript");
     fs::write(&tmp, script)?;
 
     if dest.exists() {
@@ -71,7 +79,7 @@ end open location
     let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
     let _ = Command::new(lsregister).arg("-f").arg(&dest).status();
 
-    tracing::info!("registered anyswitch:// via {}", dest.display());
+    tracing::info!("registered xiaobaiswitchplus:// via {}", dest.display());
     Ok(dest)
 }
 
@@ -101,26 +109,30 @@ fn patch_handler_info_plist(info: &PathBuf) -> AppResult<()> {
         true,
     )?;
     run(
-        "Add :CFBundleURLTypes:0:CFBundleURLName string com.domyselfzy.any-switch.url-handler",
+        "Add :CFBundleURLTypes:0:CFBundleURLName string com.github.licoy.xiaobai-switch.plus.url-handler",
         true,
     )?;
     run("Add :CFBundleURLTypes:0:CFBundleURLSchemes array", true)?;
-    run(
-        "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string anyswitch",
-        true,
-    )?;
+    // 旧 scheme 也要注册：已经分享出去的 anyswitch:// / xiaobaiswitch:// 链接
+    // 必须在系统层就能拉起本应用，否则「兼容旧链接」只在解析层成立。
+    for (index, scheme) in accepted_deep_link_schemes().iter().enumerate() {
+        run(
+            &format!("Add :CFBundleURLTypes:0:CFBundleURLSchemes:{index} string {scheme}"),
+            true,
+        )?;
+    }
     let _ = run(
-        "Set :CFBundleIdentifier com.domyselfzy.any-switch.url-handler",
+        "Set :CFBundleIdentifier com.github.licoy.xiaobai-switch.plus.url-handler",
         false,
     );
     let _ = run(
-        "Add :CFBundleIdentifier string com.domyselfzy.any-switch.url-handler",
+        "Add :CFBundleIdentifier string com.github.licoy.xiaobai-switch.plus.url-handler",
         false,
     );
-    let _ = run("Set :CFBundleName AnySwitch Dev", false);
-    let _ = run("Add :CFBundleName string AnySwitch Dev", false);
-    let _ = run("Set :CFBundleDisplayName AnySwitch Dev", false);
-    let _ = run("Add :CFBundleDisplayName string AnySwitch Dev", false);
+    let _ = run("Set :CFBundleName XiaoBaiSwitch Plus Dev", false);
+    let _ = run("Add :CFBundleName string XiaoBaiSwitch Plus Dev", false);
+    let _ = run("Set :CFBundleDisplayName XiaoBaiSwitch Plus Dev", false);
+    let _ = run("Add :CFBundleDisplayName string XiaoBaiSwitch Plus Dev", false);
     Ok(())
 }
 
@@ -132,10 +144,22 @@ mod tests {
     fn parse_pending_accepts_scheme_only() {
         assert_eq!(
             parse_pending_deep_link_file(
-                "  anyswitch://sites?name=A&baseurls=https://a.example.com  \n"
+                "  xiaobaiswitchplus://sites?name=A&baseurls=https://a.example.com  \n"
             )
             .as_deref(),
-            Some("anyswitch://sites?name=A&baseurls=https://a.example.com")
+            Some("xiaobaiswitchplus://sites?name=A&baseurls=https://a.example.com")
+        );
+    }
+
+    #[test]
+    fn parse_pending_accepts_legacy_schemes() {
+        assert_eq!(
+            parse_pending_deep_link_file("anyswitch://sites?name=A").as_deref(),
+            Some("anyswitch://sites?name=A")
+        );
+        assert_eq!(
+            parse_pending_deep_link_file("xiaobaiswitch://sites?name=A").as_deref(),
+            Some("xiaobaiswitch://sites?name=A")
         );
     }
 

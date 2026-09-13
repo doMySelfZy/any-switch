@@ -1,7 +1,7 @@
 import { invoke } from "@/lib/invoke";
 import type { HttpBytesResult } from "@/types/domain";
 
-const STORAGE_KEY = "any-switch.site-icons.v1";
+const STORAGE_KEY = "xiaobai-switch-plus.site-icons.v1";
 const BODY_HTML_RE = /<!doctype\s+html|<html[\s>]|<head[\s>]/i;
 
 export interface HttpTextResult {

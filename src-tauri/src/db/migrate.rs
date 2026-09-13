@@ -583,7 +583,7 @@ fn maybe_backup(conn: &Connection, mode: BackupMode) -> AppResult<()> {
 fn backup_pre_migration(conn: &Connection) -> AppResult<()> {
     let dest_dir = app_backups_dir()?.join("pre_migration_site_api_keys");
     fs::create_dir_all(&dest_dir)?;
-    let dest_db = dest_dir.join("any-switch.db");
+    let dest_db = dest_dir.join("xiaobai-switch.db");
     if dest_db.exists() {
         fs::remove_file(&dest_db)?;
     }

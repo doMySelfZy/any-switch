@@ -3,13 +3,7 @@ name: CI
 on:
   push:
     branches: [main, "feat/**"]
-    paths-ignore:
-      - "website/**"
-      - ".github/workflows/website.yml"
   pull_request:
-    paths-ignore:
-      - "website/**"
-      - ".github/workflows/website.yml"
 
 jobs:
   frontend:

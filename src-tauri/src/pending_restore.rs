@@ -446,10 +446,10 @@ mod tests {
         )
         .unwrap();
 
-        fs::write(live_dir.join("any-switch.db"), b"old-db").unwrap();
+        fs::write(live_dir.join("xiaobai-switch.db"), b"old-db").unwrap();
         fs::write(live_dir.join("master.key"), [9_u8; 32]).unwrap();
-        fs::write(live_dir.join("any-switch.db-wal"), b"old-wal").unwrap();
-        fs::write(live_dir.join("any-switch.db-shm"), b"old-shm").unwrap();
+        fs::write(live_dir.join("xiaobai-switch.db-wal"), b"old-wal").unwrap();
+        fs::write(live_dir.join("xiaobai-switch.db-shm"), b"old-shm").unwrap();
         queue_pending_restore(&bundle.path, &live_dir).unwrap();
         let result = apply_pending_restore(&live_dir).unwrap().unwrap();
         assert_eq!(result.status, "applied");
@@ -457,9 +457,9 @@ mod tests {
             fs::read(live_dir.join("master.key")).unwrap(),
             vec![3_u8; 32]
         );
-        assert!(!live_dir.join("any-switch.db-wal").exists());
-        assert!(!live_dir.join("any-switch.db-shm").exists());
-        let restored = Connection::open(live_dir.join("any-switch.db")).unwrap();
+        assert!(!live_dir.join("xiaobai-switch.db-wal").exists());
+        assert!(!live_dir.join("xiaobai-switch.db-shm").exists());
+        let restored = Connection::open(live_dir.join("xiaobai-switch.db")).unwrap();
         let quick_check: String = restored
             .query_row("PRAGMA quick_check", [], |row| row.get(0))
             .unwrap();
@@ -479,8 +479,8 @@ mod tests {
         fs::create_dir_all(&app_dir).unwrap();
         fs::create_dir_all(&payload).unwrap();
         fs::write(app_dir.join("master.key"), b"old-key").unwrap();
-        fs::write(app_dir.join("any-switch.db"), b"old-db").unwrap();
-        fs::write(app_dir.join("any-switch.db-wal"), b"old-wal").unwrap();
+        fs::write(app_dir.join("xiaobai-switch.db"), b"old-db").unwrap();
+        fs::write(app_dir.join("xiaobai-switch.db-wal"), b"old-wal").unwrap();
         fs::write(payload.join("master.key"), b"new-key").unwrap();
         fs::write(
             payload.join(app_backup::BUNDLE_DATABASE_FILE_NAME),
@@ -495,14 +495,14 @@ mod tests {
 
         assert_eq!(fs::read(app_dir.join("master.key")).unwrap(), b"old-key");
         assert_eq!(
-            fs::read(app_dir.join("any-switch.db")).unwrap(),
+            fs::read(app_dir.join("xiaobai-switch.db")).unwrap(),
             b"old-db"
         );
         assert_eq!(
-            fs::read(app_dir.join("any-switch.db-wal")).unwrap(),
+            fs::read(app_dir.join("xiaobai-switch.db-wal")).unwrap(),
             b"old-wal"
         );
-        assert!(!app_dir.join("any-switch.db-shm").exists());
+        assert!(!app_dir.join("xiaobai-switch.db-shm").exists());
     }
 
     #[test]
@@ -512,9 +512,9 @@ mod tests {
         let payload = temp.path().join("payload");
         fs::create_dir_all(&app_dir).unwrap();
         fs::create_dir_all(&payload).unwrap();
-        // 迁移回退到旧目录（或新目录里仍是旧库名）时，活动库名是 xiaobai-switch.db。
-        fs::write(app_dir.join("xiaobai-switch.db"), b"old-db").unwrap();
-        fs::write(app_dir.join("xiaobai-switch.db-wal"), b"old-wal").unwrap();
+        // 回退到 AnySwitch 时期目录（库名仍是 any-switch.db）时，恢复必须命中它。
+        fs::write(app_dir.join("any-switch.db"), b"old-db").unwrap();
+        fs::write(app_dir.join("any-switch.db-wal"), b"old-wal").unwrap();
         fs::write(payload.join("master.key"), b"new-key").unwrap();
         fs::write(
             payload.join(app_backup::BUNDLE_DATABASE_FILE_NAME),
@@ -526,13 +526,13 @@ mod tests {
 
         assert!(operations
             .iter()
-            .any(|(_, target)| target == &app_dir.join("xiaobai-switch.db")));
+            .any(|(_, target)| target == &app_dir.join("any-switch.db")));
         assert!(operations
             .iter()
-            .any(|(_, target)| target == &app_dir.join("xiaobai-switch.db-wal")));
+            .any(|(_, target)| target == &app_dir.join("any-switch.db-wal")));
         assert!(!operations
             .iter()
-            .any(|(_, target)| target == &app_dir.join("any-switch.db")));
+            .any(|(_, target)| target == &app_dir.join("xiaobai-switch.db")));
     }
 
     #[test]
@@ -564,7 +564,7 @@ mod tests {
         )
         .unwrap();
 
-        fs::write(live_dir.join("any-switch.db"), b"old-db").unwrap();
+        fs::write(live_dir.join("xiaobai-switch.db"), b"old-db").unwrap();
         fs::write(live_dir.join("master.key"), [9_u8; 32]).unwrap();
         queue_pending_restore(&bundle.path, &live_dir).unwrap();
         fs::remove_file(&bundle.path).unwrap();

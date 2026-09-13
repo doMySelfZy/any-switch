@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { invoke, isAppError, isTauri } from "@/lib/invoke";
 import {
   getSiteDeepLinkKeyPrefix,
+  hasSiteDeepLinkScheme,
   parseSiteDeepLink,
   type SiteDeepLinkPayload,
 } from "@/lib/siteDeepLink";
@@ -207,7 +208,7 @@ export function useSiteDeepLink({ modal, message }: { modal: ModalLike; message:
         rememberHandledDeepLink(raw);
         const payload = parseSiteDeepLink(raw);
         if (!payload) {
-          if (raw.startsWith("anyswitch:")) {
+          if (hasSiteDeepLinkScheme(raw)) {
             message.error(translate("sites.deepLinkInvalid"));
           }
           continue;

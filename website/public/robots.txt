@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://any-switch.example.com/sitemap-index.xml

@@ -547,7 +547,7 @@ pub struct AppSettings {
     pub auto_check_update: bool,
     #[serde(default = "default_update_check_interval")]
     pub update_check_interval: u32,
-    /// Max backup copies kept per target under ~/.any-switch/backups/{target}.
+    /// Max backup copies kept per target under ~/.xiaobai-switch/backups/{target}.
     #[serde(default = "default_max_backup_copies")]
     pub max_backup_copies: u32,
     #[serde(default = "default_proxy_mode")]

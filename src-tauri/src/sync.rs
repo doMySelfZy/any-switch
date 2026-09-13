@@ -510,7 +510,7 @@ mod tests {
             revision,
             device_name: "work-pc".into(),
             updated_at: 1_000,
-            bundle_file_name: "any-switch-backup-20260912_000000.work-pc.abcdef01.zip".into(),
+            bundle_file_name: "xiaobai-switch-backup-20260912_000000.work-pc.abcdef01.zip".into(),
             database_sha256: sha64(db),
             master_key_sha256: sha64(key),
             app_version: "0.0.0".into(),

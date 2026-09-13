@@ -1,32 +1,36 @@
-# AnySwitch — Agent / 自动化约束
+# XiaoBaiSwitch Plus — Agent / 自动化约束
 
 本文档约束人类与编码 Agent 如何改动本仓库。
 
 ## 产品规则
 
-- 产品名：**AnySwitch**（`com.domyselfzy.any-switch.app`）
+- 产品名：**XiaoBaiSwitch Plus**（`com.github.licoy.xiaobai-switch.plus`）；本仓库是 Licoy 的 XiaoBaiSwitch 的 fork，原始版权、作者署名与 MIT 归属原作者。
+- 展示名与二进制名不同：窗口/安装包/productName 用 `XiaoBaiSwitch Plus`，二进制用 `XiaoBaiSwitchPlus`（不带空格）。
+- 下载与自动更新**只指向我们自己的 GitHub Releases**（`doMySelfZy/xiaobai-switch-plus`），没有官网，也不在 Gitee 发布；更新签名公钥保持现有值，绝不改回作者的公钥。
 - 领域单一事实来源（SSOT）是 **站点优先**：Base URL + API key → 模型 → 目标私有能力预设 → 应用到目标
 - 目标：Claude Code（`~/.claude/settings.json`）、Codex（`~/.codex/` + 环境变量注入）、Pi（`~/.pi/agent/{models,auth,settings}.json`）与 Prime（`~/.prime/agent/{models,auth,settings}.json`）
-- 应用数据根目录：`~/.any-switch/`（不是 Tauri 的 `app_data_dir`）
+- 应用数据根目录：`~/.xiaobai-switch/`（不是 Tauri 的 `app_data_dir`）
 
 ## 目录布局
 
 ```
-~/.any-switch/
-├── any-switch.db       # SQLite 应用状态
+~/.xiaobai-switch/
+├── xiaobai-switch.db   # SQLite 应用状态
 ├── master.key          # AES-256-GCM 主密钥（Unix 上权限 0600）
 └── backups/            # 应用前备份
 ```
 
 - **禁止**把用户数据路径写死成 Tauri `app_data_dir`、bundle id 版本字符串，或平台应用支持目录。
-- **数据目录迁移**：启动时若 `~/.any-switch` 不存在而 `~/.xiaobai-switch` 存在，会复制迁移并校验数据库 sha256 / `master.key`；**旧目录必须保留**作为回滚点，旧目录名只在迁移识别中使用，不要删除或改名。数据目录覆盖变量优先 `ANY_SWITCH_DATA_DIR`，并兼容旧的 `XIAOBAI_SWITCH_DATA_DIR`。
-- **兼容红线（改了会破坏既有数据，一律保持旧值，只做“新旧双识别”）**：
+- **数据目录迁移 / 接管**：启动时若 `~/.xiaobai-switch` 不存在而 `~/.any-switch`（AnySwitch 时期目录）存在，会复制迁移并校验数据库 sha256 / `master.key`。两个目录同时存在时按**数据库最新修改时间**判断：旧目录明显更新（> 2 秒）才先备份现有新目录为 `.pre-adopt-<unix秒>` 再复制接管，否则保持使用新目录。**任何情况下都不删除旧目录或 pre-adopt 备份**。数据目录覆盖变量优先 `XIAOBAI_SWITCH_DATA_DIR`，并兼容 `ANY_SWITCH_DATA_DIR`。
+- **兼容红线（改了会破坏既有数据，只做“新旧双识别”，绝不改协议值）**：
   - WebDAV 同步 manifest 文件名 `xiaobai-switch-sync.json`；
   - WebDAV 远端目录默认值 `xiaobai-switch`（与 manifest 是同一套跨机协议路径）；
-  - 旧本地备份前缀 `xiaobai-switch-backup-`（列表/恢复/清理/远端保留都要接受新旧两种前缀，排序需先剥离前缀再按时间戳比较）；
+  - 本地备份前缀：新文件用 `xiaobai-switch-backup-`，AnySwitch 时期的 `any-switch-backup-` 必须继续识别（列表/恢复/清理/远端保留都要接受两种前缀，排序需先剥离前缀再按时间戳比较）；
   - 备份包内数据库条目名 `xiaobai-switch.db`（内部归档协议，保留才能旧备份可恢复 + 新备份可被旧版读取）；
   - 已应用配置命名空间 `xiaobai_`：Pi/Prime provider id、Codex provider id 派生、`XIAOBAI_SITE_*` 环境变量、`__xiaobai_missing__`；
   - 应用/备份痕迹识别文件名：`xiaobai-model-catalog.json`（Codex 模型目录）、`xiaobai-backup.json`（目标备份元数据）、`.xiaobai-skill.json` 与 `.xiaobai-skill-` 临时前缀（技能安装清单）、`atomic.rs` 的 `.xiaobai-` 临时文件前缀；
+  - 深链解析继续接受 `anyswitch:` / `xiaobaiswitch:` 旧 scheme（写链接时用 `xiaobaiswitchplus:`）；
+  - 更新签名公钥保持当前值；
   - `restore_official` / 孤儿清理的识别逻辑不得改动。
 - API key 在数据库中加密存储；**应用（Apply）** 之后，它们可能以明文出现在 `~/.claude` / `~/.codex` / `~/.pi/agent/auth.json` / `~/.prime/agent/auth.json` / `codex.env` / shell rc 中 —— 须在 UI 文案中说明这一点。
 
@@ -68,7 +72,7 @@
 - Codex 关键字段：默认模型、写入全部模型目录开关、reasoning effort；平台能力默认跟随站点 `codex-compact` / `codex-vision` / `codex-imagegen` / `codex-search`，也可在应用中心自定义覆盖
 - Pi 关键字段：默认模型、写入站点全部模型开关、协议说明、逐模型思考能力与默认思考等级；思考预设按 `(site_id, target)` 记忆，不根据模型名称猜测
 - Prime 关键字段：默认模型、写入站点全部模型开关、协议说明、逐模型思考能力与默认思考等级；配置目录默认 `~/.prime/agent`，不要写到 `~/.pi/agent`
-- 站点编辑含默认收起的「高级配置」（连接协议、备注）与「Codex私有能力」；`anyswitch://sites` 用同一套 kebab 键导入预设
+- 站点编辑含默认收起的「高级配置」（连接协议、备注）与「Codex私有能力」；`xiaobaiswitchplus://sites`（并兼容旧 `anyswitch://` / `xiaobaiswitch://`）用同一套 kebab 键导入预设
 - 分区卡片复用 `SettingsGroup`，保持视觉语言一致
 
 ## Ant Design 约定

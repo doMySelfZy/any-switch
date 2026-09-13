@@ -14,12 +14,12 @@ use std::path::{Path, PathBuf};
 use zip::write::SimpleFileOptions;
 
 /// 新生成的本地备份文件前缀。
-pub const BACKUP_PREFIX: &str = "any-switch-backup-";
-/// 识别备份文件时接受的全部前缀。更名前的 `xiaobai-switch-backup-` 必须继续支持，
+pub const BACKUP_PREFIX: &str = "xiaobai-switch-backup-";
+/// 识别备份文件时接受的全部前缀。AnySwitch 时期的 `any-switch-backup-` 必须继续支持，
 /// 否则用户历史备份会从列表/恢复/清理中消失。
-pub const BACKUP_PREFIXES: [&str; 2] = [BACKUP_PREFIX, "xiaobai-switch-backup-"];
+pub const BACKUP_PREFIXES: [&str; 2] = [BACKUP_PREFIX, "any-switch-backup-"];
 pub const BACKUP_SUFFIX: &str = ".zip";
-/// 备份 ZIP 内数据库条目名。属于内部归档协议，保持更名前的名字，
+/// 备份 ZIP 内数据库条目名。属于内部归档协议，保持既有名字，
 /// 以便旧版本创建的备份可恢复，且新备份仍可被旧版本读取（支持回滚）。
 pub const BUNDLE_DATABASE_FILE_NAME: &str = "xiaobai-switch.db";
 const FORMAT_VERSION: u32 = 1;
@@ -739,12 +739,12 @@ mod tests {
         let output = temp.path().join("out");
         let created = create_backup_in(&conn, &key_path, &output, "manual").unwrap();
         fs::write(
-            output.join("any-switch-backup-20260101_000000.host.00000001.zip"),
+            output.join("xiaobai-switch-backup-20260101_000000.host.00000001.zip"),
             b"old",
         )
         .unwrap();
         fs::write(
-            output.join("any-switch-backup-20260102_000000.host.00000002.zip"),
+            output.join("xiaobai-switch-backup-20260102_000000.host.00000002.zip"),
             b"older",
         )
         .unwrap();
@@ -768,7 +768,7 @@ mod tests {
     fn parses_device_name_from_generated_shape() {
         assert_eq!(
             parse_device_from_filename(
-                "any-switch-backup-20260827_120000.mac-mini.12345678.zip"
+                "xiaobai-switch-backup-20260827_120000.mac-mini.12345678.zip"
             ),
             "mac-mini"
         );
@@ -779,7 +779,7 @@ mod tests {
         let (temp, conn, key_path) = fixture();
         let output = temp.path().join("out");
         let created = create_backup_in(&conn, &key_path, &output, "manual").unwrap();
-        let broken_name = "any-switch-backup-20260827_120000.test-device.broken01.zip";
+        let broken_name = "xiaobai-switch-backup-20260827_120000.test-device.broken01.zip";
         fs::write(output.join(broken_name), b"not a zip archive").unwrap();
 
         let backups = list_local_backups_in(&output).unwrap();
@@ -811,7 +811,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().join("backups");
         fs::create_dir(&dir).unwrap();
-        let name = "any-switch-backup-20260827_120000.host.12345678.zip";
+        let name = "xiaobai-switch-backup-20260827_120000.host.12345678.zip";
         fs::write(dir.join(name), b"archive").unwrap();
 
         assert!(resolve_local_backup_in(&dir, "../master.key").is_err());
@@ -846,8 +846,8 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().join("backups");
         fs::create_dir(&dir).unwrap();
-        let legacy = "xiaobai-switch-backup-20260827_120000.legacy-mac.87654321.zip";
-        let current = "any-switch-backup-20260827_130000.new-mac.12345678.zip";
+        let legacy = "any-switch-backup-20260827_120000.legacy-mac.87654321.zip";
+        let current = "xiaobai-switch-backup-20260827_130000.new-mac.12345678.zip";
         fs::write(dir.join(legacy), b"legacy").unwrap();
         fs::write(dir.join(current), b"current").unwrap();
 
@@ -875,8 +875,8 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().join("backups");
         fs::create_dir(&dir).unwrap();
-        let legacy_old = "xiaobai-switch-backup-20260101_000000.host.00000001.zip";
-        let new_new = "any-switch-backup-20260102_000000.host.00000002.zip";
+        let legacy_old = "any-switch-backup-20260101_000000.host.00000001.zip";
+        let new_new = "xiaobai-switch-backup-20260102_000000.host.00000002.zip";
         fs::write(dir.join(legacy_old), b"old").unwrap();
         fs::write(dir.join(new_new), b"new").unwrap();
 

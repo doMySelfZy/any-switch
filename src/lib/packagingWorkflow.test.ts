@@ -108,7 +108,7 @@ describe("shipped GitHub workflows", () => {
     };
     expect(tauri.bundle.createUpdaterArtifacts).toBe(true);
     expect(tauri.plugins.updater?.endpoints).toEqual([
-      "https://github.com/doMySelfZy/any-switch/releases/latest/download/latest.json",
+      "https://github.com/doMySelfZy/xiaobai-switch-plus/releases/latest/download/latest.json",
     ]);
     expect(tauri.plugins.updater?.pubkey).toMatch(/^dW50cnVzdGVk/);
     // "-" makes Tauri codesign the .app bundle. Without it, only the linker
@@ -124,6 +124,7 @@ describe("shipped GitHub workflows", () => {
     expect(release).toMatch(/scripts\/generate-updater-manifest\.mjs/);
     expect(release).toMatch(/scripts\/validate-updater-signing-secret\.mjs/);
     expect(release).toMatch(/codesign --verify --deep --strict/);
+    expect(release).toMatch(/name:\s*Publish Release/);
   });
 
   it("generates release notes from git-cliff instead of a static body", () => {
@@ -146,7 +147,7 @@ describe("shipped GitHub workflows", () => {
     expect(cliff).toMatch(/\^feat/);
     expect(cliff).toMatch(/\^fix/);
     expect(cliff).toContain("^chore\\\\(version\\\\)");
-    expect(cliff).toMatch(/xattr -cr \/Applications\/AnySwitch\.app/);
+    expect(cliff).toMatch(/xattr -cr "?\/Applications\/XiaoBaiSwitch Plus\.app"?/);
     expect(cliff).toMatch(/updater-notes-end/);
   });
 
@@ -154,49 +155,10 @@ describe("shipped GitHub workflows", () => {
     const release = readRepoFile(".github/workflows/release.yml");
     // `Join-Path $dir "a.exe", Join-Path $dir "b.exe"` is one call, not two paths.
     expect(release).not.toMatch(
-      /Join-Path \$releaseDir ["'](?:any-switch|AnySwitch|xiaobai-switch|XiaoBaiSwitch)\.exe["'],/,
+      /Join-Path \$releaseDir ["'](?:XiaoBaiSwitchPlus|AnySwitch|xiaobai-switch-plus)\.exe["'],/,
     );
     expect(release).toMatch(
-      /foreach \(\$name in @\(["']AnySwitch\.exe["'],\s*["']XiaoBaiSwitch\.exe["']/,
+      /foreach \(\$name in @\(["']XiaoBaiSwitchPlus\.exe["']/,
     );
-  });
-
-  it("fails the website build while the Pages domain is still a placeholder", () => {
-    const website = readRepoFile(".github/workflows/website.yml");
-
-    expect(website).toMatch(/CNAME is still a placeholder/);
-    expect(website).toMatch(/\*\.example\.com/);
-    expect(website).not.toMatch(/grep -qx 'any-switch\.example\.com'/);
-  });
-
-  it("rebuilds the website after Release publishes, not on the version tag", () => {
-    const website = readRepoFile(".github/workflows/website.yml");
-    const release = readRepoFile(".github/workflows/release.yml");
-
-    // Tag pushes race installer uploads. GITHUB_TOKEN also cannot fire
-    // `on: release` for other workflows, so Website listens to Release
-    // completing instead of polling from a tag job.
-    expect(website).not.toMatch(/tags:\s*\n\s+-\s+"v\*\.\*\.\*"/);
-    expect(website).not.toMatch(/Wait for published GitHub release/);
-    expect(website).toMatch(
-      /workflow_run:\s*\n\s+workflows:\s*\n\s+-\s+Release\s*\n\s+types:\s*\n\s+-\s+completed/,
-    );
-    expect(website).toMatch(/workflow_dispatch:/);
-    expect(website).toMatch(/release_tag:/);
-    expect(website).toMatch(/RELEASE_TAG:/);
-    expect(website).toMatch(
-      /github\.event_name == 'workflow_run' \|\| github\.event_name == 'workflow_dispatch'/,
-    );
-    expect(release).toMatch(/name:\s*Publish Release/);
-  });
-
-  it("bakes download links at build time and does not call GitHub from the browser", () => {
-    const page = readRepoFile("website/src/templates/DownloadPage.astro");
-    const websiteTests = readRepoFile("src/lib/websiteReleases.test.ts");
-
-    expect(page).toMatch(/loadLatestRelease\(process\.env\.GITHUB_TOKEN/);
-    expect(page).not.toMatch(/\bfetch\s*\(/);
-    expect(page).not.toMatch(/GITHUB_API_LATEST/);
-    expect(websiteTests).not.toMatch(/website\/src/);
   });
 });

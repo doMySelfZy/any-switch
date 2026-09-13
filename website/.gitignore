@@ -1,7 +1,0 @@
-node_modules
-dist
-.astro
-public/images/
-public/og.png
-public/favicon.svg
-public/favicon.png

@@ -4,16 +4,19 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
+use std::time::{Duration, SystemTime};
 
 /// 当前应用数据目录名。
-pub const APP_DIR_NAME: &str = ".any-switch";
-/// 更名前的数据目录名，仅用于一次性迁移与回滚。
-pub const LEGACY_APP_DIR_NAME: &str = ".xiaobai-switch";
+pub const APP_DIR_NAME: &str = ".xiaobai-switch";
+/// AnySwitch 时期的数据目录名，仅用于一次性迁移、新旧数据接管与回滚。
+pub const LEGACY_APP_DIR_NAME: &str = ".any-switch";
 /// 当前数据库文件名。
-pub const DB_FILE_NAME: &str = "any-switch.db";
-/// 更名前的数据库文件名，仅用于迁移识别。
-pub const LEGACY_DB_FILE_NAME: &str = "xiaobai-switch.db";
+pub const DB_FILE_NAME: &str = "xiaobai-switch.db";
+/// AnySwitch 时期的数据库文件名，仅用于迁移识别。
+pub const LEGACY_DB_FILE_NAME: &str = "any-switch.db";
 const DB_SIDECAR_SUFFIXES: [&str; 3] = ["-wal", "-shm", "-journal"];
+/// 两个目录同时存在时，数据库修改时间差超过该值才视为「旧目录是更新的那份数据」。
+const TAKEOVER_MTIME_THRESHOLD: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,10 +34,10 @@ pub fn home_dir() -> AppResult<PathBuf> {
     dirs::home_dir().ok_or_else(|| AppError::new("internal", "cannot resolve home directory"))
 }
 
-/// 数据目录覆盖（测试/多实例隔离）：优先 `ANY_SWITCH_DATA_DIR`，
-/// 兼容更名前的 `XIAOBAI_SWITCH_DATA_DIR`。
+/// 数据目录覆盖（测试/多实例隔离）：优先 `XIAOBAI_SWITCH_DATA_DIR`，
+/// 兼容 AnySwitch 时期的 `ANY_SWITCH_DATA_DIR`。
 fn override_from(lookup: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
-    for key in ["ANY_SWITCH_DATA_DIR", "XIAOBAI_SWITCH_DATA_DIR"] {
+    for key in ["XIAOBAI_SWITCH_DATA_DIR", "ANY_SWITCH_DATA_DIR"] {
         if let Some(dir) = lookup(key) {
             let trimmed = dir.trim();
             if !trimmed.is_empty() {
@@ -53,11 +56,16 @@ pub fn app_dir() -> AppResult<PathBuf> {
     resolve_app_dir(&home.join(APP_DIR_NAME), &home.join(LEGACY_APP_DIR_NAME))
 }
 
-/// 决定当前数据目录，并在首次启动时迁移旧目录。
+/// 决定当前数据目录，并在必要时迁移 / 接管旧目录。
 ///
-/// 迁移采用 **复制**（绝不移动/删除旧目录）：`~/.xiaobai-switch` 会原样保留，
+/// 迁移采用 **复制**（绝不移动/删除旧目录）：`~/.any-switch` 会原样保留，
 /// 作为用户回滚到旧版本时的数据来源。复制后校验数据库 sha256 与 `master.key`
 /// 字节，任一失败则回退使用旧目录，应用仍可正常启动。
+///
+/// 改名前后两个目录（`.xiaobai-switch` / `.any-switch`）可能同时存在，且**旧目录
+/// 里可能是更新的数据**（AnySwitch 时期一直在用）。此时按数据库最新修改时间比较：
+/// 旧目录明显更新（超过 [`TAKEOVER_MTIME_THRESHOLD`]）时先把现有新目录改名为
+/// `.pre-adopt-<unix秒>` 备份（绝不删除），再从旧目录复制接管；否则保持使用新目录。
 fn resolve_app_dir(new_dir: &Path, legacy_dir: &Path) -> AppResult<PathBuf> {
     let new_exists = new_dir.exists();
     let legacy_exists = legacy_dir.exists();
@@ -80,11 +88,24 @@ fn resolve_app_dir(new_dir: &Path, legacy_dir: &Path) -> AppResult<PathBuf> {
     }
 
     if new_exists && legacy_exists {
+        if legacy_dir_is_newer(new_dir, legacy_dir) {
+            match take_over_new_dir(new_dir, legacy_dir) {
+                Ok(()) => return Ok(new_dir.to_path_buf()),
+                Err(error) => {
+                    tracing::warn!(
+                        error = %error,
+                        newer = %legacy_dir.display(),
+                        "failed to take over the newer legacy app data; falling back to the legacy directory"
+                    );
+                    return Ok(legacy_dir.to_path_buf());
+                }
+            }
+        }
         static WARN_ONCE: Once = Once::new();
         WARN_ONCE.call_once(|| {
             tracing::warn!(
                 legacy = %legacy_dir.display(),
-                "legacy app data directory is still present; using the new directory and leaving it untouched"
+                "legacy app data directory is still present; using the current directory and leaving it untouched"
             );
         });
     }
@@ -93,6 +114,82 @@ fn resolve_app_dir(new_dir: &Path, legacy_dir: &Path) -> AppResult<PathBuf> {
         rename_legacy_database_files(new_dir);
     }
     Ok(new_dir.to_path_buf())
+}
+
+/// 目录内数据库（含 `-wal/-shm/-journal` 旁文件）的最新修改时间。
+///
+/// 两个目录可能各自使用不同的库名（新目录 `xiaobai-switch.db`、旧目录
+/// `any-switch.db`，也可能因迁移中断而混用），所以两种名字都要看。
+fn latest_database_mtime(dir: &Path) -> Option<SystemTime> {
+    let mut latest: Option<SystemTime> = None;
+    for name in [DB_FILE_NAME, LEGACY_DB_FILE_NAME] {
+        for suffix in std::iter::once("").chain(DB_SIDECAR_SUFFIXES) {
+            let path = dir.join(format!("{name}{suffix}"));
+            let Ok(metadata) = fs::metadata(&path) else {
+                continue;
+            };
+            if !metadata.is_file() {
+                continue;
+            }
+            let Ok(modified) = metadata.modified() else {
+                continue;
+            };
+            latest = Some(match latest {
+                Some(current) => current.max(modified),
+                None => modified,
+            });
+        }
+    }
+    latest
+}
+
+/// 旧目录是否装着明显更新的数据，需要被接管。
+fn legacy_dir_is_newer(new_dir: &Path, legacy_dir: &Path) -> bool {
+    match (latest_database_mtime(new_dir), latest_database_mtime(legacy_dir)) {
+        (Some(current), Some(legacy)) => legacy > current + TAKEOVER_MTIME_THRESHOLD,
+        // 新目录里没有可用的数据库、旧目录有：旧目录显然更完整。
+        (None, Some(_)) => true,
+        _ => false,
+    }
+}
+
+/// 旧目录明显更新时安全接管新目录名：先把现有新目录改名为同级
+/// `.pre-adopt-<unix秒>`（绝不删除），再从旧目录复制迁移。
+///
+/// 迁移失败时把备份目录改名回新目录名并返回错误；调用方会回退使用旧目录，
+/// 应用仍可启动。旧目录本身始终原样保留。
+fn take_over_new_dir(new_dir: &Path, legacy_dir: &Path) -> AppResult<()> {
+    let backup = new_dir.with_file_name(format!(
+        "{}.pre-adopt-{}",
+        new_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("app-data"),
+        chrono::Utc::now().timestamp()
+    ));
+    fs::rename(new_dir, &backup)?;
+    match migrate_legacy_dir(legacy_dir, new_dir) {
+        Ok(()) => {
+            rename_legacy_database_files(new_dir);
+            tracing::info!(
+                adopted = %legacy_dir.display(),
+                replaced_backup = %backup.display(),
+                "adopted the newer legacy app data directory"
+            );
+            Ok(())
+        }
+        Err(error) => {
+            if let Err(restore_error) = fs::rename(&backup, new_dir) {
+                // 无法恢复原名时数据仍留在 pre-adopt 目录里，绝不删除。
+                tracing::error!(
+                    restore_error = %restore_error,
+                    backup = %backup.display(),
+                    "failed to restore the current app data directory after a failed takeover"
+                );
+            }
+            Err(error)
+        }
+    }
 }
 
 /// 复制旧目录到新目录并校验；保留旧目录。
@@ -252,28 +349,42 @@ fn verify_database_opens(path: &Path) -> AppResult<()> {
     Ok(())
 }
 
-/// 新目录内仅有旧数据库文件名时重命名为新名字（含 WAL/SHM/JOURNAL 旁文件）。
+/// 目录内仅有旧数据库文件名时重命名为新名字（含 WAL/SHM/JOURNAL 旁文件）。
+///
+/// 主库已改名不代表改名完成：进程可能恰好死在「主库已改名、旁文件还没改名」
+/// 之间。此时若直接返回，旧名的 WAL 就成了孤儿 —— SQLite 打开新名主库时不会
+/// 读它，其中**已提交但未 checkpoint 的数据会被静默忽略**。因此主库存在时
+/// 仍要把遗留的旧名旁文件补改名（新名旁文件已存在则不动，避免覆盖新数据）。
 fn rename_legacy_database_files(dir: &Path) {
     let new_db = dir.join(DB_FILE_NAME);
-    if new_db.exists() {
-        return;
+    if !new_db.exists() {
+        let legacy_db = dir.join(LEGACY_DB_FILE_NAME);
+        if !legacy_db.is_file() {
+            rename_legacy_database_sidecars(dir);
+            return;
+        }
+        if let Err(error) = fs::rename(&legacy_db, &new_db) {
+            tracing::warn!(
+                error = %error,
+                "failed to rename the legacy database file; keeping the legacy name"
+            );
+            return;
+        }
     }
-    let legacy_db = dir.join(LEGACY_DB_FILE_NAME);
-    if !legacy_db.is_file() {
-        return;
-    }
-    if let Err(error) = fs::rename(&legacy_db, &new_db) {
-        tracing::warn!(
-            error = %error,
-            "failed to rename the legacy database file; keeping the legacy name"
-        );
-        return;
-    }
+    rename_legacy_database_sidecars(dir);
+}
+
+fn rename_legacy_database_sidecars(dir: &Path) {
     for suffix in DB_SIDECAR_SUFFIXES {
         let from = dir.join(format!("{LEGACY_DB_FILE_NAME}{suffix}"));
-        if from.is_file() {
-            let _ = fs::rename(from, dir.join(format!("{DB_FILE_NAME}{suffix}")));
+        if !from.is_file() {
+            continue;
         }
+        let to = dir.join(format!("{DB_FILE_NAME}{suffix}"));
+        if to.exists() {
+            continue;
+        }
+        let _ = fs::rename(from, to);
     }
 }
 
@@ -462,15 +573,45 @@ mod tests {
 
     /// 迁移校验会真实打开数据库做 `PRAGMA quick_check`，测试必须用真正的 SQLite 文件。
     fn write_sqlite_file(path: &Path) {
+        write_sqlite_file_with(path, "ok");
+    }
+
+    fn write_sqlite_file_with(path: &Path, note: &str) {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).unwrap();
         }
         let conn = rusqlite::Connection::open(path).unwrap();
-        conn.execute_batch(
+        conn.execute_batch(&format!(
             "CREATE TABLE probe (id INTEGER PRIMARY KEY, note TEXT); \
-             INSERT INTO probe (note) VALUES ('ok');",
-        )
+             INSERT INTO probe (note) VALUES ('{note}');"
+        ))
         .unwrap();
+    }
+
+    /// 显式设置修改时间，避免依赖文件系统精度来区分两份数据的先后。
+    fn set_mtime(path: &Path, modified: SystemTime) {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+    }
+
+    fn pre_adopt_dirs(parent: &Path) -> Vec<PathBuf> {
+        let prefix = format!("{APP_DIR_NAME}.pre-adopt-");
+        let mut found = fs::read_dir(parent)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(&prefix))
+            })
+            .collect::<Vec<_>>();
+        found.sort();
+        found
     }
 
     fn write_sidecar(path: &Path) {
@@ -512,18 +653,18 @@ mod tests {
     #[test]
     fn data_dir_override_prefers_the_new_variable() {
         let map = |key: &str| match key {
-            "ANY_SWITCH_DATA_DIR" => Some("  /tmp/any  ".to_string()),
-            "XIAOBAI_SWITCH_DATA_DIR" => Some("/tmp/legacy".to_string()),
+            "XIAOBAI_SWITCH_DATA_DIR" => Some("  /tmp/xiaobai  ".to_string()),
+            "ANY_SWITCH_DATA_DIR" => Some("/tmp/legacy".to_string()),
             _ => None,
         };
         assert_eq!(
             override_from(map).unwrap(),
-            PathBuf::from("/tmp/any"),
+            PathBuf::from("/tmp/xiaobai"),
             "new variable must win and be trimmed"
         );
 
         let legacy_only = |key: &str| match key {
-            "XIAOBAI_SWITCH_DATA_DIR" => Some("/tmp/legacy".to_string()),
+            "ANY_SWITCH_DATA_DIR" => Some("/tmp/legacy".to_string()),
             _ => None,
         };
         assert_eq!(
@@ -569,7 +710,9 @@ mod tests {
             legacy_db_before
         );
         assert_eq!(fs::read(legacy.join("master.key")).unwrap(), vec![7_u8; 32]);
-        assert!(!new_dir.with_file_name(".any-switch.migrating").exists());
+        assert!(!new_dir
+            .with_file_name(format!("{APP_DIR_NAME}.migrating"))
+            .exists());
     }
 
     #[test]
@@ -690,6 +833,9 @@ mod tests {
         let new_dir = temp.path().join(APP_DIR_NAME);
         write_file(&legacy.join(LEGACY_DB_FILE_NAME), b"legacy-db");
         write_file(&new_dir.join(DB_FILE_NAME), b"new-db");
+        // 旧目录明显更旧：保持原有「选新目录」行为，两边都不动。
+        let old = SystemTime::now() - Duration::from_secs(3600);
+        set_mtime(&legacy.join(LEGACY_DB_FILE_NAME), old);
 
         let resolved = resolve_app_dir(&new_dir, &legacy).unwrap();
 
@@ -698,6 +844,163 @@ mod tests {
         assert_eq!(
             fs::read(legacy.join(LEGACY_DB_FILE_NAME)).unwrap(),
             b"legacy-db"
+        );
+        assert!(pre_adopt_dirs(temp.path()).is_empty());
+    }
+
+    #[test]
+    fn uses_new_directory_when_both_databases_have_the_same_freshness() {
+        let temp = tempfile::tempdir().unwrap();
+        let legacy = temp.path().join(LEGACY_APP_DIR_NAME);
+        let new_dir = temp.path().join(APP_DIR_NAME);
+        write_file(&legacy.join(LEGACY_DB_FILE_NAME), b"legacy-db");
+        write_file(&new_dir.join(DB_FILE_NAME), b"new-db");
+        let same = SystemTime::now() - Duration::from_secs(60);
+        set_mtime(&legacy.join(LEGACY_DB_FILE_NAME), same);
+        set_mtime(&new_dir.join(DB_FILE_NAME), same);
+
+        let resolved = resolve_app_dir(&new_dir, &legacy).unwrap();
+
+        assert_eq!(resolved, new_dir, "a tiny mtime delta must not trigger a takeover");
+        assert_eq!(fs::read(new_dir.join(DB_FILE_NAME)).unwrap(), b"new-db");
+        assert_eq!(
+            fs::read(legacy.join(LEGACY_DB_FILE_NAME)).unwrap(),
+            b"legacy-db"
+        );
+        assert!(pre_adopt_dirs(temp.path()).is_empty());
+    }
+
+    #[test]
+    fn takes_over_the_newer_legacy_directory_and_keeps_both_data_copies() {
+        let temp = tempfile::tempdir().unwrap();
+        let legacy = temp.path().join(LEGACY_APP_DIR_NAME);
+        let new_dir = temp.path().join(APP_DIR_NAME);
+        write_sqlite_file_with(&legacy.join(LEGACY_DB_FILE_NAME), "fresh-legacy");
+        write_file(&legacy.join("master.key"), &[7_u8; 32]);
+        write_file(&legacy.join("backups/app/old.zip"), b"zip");
+        let legacy_db_before = fs::read(legacy.join(LEGACY_DB_FILE_NAME)).unwrap();
+
+        write_sqlite_file_with(&new_dir.join(DB_FILE_NAME), "stale-new");
+        write_file(&new_dir.join("master.key"), &[9_u8; 32]);
+        let stale_new_db_before = fs::read(new_dir.join(DB_FILE_NAME)).unwrap();
+
+        let now = SystemTime::now();
+        set_mtime(&legacy.join(LEGACY_DB_FILE_NAME), now);
+        set_mtime(&new_dir.join(DB_FILE_NAME), now - Duration::from_secs(3600));
+
+        let resolved = resolve_app_dir(&new_dir, &legacy).unwrap();
+
+        assert_eq!(resolved, new_dir);
+        assert_eq!(
+            fs::read(new_dir.join(DB_FILE_NAME)).unwrap(),
+            legacy_db_before,
+            "the newer legacy database must win"
+        );
+        assert_eq!(fs::read(new_dir.join("master.key")).unwrap(), vec![7_u8; 32]);
+        assert_eq!(fs::read(new_dir.join("backups/app/old.zip")).unwrap(), b"zip");
+        assert!(
+            !new_dir.join(LEGACY_DB_FILE_NAME).exists(),
+            "the adopted legacy database must be renamed to the current name"
+        );
+
+        // 旧目录必须原样保留，作为回滚点。
+        assert_eq!(
+            fs::read(legacy.join(LEGACY_DB_FILE_NAME)).unwrap(),
+            legacy_db_before
+        );
+        assert_eq!(fs::read(legacy.join("master.key")).unwrap(), vec![7_u8; 32]);
+        assert!(legacy.join("backups/app/old.zip").is_file());
+
+        // 被替换的新目录以 pre-adopt-* 形式留存，内容仍在。
+        let backups = pre_adopt_dirs(temp.path());
+        assert_eq!(backups.len(), 1, "the replaced directory must be kept");
+        assert_eq!(
+            fs::read(backups[0].join(DB_FILE_NAME)).unwrap(),
+            stale_new_db_before
+        );
+        assert_eq!(fs::read(backups[0].join("master.key")).unwrap(), vec![9_u8; 32]);
+    }
+
+    #[test]
+    fn falls_back_to_the_newer_legacy_directory_when_takeover_verification_fails() {
+        let temp = tempfile::tempdir().unwrap();
+        let legacy = temp.path().join(LEGACY_APP_DIR_NAME);
+        let new_dir = temp.path().join(APP_DIR_NAME);
+        write_sqlite_file_with(&legacy.join(LEGACY_DB_FILE_NAME), "fresh-legacy");
+        // 3 字节的 master.key 必然让复制校验失败。
+        write_file(&legacy.join("master.key"), b"bad-key");
+        let legacy_db_before = fs::read(legacy.join(LEGACY_DB_FILE_NAME)).unwrap();
+
+        write_sqlite_file(&new_dir.join(DB_FILE_NAME));
+        write_file(&new_dir.join("master.key"), &[9_u8; 32]);
+        let stale_new_db_before = fs::read(new_dir.join(DB_FILE_NAME)).unwrap();
+
+        let now = SystemTime::now();
+        set_mtime(&legacy.join(LEGACY_DB_FILE_NAME), now);
+        set_mtime(&new_dir.join(DB_FILE_NAME), now - Duration::from_secs(3600));
+
+        let resolved = resolve_app_dir(&new_dir, &legacy).unwrap();
+
+        // 接管失败：回退使用（更新的）旧目录，应用仍可启动。
+        assert_eq!(resolved, legacy);
+        assert_eq!(
+            fs::read(legacy.join(LEGACY_DB_FILE_NAME)).unwrap(),
+            legacy_db_before
+        );
+        // 新目录已恢复原名、内容不变；pre-adopt 备份已改名回去。
+        assert_eq!(
+            fs::read(new_dir.join(DB_FILE_NAME)).unwrap(),
+            stale_new_db_before
+        );
+        assert_eq!(fs::read(new_dir.join("master.key")).unwrap(), vec![9_u8; 32]);
+        assert!(pre_adopt_dirs(temp.path()).is_empty());
+        assert!(!new_dir
+            .with_file_name(format!("{APP_DIR_NAME}.migrating"))
+            .exists());
+    }
+
+    /// 进程死在「主库已改名、旁文件未改名」之间会留下孤儿旧名 WAL：
+    /// 主库已存在时也必须把旧名旁文件补改名，否则其中的已提交数据会被静默忽略。
+    #[test]
+    fn renames_orphaned_legacy_sidecars_when_the_primary_database_already_exists() {
+        let temp = tempfile::tempdir().unwrap();
+        let legacy = temp.path().join(LEGACY_APP_DIR_NAME);
+        let new_dir = temp.path().join(APP_DIR_NAME);
+        write_file(&new_dir.join(DB_FILE_NAME), b"db");
+        write_file(&new_dir.join(format!("{LEGACY_DB_FILE_NAME}-wal")), b"orphan-wal");
+        write_file(&new_dir.join(format!("{LEGACY_DB_FILE_NAME}-shm")), b"orphan-shm");
+
+        let resolved = resolve_app_dir(&new_dir, &legacy).unwrap();
+
+        assert_eq!(resolved, new_dir);
+        assert_eq!(
+            fs::read(new_dir.join(format!("{DB_FILE_NAME}-wal"))).unwrap(),
+            b"orphan-wal"
+        );
+        assert_eq!(
+            fs::read(new_dir.join(format!("{DB_FILE_NAME}-shm"))).unwrap(),
+            b"orphan-shm"
+        );
+        assert!(!new_dir.join(format!("{LEGACY_DB_FILE_NAME}-wal")).exists());
+        assert!(!new_dir.join(format!("{LEGACY_DB_FILE_NAME}-shm")).exists());
+    }
+
+    /// 新名旁文件已存在时不能覆盖：那份才是当前主库正在用的。
+    #[test]
+    fn keeps_the_new_sidecar_when_both_names_exist() {
+        let temp = tempfile::tempdir().unwrap();
+        let legacy = temp.path().join(LEGACY_APP_DIR_NAME);
+        let new_dir = temp.path().join(APP_DIR_NAME);
+        write_file(&new_dir.join(DB_FILE_NAME), b"db");
+        write_file(&new_dir.join(format!("{DB_FILE_NAME}-wal")), b"current-wal");
+        write_file(&new_dir.join(format!("{LEGACY_DB_FILE_NAME}-wal")), b"stale-wal");
+
+        let resolved = resolve_app_dir(&new_dir, &legacy).unwrap();
+
+        assert_eq!(resolved, new_dir);
+        assert_eq!(
+            fs::read(new_dir.join(format!("{DB_FILE_NAME}-wal"))).unwrap(),
+            b"current-wal"
         );
     }
 

@@ -31,7 +31,7 @@ jobs:
           TAURI_VERSION="v$(jq -r .version src-tauri/tauri.conf.json)"
           CARGO_VERSION="v$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -n1)"
           LOCK_VERSION="v$(awk '
-            $0 == "name = \"any-switch\"" { found = 1; next }
+            $0 == "name = \"xiaobai-switch-plus\"" { found = 1; next }
             found && $1 == "version" {
               gsub(/"/, "", $3)
               print $3
@@ -84,7 +84,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: "AnySwitch ${{ github.ref_name }}"
+          name: "XiaoBaiSwitch Plus ${{ github.ref_name }}"
           body: ${{ steps.cliff.outputs.content }}
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
@@ -160,7 +160,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "AnySwitch ${{ github.ref_name }}"
+          releaseName: "XiaoBaiSwitch Plus ${{ github.ref_name }}"
           includeUpdaterJson: false
           releaseBody: ${{ needs.draft-release-notes.outputs.body }}
           releaseDraft: true
@@ -171,7 +171,7 @@ jobs:
         if: startsWith(matrix.platform, 'macos-')
         run: |
           set -euo pipefail
-          APP="src-tauri/target/${{ matrix.target }}/release/bundle/macos/AnySwitch.app"
+          APP="src-tauri/target/${{ matrix.target }}/release/bundle/macos/XiaoBaiSwitch Plus.app"
           codesign --verify --deep --strict --verbose=2 "$APP"
           codesign -dv --verbose=2 "$APP" 2>&1 | grep -q "Sealed Resources version="
 
@@ -185,7 +185,7 @@ jobs:
           Write-Host "PWD=$(Get-Location) releaseDir=$releaseDir"
           $exe = $null
           # Legacy names stay as fallbacks for builds produced before the rename.
-          foreach ($name in @("AnySwitch.exe", "XiaoBaiSwitch.exe", "xiaobai-switch.exe")) {
+          foreach ($name in @("XiaoBaiSwitchPlus.exe", "AnySwitch.exe", "XiaoBaiSwitch.exe", "xiaobai-switch.exe")) {
             $candidate = Join-Path $releaseDir $name
             if (Test-Path -LiteralPath $candidate) {
               $exe = $candidate
@@ -198,7 +198,7 @@ jobs:
             }
             throw "Missing Windows binary under $releaseDir"
           }
-          $zipName = "AnySwitch_${{ github.ref_name }}_${{ matrix.platform }}-portable.zip"
+          $zipName = "XiaoBaiSwitchPlus_${{ github.ref_name }}_${{ matrix.platform }}-portable.zip"
           Compress-Archive -LiteralPath $exe -DestinationPath $zipName -Force
           Write-Host "Created $zipName from $exe"
 
@@ -209,11 +209,10 @@ jobs:
           tag_name: ${{ github.ref_name }}
           draft: true
           token: ${{ secrets.GITHUB_TOKEN }}
-          files: AnySwitch_${{ github.ref_name }}_${{ matrix.platform }}-portable.zip
+          files: XiaoBaiSwitchPlus_${{ github.ref_name }}_${{ matrix.platform }}-portable.zip
 
-  # Website.yml rebuilds the download page via workflow_run after this
-  # workflow succeeds. Do not deploy the site from the version tag — assets
-  # are missing until this job publishes the draft.
+  # Updater manifest and release publishing. No website is deployed: downloads
+  # and auto-update come only from GitHub Releases.
   publish-release:
     name: Publish Release
     needs: [release, draft-release-notes]
@@ -232,7 +231,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: "AnySwitch ${{ github.ref_name }}"
+          name: "XiaoBaiSwitch Plus ${{ github.ref_name }}"
           body: ${{ needs.draft-release-notes.outputs.body }}
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}

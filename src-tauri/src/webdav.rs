@@ -280,9 +280,9 @@ impl WebDavClient {
 
 /// 远端备份排序键：先剥离已知前缀再比较。
 ///
-/// 直接比较完整文件名会把 `xiaobai-switch-backup-*`（x）排在 `any-switch-backup-*`（a）
-/// 之前，降序取前 N 时就会优先保留旧前缀、误删刚上传的新前缀备份（manifest 当前
-/// 引用的那一份），导致其它机器拉不到最新数据。剥离前缀后按时间戳自然交错比较。
+/// 直接比较完整文件名会让前缀的字典序（`any-switch-backup-*` < `xiaobai-switch-backup-*`）
+/// 压过时间戳，降序取前 N 时就可能误删本该保留的最新备份（manifest 当前引用的那一份），
+/// 导致其它机器拉不到最新数据。剥离前缀后按时间戳自然交错比较。
 fn backup_sort_key(file_name: &str) -> &str {
     app_backup::BACKUP_PREFIXES
         .iter()
@@ -580,7 +580,7 @@ mod tests {
 
     #[test]
     fn parses_namespaced_propfind_and_filters_other_files() {
-        // 新旧前缀混存：更旧的一份是旧前缀、更新的一份是新前缀，专门覆盖
+        // 新旧前缀混存：更旧的一份是当前前缀、更新的一份是旧前缀，专门覆盖
         // “按完整文件名排序会把旧前缀排在前面” 的回归（naive 排序会得到 [42, 84]）。
         let xml = r#"<D:multistatus xmlns:D="DAV:">
           <D:response><D:href>/root/</D:href><D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop></D:propstat></D:response>
@@ -590,7 +590,7 @@ mod tests {
         </D:multistatus>"#;
         let backups = parse_propfind_response(xml).unwrap();
         assert_eq!(backups.len(), 2);
-        // 20260828（新前缀）必须排在 20260827（旧前缀）之前。
+        // 20260828（旧前缀但更新）必须排在 20260827（当前前缀）之前。
         assert_eq!(backups[0].size, 84);
         assert_eq!(backups[0].device_name, "mac");
         assert_eq!(backups[1].size, 42);
@@ -598,10 +598,10 @@ mod tests {
 
     #[test]
     fn accepts_legacy_and_current_remote_backup_file_names() {
-        assert!(validate_backup_file_name("any-switch-backup-20260827_120000.mac.12345678.zip").is_ok());
+        assert!(validate_backup_file_name("xiaobai-switch-backup-20260827_120000.mac.12345678.zip")
+            .is_ok());
         assert!(
-            validate_backup_file_name("xiaobai-switch-backup-20260827_120000.mac.12345678.zip")
-                .is_ok(),
+            validate_backup_file_name("any-switch-backup-20260827_120000.mac.12345678.zip").is_ok(),
             "legacy remote backups must stay readable"
         );
         assert!(validate_remote_file_name(SYNC_MANIFEST_FILE_NAME).is_ok());
@@ -726,7 +726,7 @@ mod tests {
 
     #[test]
     fn remote_retention_only_prunes_old_backups_for_the_current_device() {
-        // 混合前缀：naive 的“按完整文件名降序”会先删掉新前缀的 20260803，
+        // 混合前缀：naive 的“按完整文件名降序”会先删掉最新的 20260803（旧前缀字典序靠前），
         // 正确行为是删除最旧的 20260801。
         let all = vec![
             remote_backup("xiaobai-switch-backup-20260801_000000.mac.1.zip", "mac"),
@@ -742,7 +742,7 @@ mod tests {
             !removed
                 .iter()
                 .any(|item| item.file_name.starts_with("any-switch-backup-")),
-            "the newly uploaded bundle must survive retention"
+            "the newest cross-prefix bundle must survive retention"
         );
     }
 
@@ -751,22 +751,22 @@ mod tests {
         // retention=1：旧 1 + 新 1，必须保留刚上传的新包（manifest 当前引用）。
         let all = vec![
             remote_backup(
-                "xiaobai-switch-backup-20260801_000000.mac.old00001.zip",
+                "any-switch-backup-20260801_000000.mac.old00001.zip",
                 "mac",
             ),
             remote_backup(
-                "any-switch-backup-20260802_000000.mac.new00001.zip",
+                "xiaobai-switch-backup-20260802_000000.mac.new00001.zip",
                 "mac",
             ),
         ];
         let removed = backups_to_delete(all.clone(), "mac", 1);
 
         assert_eq!(removed.len(), 1);
-        assert!(removed[0].file_name.starts_with("xiaobai-switch-backup-"));
+        assert!(removed[0].file_name.starts_with("any-switch-backup-"));
         let kept = kept_file_names(&all, &removed);
         assert_eq!(
             kept,
-            vec!["any-switch-backup-20260802_000000.mac.new00001.zip".to_string()],
+            vec!["xiaobai-switch-backup-20260802_000000.mac.new00001.zip".to_string()],
             "the newest bundle referenced by the remote manifest must be kept"
         );
     }
@@ -776,11 +776,11 @@ mod tests {
         let mut all = Vec::new();
         for index in 1..=3 {
             all.push(remote_backup(
-                &format!("xiaobai-switch-backup-2026080{index}_000000.mac.old{index}.zip"),
+                &format!("any-switch-backup-2026080{index}_000000.mac.old{index}.zip"),
                 "mac",
             ));
             all.push(remote_backup(
-                &format!("any-switch-backup-2026090{index}_000000.mac.new{index}.zip"),
+                &format!("xiaobai-switch-backup-2026090{index}_000000.mac.new{index}.zip"),
                 "mac",
             ));
         }
@@ -804,9 +804,9 @@ mod tests {
         assert!(
             removed
                 .iter()
-                .all(|item| item.file_name.starts_with("xiaobai-switch-backup-")),
+                .all(|item| item.file_name.starts_with("any-switch-backup-")),
             "with 3 old + 3 new and retention=3 the three legacy bundles are pruned"
         );
-        assert!(kept.iter().all(|name| name.starts_with("any-switch-backup-")));
+        assert!(kept.iter().all(|name| name.starts_with("xiaobai-switch-backup-")));
     }
 }

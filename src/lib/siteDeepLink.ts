@@ -17,12 +17,23 @@ export interface SiteDeepLinkPayload {
   keyName: string | null;
 }
 
-export const SITE_DEEP_LINK_SCHEME = "anyswitch:";
+/// 当前深链 scheme；同时接受改名前后用过的 legacy scheme，旧链接不失效。
+export const SITE_DEEP_LINK_SCHEME = "xiaobaiswitchplus:";
+export const SITE_DEEP_LINK_SCHEMES = [
+  SITE_DEEP_LINK_SCHEME,
+  "anyswitch:",
+  "xiaobaiswitch:",
+] as const;
 export const SITE_DEEP_LINK_TARGET = "sites";
 export const MAX_SITE_DEEP_LINK_NAME = 128;
 export const MAX_SITE_DEEP_LINK_NOTES = 2000;
 export const MAX_SITE_DEEP_LINK_ROUTES = 20;
 export const MAX_SITE_DEEP_LINK_URL = 2048;
+
+export function hasSiteDeepLinkScheme(raw: string): boolean {
+  const value = raw.trim().toLowerCase();
+  return SITE_DEEP_LINK_SCHEMES.some((scheme) => value.startsWith(scheme));
+}
 
 function getDeepLinkTarget(url: URL): string {
   if (url.hostname) return url.hostname;
@@ -51,7 +62,7 @@ export function parseSiteDeepLink(rawUrl: string): SiteDeepLinkPayload | null {
   } catch {
     return null;
   }
-  if (url.protocol !== SITE_DEEP_LINK_SCHEME) return null;
+  if (!hasSiteDeepLinkScheme(url.protocol)) return null;
   if (getDeepLinkTarget(url) !== SITE_DEEP_LINK_TARGET) return null;
 
   const name = url.searchParams.get("name")?.trim() ?? "";
@@ -108,7 +119,7 @@ export function buildSiteDeepLink(payload: SiteDeepLinkPayload): string {
   if (payload.hasCapabilityParams) {
     appendCapabilitiesToSearchParams(params, payload.capabilities);
   }
-  return `anyswitch://sites?${params.toString()}`;
+  return `xiaobaiswitchplus://sites?${params.toString()}`;
 }
 
 export function getSiteDeepLinkKeyPrefix(apiKey: string | null): string {

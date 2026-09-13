@@ -24,7 +24,7 @@ function Wrapper({ children }: { children: ReactNode }) {
 const backup: BackupInfo = {
   id: "claude_code-1710000000000",
   target: "claude_code",
-  dir: "/Users/lmini/.any-switch/backups/claude_code/1710000000000",
+  dir: "/Users/lmini/.xiaobai-switch/backups/claude_code/1710000000000",
   createdAt: 1710000000000,
   files: ["settings.json"],
   applyRecordId: "rec-1",

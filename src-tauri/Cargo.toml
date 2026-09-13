@@ -1,18 +1,18 @@
 [package]
-name = "any-switch"
-version = "0.1.1"
-description = "Site-driven Claude Code, Codex & Pi config switcher"
-authors = ["AnySwitch"]
+name = "xiaobai-switch-plus"
+version = "0.1.2"
+description = "Site-driven Claude Code, Codex & Pi config switcher (fork of Licoy's XiaoBaiSwitch)"
+authors = ["Licoy"]
 license = "MIT"
 edition = "2021"
-default-run = "AnySwitch"
+default-run = "XiaoBaiSwitchPlus"
 
 [lib]
-name = "any_switch_lib"
+name = "xiaobai_switch_plus_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
-name = "AnySwitch"
+name = "XiaoBaiSwitchPlus"
 path = "src/main.rs"
 
 [build-dependencies]

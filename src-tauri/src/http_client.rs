@@ -3,7 +3,7 @@ use crate::error::{AppError, AppResult};
 use std::time::Duration;
 
 pub fn default_user_agent() -> &'static str {
-    concat!("AnySwitch/", env!("CARGO_PKG_VERSION"))
+    concat!("XiaoBaiSwitch/", env!("CARGO_PKG_VERSION"))
 }
 
 pub fn custom_proxy_url(protocol: &str, host: &str, port: u16) -> AppResult<String> {
