@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层数据流：UI → tauri command → adapter → 目标文件，先定契约再实现"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "动手前先复用 MCP 管控的既有实现：托管前缀、并集清理、sync_meta 记录"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "zustand store 约定：rulesStore 的 loading/错误处理形态"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "RulesPage 组件结构、props、样式与无障碍约定"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "新增 DTO 与 TS 类型的组织与禁止模式"}

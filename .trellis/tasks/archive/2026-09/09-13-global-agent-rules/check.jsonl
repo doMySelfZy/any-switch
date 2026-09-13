@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "复核门：禁止模式、必需模式、测试要求与 review checklist"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "复核新增类型与 invoke 返回值的类型安全"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "复核跨层契约一致性（Rust DTO 与 TS 接口逐字段对齐）"}
