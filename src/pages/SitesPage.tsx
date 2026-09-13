@@ -369,7 +369,7 @@ export function SitesPage() {
     return (
       <div className="flex h-full min-h-0">
         <div
-          className="flex w-64 shrink-0 flex-col border-r p-3"
+          className="flex w-72 shrink-0 flex-col border-r p-3"
           style={{ borderColor: token.colorBorderSecondary }}
         >
           <Skeleton active paragraph={{ rows: 6 }} title={{ width: "50%" }} />
@@ -411,7 +411,7 @@ export function SitesPage() {
   return (
     <div className="flex h-full min-h-0">
       <div
-        className="flex w-64 shrink-0 flex-col border-r"
+        className="flex w-72 shrink-0 flex-col border-r"
         style={{ borderColor: token.colorBorderSecondary }}
       >
         <div className="flex items-center justify-between p-3">
