@@ -3,6 +3,7 @@ import { Alert, App, Divider, Select, Space, Skeleton, Switch } from "antd";
 import { useTranslation } from "react-i18next";
 import { SettingsGroup } from "@/components/settings/SettingsGroup";
 import { useApplyStore, useSiteStore } from "@/stores";
+import { useAgentUpdateStore } from "@/stores/agentUpdateStore";
 import type { ClaudeAuthKeyStyle, ClaudeEffortLevel } from "@/types/domain";
 import { ApplyFooter } from "./ApplyFooter";
 import { SiteSelect } from "./SiteSelect";
@@ -30,6 +31,8 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
   const restoreOfficial = useApplyStore((s) => s.restoreOfficial);
   const cleanupOrphan = useApplyStore((s) => s.cleanupOrphan);
   const statusLoading = useApplyStore((s) => s.loading);
+
+  const updateAgent = useAgentUpdateStore((s) => s.updateAgent);
 
   const status = statusFor(statuses, "claude_code");
   const { siteId, site, sites, selectSite, hasAnySite, hasEnabledSite } = useApplySiteSelection(
@@ -127,6 +130,16 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
 
   const tool = toolFor(tools, "claude_code");
 
+  const handleUpdate = async () => {
+    try {
+      await updateAgent("claude_code");
+      await loadStatus({ force: true });
+    } catch (error) {
+      console.error("Failed to update Claude Code:", error);
+      throw error;
+    }
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto p-6 pb-4">
@@ -140,6 +153,7 @@ export const ClaudeApplyPanel = memo(function ClaudeApplyPanel() {
               onRefresh={() => loadStatus({ force: true })}
               onRevert={() => revert("claude_code")}
               onCleanupOrphan={() => cleanupOrphan("claude_code")}
+              onUpdate={handleUpdate}
             />
           )}
         </SettingsGroup>

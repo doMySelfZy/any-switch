@@ -6412,6 +6412,7 @@ name = "xiaobai-switch-plus"
 version = "0.1.4"
 dependencies = [
  "aes-gcm",
+ "anyhow",
  "base64 0.22.1",
  "bytes",
  "chrono",
@@ -6433,6 +6434,7 @@ dependencies = [
  "rand 0.8.7",
  "reqwest 0.12.28",
  "rusqlite",
+ "semver",
  "serde",
  "serde_json",
  "serde_yaml",

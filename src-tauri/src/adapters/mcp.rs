@@ -321,6 +321,9 @@ mod tests {
             headers: json!({}),
             created_at: 0,
             updated_at: 0,
+            current_version: None,
+            latest_version: None,
+            last_update_check_at: None,
         }
     }
 
@@ -474,6 +477,109 @@ command = "user-cmd"
         assert!(text.contains("xiaobai_demo"));
         assert!(!text.contains("xiaobai_removed"));
         assert!(!text.contains("xiaobai_disabled"));
+    }
+
+    #[test]
+    fn codex_keeps_real_world_user_entries_with_nested_env_tables() {
+        // 回归：真实用户配置里，非托管条目常带 `[mcp_servers.<name>.env]` 嵌套子表
+        // （本机实测就有这种形状：顶层条目 + 独立的 .env 子表）。清理逻辑只应动
+        // xiaobai_ 前缀的键，用户条目连同其嵌套 env / args 必须原样保留。
+        // 这里刻意用非凭据性质的键名——要验证的是结构保留，不是密钥处理。
+        let (dir, backup) = temp_backup_root();
+        let path = dir.path().join("config.toml");
+        let user_config = r#"model = "gpt-5"
+
+[mcp_servers.first]
+command = "npx"
+
+[mcp_servers.first.env]
+PROFILES_FILE = "PLACEHOLDER_PATH"
+
+[mcp_servers.second]
+command = "npx"
+args = ["-y", "second-mcp"]
+
+[mcp_servers.second.env]
+SERVICE_ENDPOINT = "PLACEHOLDER_ENDPOINT"
+
+[mcp_servers.third]
+command = "npx"
+args = ["-y", "third-mcp"]
+
+[mcp_servers.third.env]
+LOG_LEVEL = "PLACEHOLDER_LEVEL"
+
+[mcp_servers.fourth]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+"#;
+        fs::write(&path, user_config).unwrap();
+
+        apply_to_codex(
+            &[server("demo", true)],
+            Some(dir.path().to_str().unwrap()),
+            &backup,
+        )
+        .unwrap();
+
+        let text = fs::read_to_string(&path).unwrap();
+        // 每个用户条目及其嵌套子表都要还在。
+        for expected in [
+            "[mcp_servers.first]",
+            "[mcp_servers.first.env]",
+            "PROFILES_FILE",
+            "[mcp_servers.second]",
+            "[mcp_servers.second.env]",
+            "SERVICE_ENDPOINT",
+            "[mcp_servers.third]",
+            "[mcp_servers.third.env]",
+            "LOG_LEVEL",
+            "[mcp_servers.fourth]",
+            "@modelcontextprotocol/server-sequential-thinking",
+        ] {
+            assert!(text.contains(expected), "user config lost: {expected}\n{text}");
+        }
+        // 同时托管条目要写进去。
+        assert!(text.contains("xiaobai_demo"), "{text}");
+        assert!(text.contains("model = \"gpt-5\""), "unrelated keys preserved");
+    }
+
+    #[test]
+    fn json_targets_keep_user_entries_with_nested_env() {
+        // Pi / Prime / Claude 同样：用户条目里的 env 对象必须完整保留。
+        let (dir, backup) = temp_backup_root();
+        let path = dir.path().join(".claude.json");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!({
+                "mcpServers": {
+                    "user-entry": {
+                        "command": "npx",
+                        "args": ["-y", "user-mcp"],
+                        "env": { "PROFILES_FILE": "PLACEHOLDER_PATH" }
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        apply_to_claude(
+            &[server("demo", true)],
+            Some(dir.path().to_str().unwrap()),
+            &backup,
+        )
+        .unwrap();
+
+        let root: Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(root["mcpServers"]["user-entry"]["command"], "npx");
+        assert_eq!(
+            root["mcpServers"]["user-entry"]["env"]["PROFILES_FILE"],
+            "PLACEHOLDER_PATH",
+            "user's nested env must survive"
+        );
+        assert_eq!(root["mcpServers"]["xiaobai_demo"]["command"], "mcp-demo");
     }
 
     #[test]

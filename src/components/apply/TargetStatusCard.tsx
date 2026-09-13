@@ -6,6 +6,7 @@ import { SiteAvatar } from "@/components/sites/SiteAvatar";
 import { isAppError } from "@/lib/invoke";
 import { revealInExplorer } from "@/lib/revealInExplorer";
 import { useSiteStore } from "@/stores";
+import { useAgentUpdateStore } from "@/stores/agentUpdateStore";
 import type { ApplyStatus, CliToolInfo, TargetKind, TargetLiveStatus } from "@/types/domain";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -22,6 +23,7 @@ interface TargetStatusCardProps {
   onRefresh: () => void | Promise<void>;
   onRevert: () => void | Promise<void>;
   onCleanupOrphan: () => void | Promise<void>;
+  onUpdate?: () => void | Promise<void>;
 }
 
 /** Prefer a numeric version token from `claude --version` / `codex --version` output. */
@@ -53,6 +55,7 @@ export function TargetStatusCard({
   onRefresh,
   onRevert,
   onCleanupOrphan,
+  onUpdate,
 }: TargetStatusCardProps) {
   const { t } = useTranslation();
   const { token } = theme.useToken();
@@ -61,6 +64,10 @@ export function TargetStatusCard({
   const [refreshing, setRefreshing] = useState(false);
   const [reverting, setReverting] = useState(false);
   const [cleaning, setCleaning] = useState(false);
+  const [updating, setUpdating] = useState(false);
+
+  const updateStatus = useAgentUpdateStore((s) => s.getUpdateStatus(status?.kind ?? ""));
+  const isUpdating = useAgentUpdateStore((s) => s.isUpdating(status?.kind ?? ""));
 
   if (!status) {
     return (
@@ -131,6 +138,19 @@ export function TargetStatusCard({
     }
   };
 
+  const handleUpdate = async () => {
+    if (!onUpdate) return;
+    setUpdating(true);
+    try {
+      await onUpdate();
+      message.success(t("apply.agentUpdateSuccess"));
+    } catch (e) {
+      message.error(isAppError(e) ? e.message : t("apply.agentUpdateFailed"));
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -139,11 +159,26 @@ export function TargetStatusCard({
           <Tag color={installed ? "green" : "red"} title={version ?? undefined}>
             {installed ? (versionLabel ?? t("apply.installed")) : t("apply.notInstalled")}
           </Tag>
+          {updateStatus?.hasUpdate && (
+            <Tag color="orange" title={`${updateStatus.currentVersion} → ${updateStatus.latestVersion}`}>
+              {t("apply.agentHasUpdate")}
+            </Tag>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Tag color={STATUS_COLOR[status.status] ?? "default"}>
             {t(`apply.status_${status.status}`)}
           </Tag>
+          {updateStatus?.hasUpdate && onUpdate && (
+            <Button
+              size="small"
+              type="primary"
+              loading={updating || isUpdating}
+              onClick={() => void handleUpdate()}
+            >
+              {t("apply.agentUpdate")}
+            </Button>
+          )}
           {canRevert && (
             <Popconfirm
               title={t("apply.revertConfirm")}

@@ -1,0 +1,8 @@
+{"file": ".trellis/tasks/09-13-local-proxy/prd.md", "reason": "本次交付的需求、约束与验收标准；实现不得越出明确不做清单"}
+{"file": ".trellis/tasks/09-13-local-proxy/design.md", "reason": "技术设计：URL 路由表、接管注入点、请求头改写、流式转发、设置与迁移、生命周期"}
+{"file": ".trellis/tasks/09-13-local-proxy/implement.md", "reason": "分步实现顺序与每步验证命令，含回滚点"}
+{"file": ".trellis/tasks/09-13-local-proxy/research.md", "reason": "外部调研结论（CC Switch 代理踩坑、OpenCode Go 头要求）与本仓库落点（调用点行号、依赖可用性、测试习惯）"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "本任务横跨 domain/migrate/repo/commands/adapters 与四个前端同步点，需按跨层清单检查字段一致性"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "接管注入与重写必须复用既有 normalize/适配器/锁/原子写，禁止另起一套；新增常量先搜再改"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "前端 store 与设置三处同步（types/browserMock/settingsStore）的既有约定"}
+{"file": "AGENTS.md", "reason": "仓库红线：兼容协议值、xiaobai_ 命名空间、增量迁移要求、UI/i18n/antd 约定、测试门槛"}

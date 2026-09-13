@@ -10,6 +10,9 @@ export interface McpServerSummary {
   targets: TargetKind[];
   createdAt: number;
   updatedAt: number;
+  currentVersion?: string | null;
+  latestVersion?: string | null;
+  lastUpdateCheckAt?: number | null;
 }
 
 export interface McpServer {
@@ -23,6 +26,9 @@ export interface McpServer {
   headers: Record<string, unknown>;
   createdAt: number;
   updatedAt: number;
+  currentVersion?: string | null;
+  latestVersion?: string | null;
+  lastUpdateCheckAt?: number | null;
 }
 
 export interface McpServerInput {

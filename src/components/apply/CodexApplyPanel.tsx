@@ -3,6 +3,7 @@ import { Alert, App, Select, Space, Switch, Divider, Skeleton } from "antd";
 import { useTranslation } from "react-i18next";
 import { SettingsGroup } from "@/components/settings/SettingsGroup";
 import { useApplyStore, useSiteStore } from "@/stores";
+import { useAgentUpdateStore } from "@/stores/agentUpdateStore";
 import type { CodexCapabilitySource, CodexReasoningEffort } from "@/types/domain";
 import {
   codexFlagsFromCapabilities,
@@ -37,6 +38,8 @@ export const CodexApplyPanel = memo(function CodexApplyPanel() {
   const restoreOfficial = useApplyStore((s) => s.restoreOfficial);
   const cleanupOrphan = useApplyStore((s) => s.cleanupOrphan);
   const statusLoading = useApplyStore((s) => s.loading);
+
+  const updateAgent = useAgentUpdateStore((s) => s.updateAgent);
 
   const status = statusFor(statuses, "codex");
   const { siteId, site, sites, selectSite, hasAnySite, hasEnabledSite } = useApplySiteSelection(
@@ -127,6 +130,16 @@ export const CodexApplyPanel = memo(function CodexApplyPanel() {
 
   const tool = toolFor(tools, "codex");
 
+  const handleUpdate = async () => {
+    try {
+      await updateAgent("codex");
+      await loadStatus({ force: true });
+    } catch (error) {
+      console.error("Failed to update Codex:", error);
+      throw error;
+    }
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto p-6 pb-4">
@@ -140,6 +153,7 @@ export const CodexApplyPanel = memo(function CodexApplyPanel() {
               onRefresh={() => loadStatus({ force: true })}
               onRevert={() => revert("codex")}
               onCleanupOrphan={() => cleanupOrphan("codex")}
+              onUpdate={handleUpdate}
             />
           )}
         </SettingsGroup>

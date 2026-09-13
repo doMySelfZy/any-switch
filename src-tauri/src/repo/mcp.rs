@@ -11,7 +11,7 @@ use uuid::Uuid;
 const APPLIED_TARGETS_KEY: &str = "mcp_applied_targets";
 
 const COLUMNS: &str =
-    "id, name, kind, enabled, targets_json, config_json, secrets_encrypted, created_at, updated_at";
+    "id, name, kind, enabled, targets_json, config_json, secrets_encrypted, created_at, updated_at, current_version, latest_version, last_update_check_at";
 
 fn kind_from_str(value: &str) -> McpKind {
     match value {
@@ -39,6 +39,9 @@ fn read_row(row: &rusqlite::Row<'_>, crypto: &Crypto) -> AppResult<McpServer> {
     let secrets: Option<String> = row.get(6)?;
     let created_at: i64 = row.get(7)?;
     let updated_at: i64 = row.get(8)?;
+    let current_version: Option<String> = row.get(9)?;
+    let latest_version: Option<String> = row.get(10)?;
+    let last_update_check_at: Option<i64> = row.get(11)?;
 
     let secrets: serde_json::Value = match secrets {
         Some(encoded) => serde_json::from_str(&crypto.decrypt(&encoded)?)?,
@@ -58,6 +61,9 @@ fn read_row(row: &rusqlite::Row<'_>, crypto: &Crypto) -> AppResult<McpServer> {
             .unwrap_or_else(|| json!({})),
         created_at,
         updated_at,
+        current_version,
+        latest_version,
+        last_update_check_at,
     })
 }
 
@@ -77,6 +83,9 @@ pub fn list(conn: &Connection, crypto: &Crypto) -> AppResult<Vec<McpServerSummar
             targets: server.targets,
             created_at: server.created_at,
             updated_at: server.updated_at,
+            current_version: server.current_version,
+            latest_version: server.latest_version,
+            last_update_check_at: server.last_update_check_at,
         });
     }
     Ok(servers)

@@ -37,11 +37,7 @@ import type {
 } from "@/types/domain";
 import type { McpApplyResult, McpApplyTargetResult, McpServer, McpServerInput, RegistryCandidate } from "@/types/mcp";
 import type { AgentRules, AgentRulesApplyResult } from "@/types/rules";
-import type {
-  LocalProxyRequestLogEntry,
-  LocalProxyStatus,
-  ProxyHeader,
-} from "@/types/proxy";
+import type { LocalProxyRequestLogEntry, LocalProxyStatus, ProxyHeader } from "@/types/proxy";
 import { keyPrefix, normalizeBaseUrl } from "./urlNormalize";
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -761,6 +757,10 @@ export async function handleBrowserCommand<T>(
         activeApiKeyId: active.id,
         apiKeys,
       });
+      if (input.proxyHeaders) {
+        siteProxyHeaders.set(site.id, input.proxyHeaders);
+        site.proxyHeaderCount = input.proxyHeaders.length;
+      }
       sites = [...sites, site];
       return site as T;
     }
@@ -886,6 +886,10 @@ export async function handleBrowserCommand<T>(
       });
       const found = sites.find((s) => s.id === id);
       if (!found) throw { code: "not_found", message: "Site not found" };
+      if (input.proxyHeaders) {
+        siteProxyHeaders.set(id, input.proxyHeaders);
+        found.proxyHeaderCount = input.proxyHeaders.length;
+      }
       const site = projectSite(found);
       sites = sites.map((s) => (s.id === id ? site : s));
       return site as T;
@@ -1778,6 +1782,9 @@ export async function handleBrowserCommand<T>(
       const siteId = args?.siteId as string;
       return (siteProxyHeaders.get(siteId) ?? []) as T;
     }
+
+    case "validate_site_proxy_headers":
+      return undefined as T;
 
     case "apply_mcp_servers": {
       const targets = (args?.targets ?? []) as TargetKind[];

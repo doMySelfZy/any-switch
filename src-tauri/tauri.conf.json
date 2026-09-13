@@ -22,6 +22,19 @@
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "visible": false
+      },
+      {
+        "label": "floating",
+        "title": "Site Balances",
+        "url": "floating.html",
+        "width": 320,
+        "height": 480,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "decorations": false,
+        "skipTaskbar": true,
+        "visible": false,
+        "transparent": true
       }
     ],
     "security": {

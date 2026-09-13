@@ -1,4 +1,4 @@
-import { Menu, theme } from "antd";
+import { Badge, Menu, theme } from "antd";
 import ClaudeCode from "@lobehub/icons/es/ClaudeCode";
 import Codex from "@lobehub/icons/es/Codex";
 import Pi from "@lobehub/icons/es/Pi";
@@ -6,6 +6,7 @@ import { Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { StatusDot } from "@/components/StatusDot";
 import { useApplyStore } from "@/stores";
+import { useAgentUpdateStore } from "@/stores/agentUpdateStore";
 import { useUIStore, type ApplyTargetTab } from "@/stores/uiStore";
 import { isConfiguredStatus, targetKindLabelKey } from "./TargetStatusCard";
 
@@ -24,6 +25,7 @@ export function ApplySidebar() {
   const applyTab = useUIStore((s) => s.applyTab);
   const setApplyTab = useUIStore((s) => s.setApplyTab);
   const statuses = useApplyStore((s) => s.statuses);
+  const updateCount = useAgentUpdateStore((s) => s.updateCount());
 
   const items = TAB_KEYS.map((key) => {
     const configured = isConfiguredStatus(statuses.find((s) => s.kind === key)?.status);
@@ -56,7 +58,16 @@ export function ApplySidebar() {
           paddingBottom: 14,
         }}
       >
-        <div style={{ fontSize: 14, fontWeight: 600, color: token.colorText }}>{t("apply.title")}</div>
+        <div className="flex items-center gap-2">
+          <div style={{ fontSize: 14, fontWeight: 600, color: token.colorText }}>{t("apply.title")}</div>
+          {updateCount > 0 && (
+            <Badge
+              count={updateCount}
+              style={{ backgroundColor: token.colorWarning }}
+              title={t("apply.agentUpdatesAvailable", { count: updateCount })}
+            />
+          )}
+        </div>
         <div style={{ fontSize: 12, color: token.colorTextSecondary, marginTop: 2 }}>
           {t("apply.sidebarHint")}
         </div>

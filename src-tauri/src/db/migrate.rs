@@ -205,10 +205,44 @@ fn ensure_sites_newapi_columns(conn: &Connection) -> AppResult<()> {
 
 fn ensure_mcp_schema(conn: &Connection) -> AppResult<()> {
     conn.execute_batch("CREATE TABLE IF NOT EXISTS mcp_servers (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'stdio', enabled INTEGER NOT NULL DEFAULT 1, targets_json TEXT NOT NULL, config_json TEXT NOT NULL, secrets_encrypted TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS idx_mcp_servers_updated ON mcp_servers(updated_at);")?;
+    // 版本追踪字段
+    ensure_column(
+        conn,
+        "mcp_servers",
+        "current_version",
+        "ALTER TABLE mcp_servers ADD COLUMN current_version TEXT",
+    )?;
+    ensure_column(
+        conn,
+        "mcp_servers",
+        "latest_version",
+        "ALTER TABLE mcp_servers ADD COLUMN latest_version TEXT",
+    )?;
+    ensure_column(
+        conn,
+        "mcp_servers",
+        "last_update_check_at",
+        "ALTER TABLE mcp_servers ADD COLUMN last_update_check_at INTEGER",
+    )?;
     Ok(())
 }
+
 fn ensure_agent_rules_schema(conn: &Connection) -> AppResult<()> {
     conn.execute_batch("CREATE TABLE IF NOT EXISTS agent_rules (id INTEGER PRIMARY KEY CHECK (id = 1), body TEXT NOT NULL DEFAULT '', targets_json TEXT NOT NULL DEFAULT '[]', updated_at INTEGER NOT NULL DEFAULT 0);")?;
+    Ok(())
+}
+
+fn ensure_agent_update_status_schema(conn: &Connection) -> AppResult<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS agent_update_status (
+            kind TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            current_version TEXT,
+            latest_version TEXT,
+            has_update INTEGER NOT NULL DEFAULT 0,
+            last_check_at INTEGER
+        );"
+    )?;
     Ok(())
 }
 
@@ -239,6 +273,7 @@ fn ensure_incremental_schema(conn: &Connection) -> AppResult<()> {
     ensure_sites_proxy_header_columns(conn)?;
     ensure_mcp_schema(conn)?;
     ensure_agent_rules_schema(conn)?;
+    ensure_agent_update_status_schema(conn)?;
     Ok(())
 }
 
@@ -812,6 +847,59 @@ mod tests {
     }
 
     #[test]
+    fn fresh_database_has_local_proxy_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+        apply_schema(&conn, None, BackupMode::Skip).unwrap();
+        assert!(column_exists(&conn, "sites", "proxy_headers_encrypted").unwrap());
+        assert!(column_exists(&conn, "sites", "proxy_header_count").unwrap());
+    }
+
+    #[test]
+    fn existing_database_gains_local_proxy_columns_on_upgrade() {
+        // 回归：存量库走「版本落后」分支时，CREATE TABLE IF NOT EXISTS 不会补列，
+        // 必须由 ensure_incremental_schema 的 ensure_column 补齐。
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sites (
+               id TEXT PRIMARY KEY,
+               name TEXT NOT NULL,
+               base_url TEXT NOT NULL,
+               protocol TEXT NOT NULL,
+               claude_auth_key_style TEXT NOT NULL,
+               notes TEXT,
+               enabled INTEGER NOT NULL,
+               sort_order INTEGER NOT NULL,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL,
+               base_urls_json TEXT,
+               capabilities_json TEXT
+             );
+             CREATE TABLE site_api_keys (
+               id TEXT PRIMARY KEY,
+               site_id TEXT NOT NULL,
+               label TEXT NOT NULL,
+               api_key_encrypted TEXT NOT NULL,
+               key_prefix TEXT NOT NULL,
+               is_active INTEGER NOT NULL DEFAULT 0,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL
+             );
+             CREATE TABLE settings (
+               id INTEGER PRIMARY KEY CHECK (id = 1),
+               json TEXT NOT NULL
+             );
+             PRAGMA user_version = 2;",
+        )
+        .unwrap();
+
+        apply_schema(&conn, None, BackupMode::Skip).unwrap();
+
+        assert!(column_exists(&conn, "sites", "proxy_headers_encrypted").unwrap());
+        assert!(column_exists(&conn, "sites", "proxy_header_count").unwrap());
+        assert_eq!(user_version(&conn).unwrap(), SCHEMA_VERSION);
+    }
+
+    #[test]
     fn repeated_apply_schema_is_idempotent() {
         let conn = Connection::open_in_memory().unwrap();
         apply_schema(&conn, None, BackupMode::Skip).unwrap();
@@ -905,59 +993,6 @@ mod tests {
         assert!(err.to_string().contains("cannot be decrypted"));
         assert_eq!(user_version(&conn).unwrap(), 0);
         assert!(!table_exists(&conn, "site_api_keys").unwrap());
-    }
-
-    #[test]
-    fn fresh_database_has_local_proxy_columns() {
-        let conn = Connection::open_in_memory().unwrap();
-        apply_schema(&conn, None, BackupMode::Skip).unwrap();
-        assert!(column_exists(&conn, "sites", "proxy_headers_encrypted").unwrap());
-        assert!(column_exists(&conn, "sites", "proxy_header_count").unwrap());
-    }
-
-    #[test]
-    fn existing_database_gains_local_proxy_columns_on_upgrade() {
-        // 回归：存量库走「版本落后」分支时，CREATE TABLE IF NOT EXISTS 不会补列，
-        // 必须由 ensure_incremental_schema 的 ensure_column 补齐。
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE sites (
-               id TEXT PRIMARY KEY,
-               name TEXT NOT NULL,
-               base_url TEXT NOT NULL,
-               protocol TEXT NOT NULL,
-               claude_auth_key_style TEXT NOT NULL,
-               notes TEXT,
-               enabled INTEGER NOT NULL,
-               sort_order INTEGER NOT NULL,
-               created_at INTEGER NOT NULL,
-               updated_at INTEGER NOT NULL,
-               base_urls_json TEXT,
-               capabilities_json TEXT
-             );
-             CREATE TABLE site_api_keys (
-               id TEXT PRIMARY KEY,
-               site_id TEXT NOT NULL,
-               label TEXT NOT NULL,
-               api_key_encrypted TEXT NOT NULL,
-               key_prefix TEXT NOT NULL,
-               is_active INTEGER NOT NULL DEFAULT 0,
-               created_at INTEGER NOT NULL,
-               updated_at INTEGER NOT NULL
-             );
-             CREATE TABLE settings (
-               id INTEGER PRIMARY KEY CHECK (id = 1),
-               json TEXT NOT NULL
-             );
-             PRAGMA user_version = 2;",
-        )
-        .unwrap();
-
-        apply_schema(&conn, None, BackupMode::Skip).unwrap();
-
-        assert!(column_exists(&conn, "sites", "proxy_headers_encrypted").unwrap());
-        assert!(column_exists(&conn, "sites", "proxy_header_count").unwrap());
-        assert_eq!(user_version(&conn).unwrap(), SCHEMA_VERSION);
     }
 
     #[test]
@@ -1075,6 +1110,21 @@ mod tests {
     }
 
     #[test]
+    fn current_version_database_still_gains_agent_rules_table() {
+        // 回归：`CREATE TABLE IF NOT EXISTS` 不会给已存在的库补新表。版本号已经等于
+        // 当前值时会走 `version >= SCHEMA_VERSION` 的提前返回分支，那条分支同样必须
+        // 调用 ensure_incremental_schema，否则老库永远拿不到 agent_rules 且不报错。
+        let conn = Connection::open_in_memory().unwrap();
+        apply_schema(&conn, None, BackupMode::Skip).unwrap();
+        conn.execute_batch("DROP TABLE IF EXISTS agent_rules;")
+            .unwrap();
+
+        apply_schema(&conn, None, BackupMode::Skip).unwrap();
+
+        assert!(table_exists(&conn, "agent_rules").unwrap());
+    }
+
+    #[test]
     fn legacy_database_keeps_newapi_columns_and_gains_mcp_table() {
         // 回归：needs_legacy_migration 分支重建 sites 后，newapi 列不会由
         // CREATE TABLE IF NOT EXISTS 自动补回，必须显式补齐；MCP 表同样要建出来。
@@ -1097,18 +1147,4 @@ mod tests {
         assert_eq!(user_version(&conn).unwrap(), SCHEMA_VERSION);
     }
 
-    #[test]
-    fn current_version_database_still_gains_agent_rules_table() {
-        // 回归：`CREATE TABLE IF NOT EXISTS` 不会给已存在的库补新表。版本号已经等于
-        // 当前值时会走 `version >= SCHEMA_VERSION` 的提前返回分支，那条分支同样必须
-        // 调用 ensure_incremental_schema，否则老库永远拿不到 agent_rules 且不报错。
-        let conn = Connection::open_in_memory().unwrap();
-        apply_schema(&conn, None, BackupMode::Skip).unwrap();
-        conn.execute_batch("DROP TABLE IF EXISTS agent_rules;")
-            .unwrap();
-
-        apply_schema(&conn, None, BackupMode::Skip).unwrap();
-
-        assert!(table_exists(&conn, "agent_rules").unwrap());
-    }
 }

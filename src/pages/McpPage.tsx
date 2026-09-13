@@ -27,11 +27,14 @@ import {
   EditOutlined,
   InfoCircleOutlined,
   PlusOutlined,
+  ReloadOutlined,
   SearchOutlined,
+  SyncOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@/lib/invoke";
 import { useMcpStore } from "@/stores";
+import { useMcpUpdateStore } from "@/stores/mcpUpdateStore";
 import type {
   McpKind,
   McpServerInput,
@@ -154,6 +157,18 @@ export function McpPage() {
     discoverRegistry,
   } = useMcpStore();
 
+  const updateStore = useMcpUpdateStore();
+  const {
+    updateStatuses,
+    checking,
+    updating,
+    hasAnyUpdate,
+    updateCount,
+    checkUpdates,
+    updateServer: updateSingleServer,
+    updateAll,
+  } = updateStore;
+
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
@@ -181,6 +196,10 @@ export function McpPage() {
       .catch(() => setTargetPaths([]));
     // 首次打开就直接给出内容：空查询表示「浏览最近更新的 MCP」，避免进来是一片空白。
     void browseRecent(true);
+    // 检查更新
+    void checkUpdates().catch((error) => {
+      console.error('Failed to check updates on mount:', error);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadServers]);
 
@@ -534,6 +553,53 @@ export function McpPage() {
     return TARGETS.filter((target) => set.has(target));
   }, [servers]);
 
+  const handleUpdate = async (id: string) => {
+    try {
+      await updateSingleServer(id);
+      void message.success(t("mcp.updateSuccess"));
+      await loadServers();
+    } catch (error) {
+      void message.error(errorText(error));
+    }
+  };
+
+  const handleUpdateAll = async () => {
+    modal.confirm({
+      centered: true,
+      title: t("mcp.updateAllTitle"),
+      content: t("mcp.updateAllConfirm", { count: updateCount }),
+      onOk: async () => {
+        try {
+          const { successes, failures } = await updateAll();
+          if (failures.length === 0) {
+            void message.success(t("mcp.updateAllSuccess", { count: successes.length }));
+          } else if (successes.length > 0) {
+            void message.warning(
+              t("mcp.updateAllPartial", {
+                success: successes.length,
+                failed: failures.length,
+              }),
+            );
+          } else {
+            void message.error(t("mcp.updateAllFailed"));
+          }
+          await loadServers();
+        } catch (error) {
+          void message.error(errorText(error));
+        }
+      },
+    });
+  };
+
+  const handleCheckUpdates = async () => {
+    try {
+      await checkUpdates();
+      void message.success(t("mcp.checkUpdatesSuccess"));
+    } catch (error) {
+      void message.error(errorText(error));
+    }
+  };
+
   const applyTargets = async (targets: TargetKind[]) => {
     if (targets.length === 0) {
       void message.warning(t("mcp.noTargets"));
@@ -563,7 +629,19 @@ export function McpPage() {
       title: t("mcp.name"),
       dataIndex: "name",
       key: "name",
-      render: (name: string) => <Typography.Text strong>{name}</Typography.Text>,
+      render: (name: string, record: McpServerSummary) => {
+        const status = updateStatuses.find((s) => s.id === record.id);
+        return (
+          <Space size={4}>
+            <Typography.Text strong>{name}</Typography.Text>
+            {status?.hasUpdate && (
+              <Tag color="orange" style={{ fontSize: 11 }}>
+                {t("mcp.hasUpdate")}
+              </Tag>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: t("mcp.kind"),
@@ -598,29 +676,45 @@ export function McpPage() {
     {
       title: t("common.actions"),
       key: "actions",
-      render: (_: unknown, record: McpServerSummary) => (
-        <Space size={0}>
-          <Tooltip title={t("common.edit")}>
-            <Button
-              type="text"
-              size="small"
-              aria-label={t("common.edit")}
-              icon={<EditOutlined />}
-              onClick={() => void openEdit(record.id)}
-            />
-          </Tooltip>
-          <Tooltip title={t("common.delete")}>
-            <Button
-              type="text"
-              size="small"
-              danger
-              aria-label={t("common.delete")}
-              icon={<DeleteOutlined />}
-              onClick={() => handleDelete(record)}
-            />
-          </Tooltip>
-        </Space>
-      ),
+      render: (_: unknown, record: McpServerSummary) => {
+        const status = updateStatuses.find((s) => s.id === record.id);
+        const isUpdating = updating[record.id] || false;
+        return (
+          <Space size={0}>
+            {status?.hasUpdate && (
+              <Tooltip title={t("mcp.update")}>
+                <Button
+                  type="text"
+                  size="small"
+                  aria-label={t("mcp.update")}
+                  icon={<SyncOutlined spin={isUpdating} />}
+                  loading={isUpdating}
+                  onClick={() => void handleUpdate(record.id)}
+                />
+              </Tooltip>
+            )}
+            <Tooltip title={t("common.edit")}>
+              <Button
+                type="text"
+                size="small"
+                aria-label={t("common.edit")}
+                icon={<EditOutlined />}
+                onClick={() => void openEdit(record.id)}
+              />
+            </Tooltip>
+            <Tooltip title={t("common.delete")}>
+              <Button
+                type="text"
+                size="small"
+                danger
+                aria-label={t("common.delete")}
+                icon={<DeleteOutlined />}
+                onClick={() => handleDelete(record)}
+              />
+            </Tooltip>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -630,10 +724,33 @@ export function McpPage() {
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>
             {t("mcp.title")}
+            {hasAnyUpdate() && (
+              <Tag color="orange" style={{ marginLeft: 8, fontSize: 12 }}>
+                {t("mcp.updatesAvailable", { count: updateCount() })}
+              </Tag>
+            )}
           </Typography.Title>
           <Typography.Text type="secondary">{t("mcp.emptyDesc")}</Typography.Text>
         </div>
         <Space>
+          <Tooltip title={t("mcp.checkUpdates")}>
+            <Button
+              icon={<ReloadOutlined spin={checking} />}
+              loading={checking}
+              onClick={() => void handleCheckUpdates()}
+            >
+              {t("mcp.checkUpdates")}
+            </Button>
+          </Tooltip>
+          {hasAnyUpdate() && (
+            <Button
+              type="default"
+              icon={<SyncOutlined />}
+              onClick={() => void handleUpdateAll()}
+            >
+              {t("mcp.updateAll")} ({updateCount()})
+            </Button>
+          )}
           <Button
             type="primary"
             icon={<CloudUploadOutlined />}

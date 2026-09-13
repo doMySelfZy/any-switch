@@ -461,6 +461,9 @@ mod tests {
             headers: serde_json::json!({}),
             created_at: 0,
             updated_at: 0,
+            current_version: None,
+            latest_version: None,
+            last_update_check_at: None,
         };
         let mut disabled = enabled.clone();
         disabled.enabled = false;

@@ -6,8 +6,10 @@ import { ClaudeApplyPanel } from "@/components/apply/ClaudeApplyPanel";
 import { CodexApplyPanel } from "@/components/apply/CodexApplyPanel";
 import { PiApplyPanel } from "@/components/apply/PiApplyPanel";
 import { PrimeApplyPanel } from "@/components/apply/PrimeApplyPanel";
+import { AgentUpdateButton } from "@/components/apply/AgentUpdateButton";
 import { useDeferredTabContent } from "@/hooks/useDeferredTabContent";
 import { useApplyStore, useSiteStore, useUIStore } from "@/stores";
+import { useAgentUpdateStore } from "@/stores/agentUpdateStore";
 
 /**
  * Sidebar selection commits immediately. The first visit to a target shows
@@ -19,12 +21,14 @@ export function ApplyPage() {
   const applyTab = useUIStore((s) => s.applyTab);
   const loadSites = useSiteStore((s) => s.loadSites);
   const ensureApplyData = useApplyStore((s) => s.ensureApplyData);
+  const checkUpdates = useAgentUpdateStore((s) => s.checkUpdates);
   const { mounted, showSkeleton } = useDeferredTabContent(applyTab);
 
   useEffect(() => {
     void loadSites({ soft: true });
     void ensureApplyData();
-  }, [loadSites, ensureApplyData]);
+    void checkUpdates();
+  }, [loadSites, ensureApplyData, checkUpdates]);
 
   return (
     <div className="flex h-full min-h-0">
@@ -49,6 +53,7 @@ export function ApplyPage() {
             }}
             aria-hidden={applyTab !== "claude_code"}
           >
+            <AgentUpdateButton />
             <ClaudeApplyPanel />
           </div>
         )}
@@ -61,6 +66,7 @@ export function ApplyPage() {
             }}
             aria-hidden={applyTab !== "codex"}
           >
+            <AgentUpdateButton />
             <CodexApplyPanel />
           </div>
         )}
@@ -73,6 +79,7 @@ export function ApplyPage() {
             }}
             aria-hidden={applyTab !== "pi"}
           >
+            <AgentUpdateButton />
             <PiApplyPanel />
           </div>
         )}
@@ -85,6 +92,7 @@ export function ApplyPage() {
             }}
             aria-hidden={applyTab !== "prime"}
           >
+            <AgentUpdateButton />
             <PrimeApplyPanel />
           </div>
         )}

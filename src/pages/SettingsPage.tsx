@@ -146,6 +146,63 @@ function GeneralSection() {
           />
         </div>
       </SettingsGroup>
+
+      <SettingsGroup title={t("settings.groupFloatingWindow")}>
+        <div style={rowStyle} className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div>{t("settings.floatingWindowEnabled")}</div>
+            <div className="text-xs" style={{ color: token.colorTextSecondary }}>
+              {t("settings.floatingWindowEnabledHint")}
+            </div>
+          </div>
+          <Switch
+            checked={settings.floatingWindow?.enabled ?? true}
+            onChange={(enabled) => {
+              void patch({
+                floatingWindow: {
+                  enabled,
+                  autoRefreshSeconds: settings.floatingWindow?.autoRefreshSeconds ?? 300,
+                  positionX: settings.floatingWindow?.positionX ?? 100,
+                  positionY: settings.floatingWindow?.positionY ?? 100,
+                  collapsed: settings.floatingWindow?.collapsed ?? false,
+                },
+              });
+              if (enabled) {
+                invoke("toggle_floating_window", {}).catch((e) => {
+                  message.error(t("settings.floatingWindowOpenFailed"));
+                  console.error(e);
+                });
+              }
+            }}
+          />
+        </div>
+        <Divider style={{ margin: "8px 0" }} />
+        <div style={rowStyle} className="flex items-center justify-between gap-4">
+          <span>{t("settings.floatingWindowRefreshInterval")}</span>
+          <InputNumber
+            size="small"
+            min={60}
+            max={3600}
+            step={60}
+            style={{ width: 120 }}
+            value={settings.floatingWindow?.autoRefreshSeconds ?? 300}
+            onChange={(autoRefreshSeconds) => {
+              if (autoRefreshSeconds) {
+                void patch({
+                  floatingWindow: {
+                    enabled: settings.floatingWindow?.enabled ?? true,
+                    autoRefreshSeconds,
+                    positionX: settings.floatingWindow?.positionX ?? 100,
+                    positionY: settings.floatingWindow?.positionY ?? 100,
+                    collapsed: settings.floatingWindow?.collapsed ?? false,
+                  },
+                });
+              }
+            }}
+            addonAfter={t("settings.seconds")}
+          />
+        </div>
+      </SettingsGroup>
     </div>
   );
 }

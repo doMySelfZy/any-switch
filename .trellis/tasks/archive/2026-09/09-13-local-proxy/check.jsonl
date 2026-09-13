@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/09-13-local-proxy/prd.md", "reason": "复核时逐条对照验收标准，未满足项必须报为问题"}
+{"file": ".trellis/tasks/09-13-local-proxy/design.md", "reason": "对照设计第 2 节路由表、第 4 节请求头规则、第 9 节安全边界核对实现是否偏离"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "复核前端 types/browserMock/settingsStore 与 Rust AppSettings/SiteDto 的字段是否全部同步"}
+{"file": ".trellis/spec/guides/index.md", "reason": "AI 复核的误报模式与「先验证再定级」规则，避免把有意设计当缺陷"}
+{"file": "AGENTS.md", "reason": "兼容红线与迁移分支补齐是本次最易出错处，需按红线清单逐项验证"}

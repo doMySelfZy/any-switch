@@ -3,6 +3,7 @@ import { Alert, App, Select, Skeleton, Space, Switch } from "antd";
 import { useTranslation } from "react-i18next";
 import { SettingsGroup } from "@/components/settings/SettingsGroup";
 import { useApplyStore, useSiteStore } from "@/stores";
+import { useAgentUpdateStore } from "@/stores/agentUpdateStore";
 import { ApplyFooter } from "./ApplyFooter";
 import { SiteSelect } from "./SiteSelect";
 import { TargetStatusCard, statusFor, toolFor } from "./TargetStatusCard";
@@ -31,6 +32,8 @@ export const PrimeApplyPanel = memo(function PrimeApplyPanel() {
   const restoreOfficial = useApplyStore((state) => state.restoreOfficial);
   const cleanupOrphan = useApplyStore((state) => state.cleanupOrphan);
   const statusLoading = useApplyStore((state) => state.loading);
+
+  const updateAgent = useAgentUpdateStore((s) => s.updateAgent);
 
   const status = statusFor(statuses, "prime");
   const { siteId, site, sites, selectSite, hasAnySite, hasEnabledSite } = useApplySiteSelection(
@@ -106,6 +109,16 @@ export const PrimeApplyPanel = memo(function PrimeApplyPanel() {
     }
   };
 
+  const handleUpdate = async () => {
+    try {
+      await updateAgent("prime");
+      await loadStatus({ force: true });
+    } catch (error) {
+      console.error("Failed to update Prime:", error);
+      throw error;
+    }
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto p-6 pb-4">
@@ -119,6 +132,7 @@ export const PrimeApplyPanel = memo(function PrimeApplyPanel() {
               onRefresh={() => loadStatus({ force: true })}
               onRevert={() => revert("prime")}
               onCleanupOrphan={() => cleanupOrphan("prime")}
+              onUpdate={handleUpdate}
             />
           )}
         </SettingsGroup>

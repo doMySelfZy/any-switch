@@ -1,5 +1,7 @@
+pub mod agent_update;
 pub mod apply;
 pub mod mcp;
+pub mod mcp_version;
 pub mod binding;
 pub mod rules;
 pub mod settings;

@@ -11,6 +11,7 @@ mod deep_link;
 mod domain;
 mod env_inject;
 mod error;
+mod floating_window;
 mod http_client;
 mod key_switch;
 mod lock;
@@ -113,6 +114,10 @@ pub fn run() {
                     .close_to_tray
                     .store(false, Ordering::Relaxed);
             }
+            // 初始化悬浮窗（如果已启用）
+            if let Err(e) = floating_window::init_floating_window(app) {
+                tracing::warn!("failed to initialize floating window: {e}");
+            }
             if start_in_tray {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = window_lifecycle::hide_webview_window_to_tray(&w);
@@ -148,6 +153,15 @@ pub fn run() {
             commands::mcp_target_paths,
             commands::search_mcp_registry,
             commands::discover_mcp_registry,
+            commands::check_mcp_updates,
+            commands::update_mcp_server,
+            commands::batch_update_mcp_servers,
+            commands::check_agent_updates,
+            commands::get_agent_update_status,
+            commands::get_all_agent_update_statuses,
+            commands::update_agent,
+            commands::batch_update_agents,
+            commands::clear_agent_update_status,
             commands::get_agent_rules,
             commands::save_agent_rules,
             commands::agent_rules_target_paths,
@@ -232,6 +246,14 @@ pub fn run() {
             commands::restore_webdav_backup,
             commands::sync_now,
             commands::take_restore_result,
+            commands::get_all_sites_quota,
+            commands::toggle_floating_window,
+            commands::show_floating_window_cmd,
+            commands::hide_floating_window_cmd,
+            commands::save_floating_window_position,
+            commands::set_floating_window_enabled,
+            commands::set_floating_window_refresh_interval,
+            commands::reset_floating_window_position,
         ])
         .on_window_event(|window, event| {
             if window.label() != "main" {
