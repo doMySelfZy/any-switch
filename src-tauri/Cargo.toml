@@ -1,6 +1,6 @@
 [package]
 name = "any-switch"
-version = "0.1.0"
+version = "0.1.1"
 description = "Site-driven Claude Code, Codex & Pi config switcher"
 authors = ["AnySwitch"]
 license = "MIT"
