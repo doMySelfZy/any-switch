@@ -79,3 +79,25 @@ WebDAV 真同步全链路落地：逻辑内容指纹引擎+变更驱动守护任
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: 站点列表额度摘要与余额自动刷新
+<!-- trellis-session: v=2 fp=916822fdcfa1c7b5 -->
+
+**Date**: 2026-09-13
+**Task**: 站点列表额度摘要与余额自动刷新
+**Branch**: `main`
+
+### Summary
+
+站点列表条目显示额度摘要：余额型显示剩余金额（经站点自报倍率换算），窗口型显示 rolling 窗口用量百分比（≥80% 橙 / ≥90% 红），不支持的站点安静不显示；悬停 Tooltip 展示各窗口用量与更新时间。按用户反馈调整：去掉列表 URL、第二行整行显示余额并固定 min-h-5 保持行高整齐，新增每 2 分钟自动刷新（仅页面可见时轮询，重新可见立即补刷），复用 probeQuota 的 in-flight 去重与 TTL。完成每日打包安装（工作树隔离构建，避免并行 MCP 会话的未提交改动进入安装包），UIA 实测真实站点余额与接口一致，日志确认自动刷新按周期触发；pnpm typecheck 绿、310 测试绿。附带排查结论：AgentRouter 是 new-api 而非 Sub2API（/api/status 自报版本与 quota_per_unit、Sub2API 的 /v1/usage 返回 404、/api/user/self 正常）；发现账户余额链路硬编码 500000 除数的隐患。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `eb236c6` | feat(sites): 列表第二行显示余额并自动刷新 |
+
+### Status
+
+[OK] **Completed**
