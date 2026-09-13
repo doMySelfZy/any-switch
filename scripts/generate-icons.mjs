@@ -84,10 +84,22 @@ function buildWindowsVectorSvg() {
 }
 
 function runTauriIcon(input, output, pngSize) {
-  const args = ["exec", "tauri", "icon"];
+  const args = ["icon"];
   if (pngSize) args.push("--png", String(pngSize));
   args.push("--output", output, input);
-  const result = spawnSync("pnpm", args, { cwd: projectRoot, stdio: "inherit" });
+  // On Windows the CLI shim is a .cmd file, which spawnSync cannot resolve
+  // without a shell — going through `pnpm exec` fails with ENOENT there.
+  const localTauri = join(
+    projectRoot,
+    "node_modules",
+    ".bin",
+    process.platform === "win32" ? "tauri.cmd" : "tauri",
+  );
+  const result = spawnSync(localTauri, args, {
+    cwd: projectRoot,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
   if (result.status !== 0) throw new Error(`tauri icon failed for ${input}`);
 }
 
