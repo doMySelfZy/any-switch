@@ -9,17 +9,11 @@ const projectRoot = resolve(scriptDir, "..");
 const brandDir = join(projectRoot, "assets", "brand");
 const tauriIconsDir = join(projectRoot, "src-tauri", "icons");
 const publicDir = join(projectRoot, "public");
-const artworkPath = join(brandDir, "app-icon-artwork.png");
 const artworkSvgPath = join(brandDir, "app-icon-artwork.svg");
 
-if (!existsSync(artworkPath)) {
-  throw new Error(`Missing icon artwork: ${relative(projectRoot, artworkPath)}`);
-}
 if (!existsSync(artworkSvgPath)) {
   throw new Error(`Missing icon artwork SVG: ${relative(projectRoot, artworkSvgPath)}`);
 }
-
-const artworkDataUri = `data:image/png;base64,${readFileSync(artworkPath).toString("base64")}`;
 const macPlate = { x: 100, y: 100, size: 824 };
 const windowsPlate = { x: 64, y: 64, size: 896, radius: 43 };
 
@@ -83,6 +77,15 @@ function buildWindowsVectorSvg() {
   return composeVectorSvg(`<rect x="${x}" y="${y}" width="${size}" height="${size}" rx="${radius}"/>`, windowsPlate);
 }
 
+/** Full-bleed artwork with no plate: mobile platforms apply their own masks. */
+function buildFullBleedVectorSvg() {
+  return composeVectorSvg('<rect x="0" y="0" width="1024" height="1024"/>', {
+    x: 0,
+    y: 0,
+    size: 1024,
+  });
+}
+
 function runTauriIcon(input, output, pngSize) {
   const args = ["icon"];
   if (pngSize) args.push("--png", String(pngSize));
@@ -126,6 +129,7 @@ writeFileSync(join(publicDir, "favicon.svg"), buildMacVectorSvg());
 
 const tempRoot = mkdtempSync(join(tmpdir(), "any-switch-icons-"));
 const macSvg = join(tempRoot, "macos.svg");
+const mobileSvg = join(tempRoot, "mobile.svg");
 const windowsSvg = join(tempRoot, "windows.svg");
 const macIcons = join(tempRoot, "macos");
 const windowsIcons = join(tempRoot, "windows");
@@ -134,13 +138,14 @@ const macBrand = join(tempRoot, "macos-brand");
 const windowsBrand = join(tempRoot, "windows-brand");
 
 try {
-  writeFileSync(macSvg, buildMacSvg(artworkDataUri));
-  writeFileSync(windowsSvg, buildWindowsSvg(artworkDataUri));
+  writeFileSync(macSvg, buildMacVectorSvg());
+  writeFileSync(windowsSvg, buildWindowsVectorSvg());
 
   runTauriIcon(macSvg, macIcons);
   runTauriIcon(windowsSvg, windowsIcons);
   // Mobile platforms apply their own masks, so keep the source artwork full-bleed.
-  runTauriIcon(artworkPath, mobileIcons);
+  writeFileSync(mobileSvg, buildFullBleedVectorSvg());
+  runTauriIcon(mobileSvg, mobileIcons);
   runTauriIcon(macSvg, macBrand, 1024);
   runTauriIcon(windowsSvg, windowsBrand, 1024);
 
