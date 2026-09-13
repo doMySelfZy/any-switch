@@ -8,7 +8,8 @@
     "apply": "Apply",
     "skills": "Skills",
     "mcp": "MCP",
-    "settings": "Settings"
+    "settings": "Settings",
+    "rules": "Rules"
   },
   "sites": {
     "title": "Upstream Sites",
@@ -685,6 +686,34 @@
     "extraConfig": "Other config fields",
     "extraConfigHint": "Extra fields beyond command/args/url (JSON object), written to client configs as-is.",
     "headersStdioHint": "Locally run MCP servers usually need no headers."
+  },
+  "rules": {
+    "targetClaudeCode": "Claude Code",
+    "targetCodex": "Codex",
+    "targetPi": "Pi",
+    "targetPrime": "Prime",
+    "title": "Global Rules",
+    "subtitle": "Write once, and it is pushed to each selected agent's user-level instruction file for all future sessions.",
+    "contentTitle": "Rules content (Markdown)",
+    "contentHint": "Markdown supported",
+    "bodyLabel": "Rules body",
+    "placeholder": "# Global rules\n\n- Always answer in Chinese\n- Run the tests before claiming a change is done\n- Never run git push automatically",
+    "targetsTitle": "Apply to",
+    "emptyMeansClear": "An empty body or no selected target removes what this app wrote from each file; your own content is left untouched.",
+    "saveAppliesImmediately": "Saving writes to the selected targets immediately.",
+    "save": "Save and apply",
+    "saveFailed": "Save failed",
+    "appliedAt": "Last applied: {{time}}",
+    "resultTitle": "Write results",
+    "resultWritten": "Written",
+    "resultUnchanged": "Unchanged, skipped",
+    "resultFailed": "Failed: {{message}}",
+    "pathsTitle": "Target file locations",
+    "pathExists": "exists",
+    "pathMissing": "not created yet",
+    "codexShadowTitle": "Codex content will be shadowed",
+    "codexShadowDesc": "Found {{path}}. Codex only reads this override file, so the AGENTS.md written by this app will not take effect. Decide yourself whether to remove it.",
+    "plaintextNotice": "The rules are written to those files in plain text, readable by any program that can open them. Each client reads them at startup (Pi/Prime can reload with /reload)."
   },
   "common": {
     "loading": "Loading…",

@@ -31,6 +31,11 @@ impl AppError {
             details: Some(details.into()),
         }
     }
+
+    pub fn code(&self) -> &'static str {
+        let Self::Coded { code, .. } = self;
+        code
+    }
 }
 
 #[derive(Serialize)]

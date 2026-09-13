@@ -52,6 +52,25 @@
 - `env` 与 `headers` 在数据库里加密存储，应用后以明文落到客户端配置；`config` 原样透传（因此不要把密钥写进 `config`）。UI 须同时说明这两点。
 - MCP 数据随应用数据库走既有 WebDAV/备份同步，`mcp_servers` 必须留在 `sync.rs` 的 `FINGERPRINT_TABLES` 里，否则 MCP 变更不会被判定为数据变更、永远不发同步。
 
+## 全局约束（Agent 指令统一注入）
+
+一段用户级 Markdown 约束，勾选目标后由应用分别写入各 CLI 自己的全局指令文件。**每个客户端只写它自己的原生位置**：
+
+| 目标 | 文件 | 备注 |
+|------|------|------|
+| Claude Code | `${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md`（应用内覆盖优先） | 单文件上限 4 MiB；解析走 `paths::claude_rules_path` |
+| Codex | `${CODEX_HOME:-~/.codex}/AGENTS.md` | 同目录的 `AGENTS.override.md` 会**整体遮蔽**它：只检测并在 UI 警告，绝不改写 override 文件 |
+| Pi | `<pi agent dir>/AGENTS.md`；若目录内只有用户的 `CLAUDE.md` 则追加到它 | 不新建 `AGENTS.md` 去压过用户自己的 `CLAUDE.md` |
+| Prime | `<prime agent dir>/AGENTS.md`；选择规则同 Pi | Prime 文档未提 `AGENTS.override.md`，按不支持处理 |
+
+- 采用**托管块**而不是独占整个文件：块外用成对标记 `<!-- xiaobai-switch:begin global-rules -->` … `<!-- xiaobai-switch:end global-rules -->` 界定，块外用户内容必须逐字节保留（含 UTF-8 BOM）。标记前缀与 `xiaobai_` 命名空间同源，属兼容红线的一部分。
+- 清理时若文件只剩空白（整个文件都是本应用写的）就**删除该文件** —— 否则空的 `AGENTS.md` 会反过来遮蔽用户自己的 `CLAUDE.md`。唯一允许的字节变化是尾部空行归一为一个换行。
+- 正文含标记字面量、文件只有 BEGIN 没有 END、路径是目录、文件非 UTF-8：一律**报错并原样保留文件**。
+- 单条正文存在 `agent_rules` 单行表（`id = 1`）；「已应用目标」用 `sync_meta` 的 `agent_rules_applied_targets`，写入目标 = 本次勾选 ∪ 上次写过（取消勾选 / 清空正文时靠它清理）。空正文或空目标 = 不生效。
+- 写盘前备份到 `~/.xiaobai-switch/backups/agent-rules/`，原子替换 + `<文件名>.lock` 互斥；内容无变化时**不备份、不写盘**。
+- `agent_rules` 必须留在 `sync.rs` 的 `FINGERPRINT_TABLES` 里，否则约束变更永远不发同步。
+- 约束正文以明文写入上述文件，UI 须说明这一点；写入的提示行固定双语（不随界面语言变）。
+
 ## UI Shell
 
 ### 标题栏

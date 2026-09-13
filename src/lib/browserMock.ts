@@ -36,6 +36,7 @@ import type {
   WebDavConfigView,
 } from "@/types/domain";
 import type { McpApplyResult, McpApplyTargetResult, McpServer, McpServerInput, RegistryCandidate } from "@/types/mcp";
+import type { AgentRules, AgentRulesApplyResult } from "@/types/rules";
 import { keyPrefix, normalizeBaseUrl } from "./urlNormalize";
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -160,6 +161,15 @@ const exclusions = new Map<string, Set<string>>();
 let quotaProbeCallCount = 0;
 let quotaProbeHandler: ((site: Site) => SiteQuota | Promise<SiteQuota>) | null = null;
 let mcpServers: McpServer[] = [];
+let agentRules: AgentRules = { body: "", targets: [], updatedAt: 0 };
+
+/** 浏览器模式下全局约束的落点样例，覆盖「已存在」与「尚未创建」两种状态。 */
+const AGENT_RULES_PATHS: [TargetKind, string, boolean][] = [
+  ["claude_code", "/Users/demo/.claude/CLAUDE.md", true],
+  ["codex", "/Users/demo/.codex/AGENTS.md", false],
+  ["pi", "/Users/demo/.pi/agent/AGENTS.md", false],
+  ["prime", "/Users/demo/.prime/agent/AGENTS.md", false],
+];
 
 type BrowserMarketplaceSkill = Omit<MarketplaceSkill, "installedTargets">;
 
@@ -291,6 +301,7 @@ export function resetBrowserMock() {
   quotaProbeCallCount = 0;
   quotaProbeHandler = null;
   mcpServers = [];
+  agentRules = { body: "", targets: [], updatedAt: 0 };
   skills = INITIAL_SKILLS.map((skill) => ({ ...skill }));
   marketplaceTargets = new Map([
     ["demo/shared-tools", ["claude_code", "codex"]],
@@ -1687,6 +1698,43 @@ export async function handleBrowserCommand<T>(
         ["pi", "/Users/demo/.pi/agent/mcp.json"],
         ["prime", "/Users/demo/.prime/agent/settings.json"],
       ] as T;
+    case "get_agent_rules":
+      return { ...agentRules, targets: [...agentRules.targets] } as T;
+    case "save_agent_rules": {
+      const body = String(args?.body ?? "");
+      const targets = (args?.targets ?? []) as TargetKind[];
+      for (const marker of [
+        "<!-- xiaobai-switch:begin global-rules -->",
+        "<!-- xiaobai-switch:end global-rules -->",
+      ]) {
+        if (body.includes(marker)) {
+          throw {
+            code: "validation_failed",
+            message: "the rules text must not contain the XiaoBaiSwitch managed-block markers",
+          };
+        }
+      }
+      const timestamp = now();
+      agentRules = { body, targets, updatedAt: timestamp };
+      // 正文为空时不写文件：与后端的「清空即清理」语义一致。
+      const effective = body.trim().length === 0 ? [] : targets;
+      const results = effective.map((target) => ({
+        target,
+        ok: true,
+        path: AGENT_RULES_PATHS.find(([kind]) => kind === target)?.[1] ?? "",
+        changed: true,
+        backupPaths: [],
+        message: "applied",
+      }));
+      const result: AgentRulesApplyResult = { results, appliedAt: timestamp };
+      return result as T;
+    }
+    case "agent_rules_target_paths":
+      return AGENT_RULES_PATHS.map(([target, path, exists]) => ({
+        target,
+        path,
+        exists,
+      })) as T;
     case "search_mcp_registry":
     case "discover_mcp_registry": {
       // 浏览器模式下的固定样例，覆盖「本地包」「远程服务」「无法安装」三类，

@@ -9,6 +9,7 @@ import { SitesPage } from "@/pages/SitesPage";
 import { ApplyPage } from "@/pages/ApplyPage";
 import { SkillsPage } from "@/pages/SkillsPage";
 import { McpPage } from "@/pages/McpPage";
+import { RulesPage } from "@/pages/RulesPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { useSettingsStore, useUIStore, type AppPage } from "@/stores";
 import { useResolvedDarkMode } from "@/hooks/useResolvedDarkMode";
@@ -92,6 +93,17 @@ function KeepAlivePages({ activePage }: { activePage: AppPage }) {
         >
           <div className="flex h-full min-h-0 w-full flex-col">
             <McpPage />
+          </div>
+        </div>
+      )}
+      {mounted.has("rules") && (
+        <div
+          className="h-full min-h-0"
+          style={{ display: activePage === "rules" ? "flex" : "none" }}
+          aria-hidden={activePage !== "rules"}
+        >
+          <div className="flex h-full min-h-0 w-full flex-col">
+            <RulesPage />
           </div>
         </div>
       )}

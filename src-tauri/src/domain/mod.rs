@@ -7,6 +7,8 @@ mod thinking;
 pub use thinking::*;
 mod mcp;
 pub use mcp::*;
+mod rules;
+pub use rules::*;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

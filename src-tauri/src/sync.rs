@@ -38,7 +38,7 @@ impl DataFingerprint {
 }
 
 /// 参与内容指纹的业务表（引擎记账表与 WebDAV 配置不参与）。
-const FINGERPRINT_TABLES: [&str; 8] = [
+const FINGERPRINT_TABLES: [&str; 9] = [
     "settings",
     "sites",
     "site_api_keys",
@@ -47,6 +47,7 @@ const FINGERPRINT_TABLES: [&str; 8] = [
     "target_bindings",
     "apply_records",
     "mcp_servers",
+    "agent_rules",
 ];
 
 /// 逻辑内容指纹：按表遍历全部业务行做稳定哈希。
@@ -667,6 +668,38 @@ mod tests {
         assert_ne!(added, updated, "updating an MCP server must change the fingerprint");
 
         conn.execute("DELETE FROM mcp_servers WHERE id = 'm1'", [])
+            .unwrap();
+        let removed = compute_logical_fingerprint(&conn, &key).unwrap();
+        assert_eq!(before, removed, "deleting back to the original state restores the fingerprint");
+    }
+
+    #[test]
+    fn fingerprint_tracks_agent_rules_changes() {
+        // 回归：全局约束表不参与指纹时，改动约束不会被判定为数据变更，
+        // 跨设备同步就永远不会把这套约束发布出去。
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        let key = [9_u8; 32];
+        let before = compute_logical_fingerprint(&conn, &key).unwrap();
+
+        conn.execute(
+            "INSERT INTO agent_rules (id, body, targets_json, updated_at)
+             VALUES (1, '# 约束', '[\"claude_code\"]', 1)",
+            [],
+        )
+        .unwrap();
+        let added = compute_logical_fingerprint(&conn, &key).unwrap();
+        assert_ne!(before, added, "saving agent rules must change the fingerprint");
+
+        conn.execute(
+            "UPDATE agent_rules SET body = '# 约束 v2', updated_at = 2 WHERE id = 1",
+            [],
+        )
+        .unwrap();
+        let updated = compute_logical_fingerprint(&conn, &key).unwrap();
+        assert_ne!(added, updated, "updating agent rules must change the fingerprint");
+
+        conn.execute("DELETE FROM agent_rules WHERE id = 1", [])
             .unwrap();
         let removed = compute_logical_fingerprint(&conn, &key).unwrap();
         assert_eq!(before, removed, "deleting back to the original state restores the fingerprint");

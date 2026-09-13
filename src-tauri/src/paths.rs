@@ -493,6 +493,23 @@ pub fn claude_mcp_json_path(claude_home_override: Option<&str>) -> AppResult<Pat
     Ok(home_dir()?.join(".claude.json"))
 }
 
+/// Claude Code 的用户级记忆文件。设置 `CLAUDE_CONFIG_DIR` 时整个 `~/.claude` 都会
+/// 搬到该目录下，记忆文件随之变成该目录内的 `CLAUDE.md`，所以这里与
+/// `claude_mcp_json_path` 用同一套优先级：应用内 override → 环境变量 → 家目录。
+pub fn claude_rules_path(claude_home_override: Option<&str>) -> AppResult<PathBuf> {
+    if let Some(p) = claude_home_override {
+        if !p.trim().is_empty() {
+            return Ok(PathBuf::from(p).join("CLAUDE.md"));
+        }
+    }
+    if let Ok(v) = std::env::var("CLAUDE_CONFIG_DIR") {
+        if !v.trim().is_empty() {
+            return Ok(PathBuf::from(v).join("CLAUDE.md"));
+        }
+    }
+    Ok(default_claude_home()?.join("CLAUDE.md"))
+}
+
 pub fn resolve_codex_home(override_path: Option<&str>) -> AppResult<PathBuf> {
     if let Some(p) = override_path {
         if !p.trim().is_empty() {

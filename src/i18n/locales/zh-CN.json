@@ -8,7 +8,8 @@
     "apply": "应用中心",
     "skills": "技能",
     "mcp": "MCP",
-    "settings": "设置"
+    "settings": "设置",
+    "rules": "约束"
   },
   "sites": {
     "title": "上游站点",
@@ -685,6 +686,34 @@
     "extraConfig": "其他配置字段",
     "extraConfigHint": "除启动命令/参数/地址外的额外字段（JSON 对象），会原样写入客户端配置。",
     "headersStdioHint": "本地运行的 MCP 通常不需要请求头。"
+  },
+  "rules": {
+    "targetClaudeCode": "Claude Code",
+    "targetCodex": "Codex",
+    "targetPi": "Pi",
+    "targetPrime": "Prime",
+    "title": "全局约束",
+    "subtitle": "一次填写，自动写入所选 Agent 的用户级指令文件，对之后的所有会话生效。",
+    "contentTitle": "约束内容（Markdown）",
+    "contentHint": "支持 Markdown 语法",
+    "bodyLabel": "约束正文",
+    "placeholder": "# 全局约束\n\n- 始终用中文回答\n- 修改代码后先跑测试再声称完成\n- 不要自动执行 git push",
+    "targetsTitle": "生效目标",
+    "emptyMeansClear": "正文为空或未勾选目标时，会移除各文件里由本应用写入的内容（你自己写的内容不动）。",
+    "saveAppliesImmediately": "保存后立即写入所勾选的目标。",
+    "save": "保存并应用",
+    "saveFailed": "保存失败",
+    "appliedAt": "最近应用：{{time}}",
+    "resultTitle": "写入结果",
+    "resultWritten": "已写入",
+    "resultUnchanged": "内容未变，跳过写入",
+    "resultFailed": "失败：{{message}}",
+    "pathsTitle": "各目标的文件落点",
+    "pathExists": "已存在",
+    "pathMissing": "尚未创建",
+    "codexShadowTitle": "Codex 的内容会被遮蔽",
+    "codexShadowDesc": "检测到 {{path}}。Codex 只读取这个 override 文件，本应用写入的 AGENTS.md 不会生效；请自行决定是否移除它。",
+    "plaintextNotice": "约束正文会以明文写入上述文件，任何能读取这些文件的程序都能看到内容；各客户端在下次启动时读取（Pi/Prime 可用 /reload 立即生效）。"
   },
   "common": {
     "loading": "加载中…",

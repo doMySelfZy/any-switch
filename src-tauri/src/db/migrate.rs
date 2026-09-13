@@ -31,6 +31,13 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
 
 CREATE INDEX IF NOT EXISTS idx_mcp_servers_updated ON mcp_servers(updated_at);
 
+CREATE TABLE IF NOT EXISTS agent_rules (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  body TEXT NOT NULL DEFAULT '',
+  targets_json TEXT NOT NULL DEFAULT '[]',
+  updated_at INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   json TEXT NOT NULL
@@ -198,11 +205,16 @@ fn ensure_mcp_schema(conn: &Connection) -> AppResult<()> {
     conn.execute_batch("CREATE TABLE IF NOT EXISTS mcp_servers (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'stdio', enabled INTEGER NOT NULL DEFAULT 1, targets_json TEXT NOT NULL, config_json TEXT NOT NULL, secrets_encrypted TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS idx_mcp_servers_updated ON mcp_servers(updated_at);")?;
     Ok(())
 }
+fn ensure_agent_rules_schema(conn: &Connection) -> AppResult<()> {
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS agent_rules (id INTEGER PRIMARY KEY CHECK (id = 1), body TEXT NOT NULL DEFAULT '', targets_json TEXT NOT NULL DEFAULT '[]', updated_at INTEGER NOT NULL DEFAULT 0);")?;
+    Ok(())
+}
 /// 版本号之前的存量库增量补齐。`CREATE TABLE IF NOT EXISTS` 对已存在的表是空操作，
 /// 所以每一个「库已存在」的分支都必须走这里，否则升版本号会让老库永远拿不到新列/新表。
 fn ensure_incremental_schema(conn: &Connection) -> AppResult<()> {
     ensure_sites_newapi_columns(conn)?;
     ensure_mcp_schema(conn)?;
+    ensure_agent_rules_schema(conn)?;
     Ok(())
 }
 
@@ -980,6 +992,7 @@ mod tests {
         apply_schema(&conn, None, BackupMode::Skip).unwrap();
 
         assert!(table_exists(&conn, "mcp_servers").unwrap());
+        assert!(table_exists(&conn, "agent_rules").unwrap());
         assert!(column_exists(&conn, "sites", "newapi_access_token_encrypted").unwrap());
         assert_eq!(user_version(&conn).unwrap(), SCHEMA_VERSION);
     }
@@ -1001,8 +1014,24 @@ mod tests {
         apply_schema(&conn, Some(&crypto), BackupMode::Skip).unwrap();
 
         assert!(table_exists(&conn, "mcp_servers").unwrap());
+        assert!(table_exists(&conn, "agent_rules").unwrap());
         assert!(column_exists(&conn, "sites", "newapi_access_token_encrypted").unwrap());
         assert!(column_exists(&conn, "sites", "newapi_user_id").unwrap());
         assert_eq!(user_version(&conn).unwrap(), SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn current_version_database_still_gains_agent_rules_table() {
+        // 回归：`CREATE TABLE IF NOT EXISTS` 不会给已存在的库补新表。版本号已经等于
+        // 当前值时会走 `version >= SCHEMA_VERSION` 的提前返回分支，那条分支同样必须
+        // 调用 ensure_incremental_schema，否则老库永远拿不到 agent_rules 且不报错。
+        let conn = Connection::open_in_memory().unwrap();
+        apply_schema(&conn, None, BackupMode::Skip).unwrap();
+        conn.execute_batch("DROP TABLE IF EXISTS agent_rules;")
+            .unwrap();
+
+        apply_schema(&conn, None, BackupMode::Skip).unwrap();
+
+        assert!(table_exists(&conn, "agent_rules").unwrap());
     }
 }

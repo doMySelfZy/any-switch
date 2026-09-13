@@ -1,3 +1,4 @@
+pub mod agent_rules;
 pub mod atomic;
 pub mod claude_code;
 pub mod codex;
