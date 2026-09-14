@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@/lib/invoke";
@@ -113,6 +114,17 @@ export const FloatingWindow: React.FC = () => {
     [appWindow],
   );
 
+  /** 重读设置里的悬浮窗偏好。设置页改动后由事件触发，不必重开窗口。 */
+  const reloadPrefs = useCallback(async () => {
+    try {
+      const settings = await invoke<AppSettings>("get_settings");
+      const minutes = settings.floatingWindow?.autoRefreshMinutes ?? 5;
+      setPrefs({ autoRefreshMinutes: minutes, collapsed: settings.floatingWindow?.collapsed ?? false });
+    } catch (error) {
+      console.error("Failed to reload floating window settings:", error);
+    }
+  }, []);
+
   // 首屏：先读缓存立刻出内容，再后台刷新一次，避免开窗白屏。
   useEffect(() => {
     let cancelled = false;
@@ -139,9 +151,27 @@ export const FloatingWindow: React.FC = () => {
     return () => {
       cancelled = true;
     };
-    // 只跑一次：设置变更由设置页负责，这里不需要跟随。
+    // 只跑一次：后续变更由 floating-settings-changed 事件驱动。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 设置页改了刷新间隔：立刻跟随，不用等下一个周期或重开窗口。
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    void listen("floating-settings-changed", () => {
+      void reloadPrefs();
+    })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch((error) => console.error("Failed to listen for settings changes:", error));
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [reloadPrefs]);
 
   // 自动刷新：按设置里的分钟数定时拉取。组件卸载时清掉定时器。
   useEffect(() => {

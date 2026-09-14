@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { App as AntdApp, ConfigProvider } from "antd";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetBrowserMock } from "@/lib/browserMock";
+import { handleBrowserCommand, resetBrowserMock } from "@/lib/browserMock";
 import { FloatingWindow } from "./FloatingWindow";
 import "@/i18n";
 
@@ -29,6 +29,16 @@ vi.mock("@tauri-apps/api/window", () => ({
       public height: number,
     ) {}
   },
+}));
+
+// 跨窗口事件：悬浮窗靠它跟随设置页的改动。
+const listeners = new Map<string, () => void>();
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn((event: string, handler: () => void) => {
+    listeners.set(event, handler);
+    return Promise.resolve(() => listeners.delete(event));
+  }),
+  emit: vi.fn().mockResolvedValue(undefined),
 }));
 
 // 统计后端调用，用来验证自动刷新确实会发请求。
@@ -187,6 +197,44 @@ describe("FloatingWindow", () => {
       const after = invoke.mock.calls.filter((c) => c[0] === "refresh_sites_quota").length;
       expect(after).toBeGreaterThan(before);
     });
+  });
+
+  it("follows a settings change without reopening the window", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const invoke = await invokeMock();
+    render(
+      <Wrapper>
+        <FloatingWindow />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Relay A")).toBeInTheDocument();
+    });
+    const countRefreshes = () =>
+      invoke.mock.calls.filter((call) => call[0] === "refresh_sites_quota").length;
+
+    // 设置页把间隔改成 1 分钟并广播事件。
+    await handleBrowserCommand("save_settings", {
+      partial: {
+        floatingWindow: {
+          enabled: true,
+          autoRefreshMinutes: 1,
+          positionX: 100,
+          positionY: 100,
+          collapsed: false,
+        },
+      },
+    });
+    const handler = listeners.get("floating-settings-changed");
+    expect(handler, "悬浮窗应当订阅设置变更事件").toBeTruthy();
+    handler?.();
+
+    // 等重读设置完成，再推进 1 分钟：应当已按新间隔触发刷新。
+    await vi.advanceTimersByTimeAsync(0);
+    const before = countRefreshes();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(countRefreshes()).toBeGreaterThan(before);
   });
 
   it("hides the window instead of quitting on close", async () => {

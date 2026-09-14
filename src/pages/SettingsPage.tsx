@@ -10,10 +10,23 @@ import {
   GITHUB_RELEASES_URL,
   GITHUB_REPO_URL,
 } from "@/lib/constants";
-import { invoke, isAppError } from "@/lib/invoke";
+import { invoke, isAppError, isTauri } from "@/lib/invoke";
 import { openExternalUrl } from "@/lib/openUrl";
 import type { AppPaths, AppSettings, ProxyMode, ProxyProtocol } from "@/types/domain";
 import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
+
+/**
+ * 通知悬浮窗设置变了。
+ *
+ * 悬浮窗是独立 webview，拿不到这里的 store；跨窗口只能走 Tauri 事件。
+ * 非 Tauri 环境（浏览器 dev / 测试）没有事件系统，静默跳过。
+ */
+function notifyFloatingSettingsChanged() {
+  if (!isTauri()) return;
+  void import("@tauri-apps/api/event")
+    .then(({ emit }) => emit("floating-settings-changed"))
+    .catch(() => undefined);
+}
 import { SettingsGroup } from "@/components/settings/SettingsGroup";
 import { BackupCenter } from "@/components/settings/BackupCenter";
 import { useUpdateCheckBusy, useUpdateChecker } from "@/hooks/useUpdateChecker";
@@ -172,8 +185,7 @@ function GeneralSection() {
                   message.error(t("settings.floatingWindowOpenFailed"));
                   console.error(e);
                 });
-              }
-            }}
+              }            }}
           />
         </div>
         <Divider style={{ margin: "8px 0" }} />
@@ -197,6 +209,8 @@ function GeneralSection() {
                     collapsed: settings.floatingWindow?.collapsed ?? false,
                   },
                 });
+                // 让已打开的悬浮窗立刻按新间隔刷新，不必重开。
+                notifyFloatingSettingsChanged();
               }
             }}
             addonAfter={t("settings.minutes")}
