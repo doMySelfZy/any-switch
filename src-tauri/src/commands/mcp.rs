@@ -352,6 +352,104 @@ pub fn mcp_target_paths(state: State<'_, AppState>) -> AppResult<Vec<(TargetKind
     ])
 }
 
+/// 扫描四个客户端里**用户已有**的 MCP 配置。
+///
+/// 只读：不修改任何客户端文件。返回值不含任何密钥值，只含键名——界面据此展示
+/// 「需要填什么」，密钥要到纳管时才由后端直接读盘入库。
+#[tauri::command]
+pub fn scan_existing_mcp(
+    state: State<'_, AppState>,
+) -> AppResult<crate::adapters::mcp_scan::ScanOutcome> {
+    use crate::adapters::mcp_scan;
+
+    let settings: AppSettings = state.db.with_conn(repo::settings::get_settings)?;
+    let mut outcome = mcp_scan::scan_all(&settings);
+
+    // 与库里已有记录比对，标出哪些已纳管过，避免界面重复提供「纳管」。
+    // 名称比较不区分大小写，与 save 的重名校验口径一致。
+    let existing = state.db.with_conn(|conn| repo::mcp::list(conn, &state.crypto))?;
+    let by_name: std::collections::HashMap<String, String> = existing
+        .into_iter()
+        .map(|server| (server.name.to_lowercase(), server.id))
+        .collect();
+    for entry in &mut outcome.entries {
+        entry.imported_id = by_name.get(&entry.name.to_lowercase()).cloned();
+    }
+
+    Ok(outcome)
+}
+
+/// 纳管定位符：前端只说明「哪个客户端的哪个键」，不承担传递配置内容的职责。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpImportLocator {
+    pub target: crate::adapters::mcp_scan::ScanTarget,
+    pub key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpImportFailure {
+    pub target: crate::adapters::mcp_scan::ScanTarget,
+    pub key: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpImportResult {
+    pub imported: Vec<McpServerSummary>,
+    pub failed: Vec<McpImportFailure>,
+}
+
+/// 纳管：把扫描到的条目导入数据库，env/headers 走既有加密存储。
+///
+/// 密钥值由后端按定位符直接读盘取得，**不经过前端**。导入本身不修改来源客户端文件——
+/// 接管（删除等价的手工条目）发生在之后的「应用」时，且有指纹校验兜底。
+#[tauri::command]
+pub fn import_scanned_mcp(
+    state: State<'_, AppState>,
+    locators: Vec<McpImportLocator>,
+) -> AppResult<McpImportResult> {
+    use crate::adapters::mcp_scan;
+
+    let settings: AppSettings = state.db.with_conn(repo::settings::get_settings)?;
+    let mut imported = Vec::new();
+    let mut failed = Vec::new();
+
+    for locator in locators {
+        let saved = mcp_scan::load_entry_for_import(locator.target, &locator.key, &settings)
+            .and_then(|input| {
+                state
+                    .db
+                    .with_conn(|conn| repo::mcp::save(conn, &state.crypto, input))
+            });
+
+        match saved {
+            // 只回元数据：save 的返回值含 env/headers 明文，不该回传前端。
+            Ok(server) => imported.push(McpServerSummary {
+                id: server.id,
+                name: server.name,
+                kind: server.kind,
+                enabled: server.enabled,
+                targets: server.targets,
+                created_at: server.created_at,
+                updated_at: server.updated_at,
+                current_version: server.current_version,
+                latest_version: server.latest_version,
+                last_update_check_at: server.last_update_check_at,
+            }),
+            Err(error) => failed.push(McpImportFailure {
+                target: locator.target,
+                key: locator.key,
+                message: error.to_string(),
+            }),
+        }
+    }
+
+    Ok(McpImportResult { imported, failed })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

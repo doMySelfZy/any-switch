@@ -68,6 +68,58 @@ fn has_entries(value: &Value) -> bool {
     value.as_object().is_some_and(|map| !map.is_empty())
 }
 
+/// 去掉类型标记后拆成 (config, env, headers)。
+///
+/// `type` / `transport` 只是「按字段推断出传输方式」的显式写法，不参与等价判断——
+/// 否则用户手工写的条目（通常不带 type）永远匹配不上我们渲染出来的结果。
+fn strip_entry(entry: &Value) -> (Value, Value, Value) {
+    let mut config = entry.as_object().cloned().unwrap_or_default();
+    config.remove("type");
+    config.remove("transport");
+    let env = config
+        .remove("env")
+        .unwrap_or_else(|| Value::Object(Map::new()));
+    let headers = config
+        .remove("headers")
+        .unwrap_or_else(|| Value::Object(Map::new()));
+    (Value::Object(config), env, headers)
+}
+
+/// 客户端里那条**未托管**条目，是否与库内记录等价。
+///
+/// 只在等价时才敢用托管条目替换它——否则同一个 MCP 会在客户端里存在两份、被加载两遍。
+/// 不等价说明用户在我们纳管之后又改过那条配置：那种情况必须报错让用户决定，
+/// 绝不能拿库里的旧版本覆盖用户的新改动。
+fn untracked_matches_record(entry: &Value, server: &McpServer) -> bool {
+    let (actual_config, actual_env, actual_headers) = strip_entry(entry);
+    let (expected_config, expected_env, expected_headers) = strip_entry(&server_entry(server));
+
+    crate::adapters::mcp_scan::canonical(&actual_config)
+        == crate::adapters::mcp_scan::canonical(&expected_config)
+        && crate::adapters::mcp_scan::canonical(&actual_env)
+            == crate::adapters::mcp_scan::canonical(&expected_env)
+        && crate::adapters::mcp_scan::canonical(&actual_headers)
+            == crate::adapters::mcp_scan::canonical(&expected_headers)
+}
+
+/// 接管：库内已有记录、且目标里存在同名未托管条目时，判断能否安全替换。
+///
+/// 返回 `Ok(true)` 表示可以删除那条未托管条目（随后写入托管条目）；`Ok(false)`
+/// 表示目标里没有同名条目，无需处理。
+fn can_take_over(name: &str, existing: &Value, server: &McpServer) -> AppResult<bool> {
+    if untracked_matches_record(existing, server) {
+        return Ok(true);
+    }
+    Err(AppError::new(
+        "mcp_untracked_conflict",
+        format!(
+            "目标配置里已有名为 '{name}' 的 MCP，内容与库内记录不一致。\
+             为避免覆盖你在客户端里手工改过的配置，本次没有写入。\
+             请给它改名，或先删除/对齐那条配置后重试。"
+        ),
+    ))
+}
+
 /// 合并到 JSON 配置的 `mcpServers`，保留所有非托管条目与文件里的其它未知字段。
 pub fn merge_servers_into_json(root: &mut Value, servers: &[McpServer]) -> AppResult<()> {
     let object = root.as_object_mut().ok_or_else(|| {
@@ -80,6 +132,18 @@ pub fn merge_servers_into_json(root: &mut Value, servers: &[McpServer]) -> AppRe
         AppError::new("invalid_config", "existing mcpServers must be a JSON object")
     })?;
 
+    // 先接管：同名未托管条目若仍与库内记录等价，就先删掉，避免与托管条目并存被重复加载。
+    for server in servers.iter().filter(|server| server.enabled) {
+        if map.contains_key(&managed_key(&server.name)) {
+            continue;
+        }
+        if let Some(existing) = map.get(&server.name).cloned() {
+            if can_take_over(&server.name, &existing, server)? {
+                map.remove(&server.name);
+            }
+        }
+    }
+
     let keep = keep_keys(servers);
     map.retain(|key, _| !key.starts_with(MANAGED_PREFIX) || keep.contains(key));
     for server in servers.iter().filter(|server| server.enabled) {
@@ -87,7 +151,6 @@ pub fn merge_servers_into_json(root: &mut Value, servers: &[McpServer]) -> AppRe
     }
     Ok(())
 }
-
 fn read_json_config(
     path: &Path,
     backup_root: &Path,
@@ -177,6 +240,46 @@ pub fn apply_to_codex(
             table.insert(key, toml_edit::Item::Value(value.clone()));
         }
         doc["mcp_servers"] = toml_edit::Item::Table(table);
+    }
+
+    // 接管：同名未托管条目若仍与库内记录等价，先删掉再写托管条目——否则 Codex 会
+    // 同时加载两份同一个 MCP。内容被改过则报错跳过该目标，绝不覆盖用户的新改动。
+    let mut takeover: Vec<String> = Vec::new();
+    if let Some(section) = doc.get("mcp_servers").and_then(|item| item.as_table_like()) {
+        for server in servers.iter().filter(|server| server.enabled) {
+            if section.contains_key(&managed_key(&server.name)) {
+                continue;
+            }
+            let Some(existing) = section
+                .get(&server.name)
+                .and_then(|item| item.as_table_like())
+            else {
+                continue;
+            };
+            let actual = crate::adapters::mcp_scan::codex_entry_to_json(existing);
+            let expected = crate::adapters::mcp_scan::codex_record_to_json(server);
+            if crate::adapters::mcp_scan::canonical(&actual)
+                != crate::adapters::mcp_scan::canonical(&expected)
+            {
+                return Err(AppError::new(
+                    "mcp_untracked_conflict",
+                    format!(
+                        "Codex 里已有名为 '{}' 的 MCP，内容与库内记录不一致。\
+                         为避免覆盖你在 config.toml 里手工改过的配置，本次没有写入。\
+                         请给它改名，或先删除/对齐那条配置后重试。",
+                        server.name
+                    ),
+                ));
+            }
+            takeover.push(server.name.clone());
+        }
+    }
+    if !takeover.is_empty() {
+        if let Some(section) = doc.get_mut("mcp_servers").and_then(|item| item.as_table_mut()) {
+            for name in &takeover {
+                section.remove(name);
+            }
+        }
     }
 
     let keep = keep_keys(servers);
@@ -818,5 +921,181 @@ args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
         );
         assert_eq!(root["mcpServers"]["user-server"]["command"], "user-cmd");
         assert_eq!(root["theme"], "dark", "unrelated keys survive");
+    }
+
+    /// 与库内 `server("demo")` 等价的手工条目（没有 type，靠字段推断）。
+    fn untracked_demo_json() -> Value {
+        json!({
+            "command": "mcp-demo",
+            "args": ["--port", "3000"],
+            "env": { "API_KEY": "test" }
+        })
+    }
+
+    #[test]
+    fn takeover_replaces_equivalent_untracked_entry() {
+        // 用户手工配的 demo 被纳管后，应用时应当被托管条目**替换**而不是并存——
+        // 并存会让客户端同时加载两份同一个 MCP。
+        let (dir, backup) = temp_backup_root();
+        let path = dir.path().join(".claude.json");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!({
+                "mcpServers": { "demo": untracked_demo_json() }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        apply_to_claude(
+            &[server("demo", true)],
+            Some(dir.path().to_str().unwrap()),
+            &backup,
+        )
+        .unwrap();
+
+        let root: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let map = root["mcpServers"].as_object().unwrap();
+        assert_eq!(map.len(), 1, "必须只剩一条，否则会被加载两遍: {map:?}");
+        assert!(map.contains_key("xiaobai_demo"));
+        assert!(!map.contains_key("demo"), "等价的未托管条目应被替换掉");
+    }
+
+    #[test]
+    fn takeover_refuses_and_keeps_file_when_untracked_entry_differs() {
+        // 用户在纳管之后又改过那条配置：绝不能拿库里的旧版本覆盖它。
+        let (dir, backup) = temp_backup_root();
+        let path = dir.path().join(".claude.json");
+        let original = json!({
+            "mcpServers": {
+                "demo": { "command": "user-edited", "env": { "API_KEY": "changed" } }
+            }
+        });
+        fs::write(&path, serde_json::to_string_pretty(&original).unwrap()).unwrap();
+
+        let error = apply_to_claude(
+            &[server("demo", true)],
+            Some(dir.path().to_str().unwrap()),
+            &backup,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("demo"), "{error}");
+        let after: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(after, original, "拒绝时必须原样保留文件");
+    }
+
+    #[test]
+    fn takeover_ignores_explicit_type_marker() {
+        // 手工条目带上 `type` 只是显式说明，不该因此被判定为「已改动」。
+        let (dir, backup) = temp_backup_root();
+        let path = dir.path().join(".claude.json");
+        let mut entry = untracked_demo_json();
+        entry["type"] = json!("stdio");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!({ "mcpServers": { "demo": entry } })).unwrap(),
+        )
+        .unwrap();
+
+        apply_to_claude(
+            &[server("demo", true)],
+            Some(dir.path().to_str().unwrap()),
+            &backup,
+        )
+        .unwrap();
+
+        let root: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(root["mcpServers"].as_object().unwrap().len(), 1);
+        assert!(root["mcpServers"]["xiaobai_demo"].is_object());
+    }
+
+    #[test]
+    fn takeover_skips_disabled_servers() {
+        // 禁用的记录不该去动客户端里的同名条目。
+        let (dir, backup) = temp_backup_root();
+        let path = dir.path().join(".claude.json");
+        let original = json!({ "mcpServers": { "demo": untracked_demo_json() } });
+        fs::write(&path, serde_json::to_string_pretty(&original).unwrap()).unwrap();
+
+        apply_to_claude(
+            &[server("demo", false)],
+            Some(dir.path().to_str().unwrap()),
+            &backup,
+        )
+        .unwrap();
+
+        let after: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(after, original, "禁用时不应触碰用户条目");
+    }
+
+    #[test]
+    fn codex_takeover_replaces_equivalent_untracked_entry() {
+        let (dir, backup) = temp_backup_root();
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"model = "gpt-5"
+
+[mcp_servers.demo]
+command = "mcp-demo"
+args = ["--port", "3000"]
+
+[mcp_servers.demo.env]
+API_KEY = "placeholder"
+"#,
+        )
+        .unwrap();
+
+        // 库内记录的 env 必须与文件里那条一致，才构成「等价」。
+        let mut record = server("demo", true);
+        record.env = json!({ "API_KEY": "placeholder" });
+
+        apply_to_codex(&[record], Some(dir.path().to_str().unwrap()), &backup).unwrap();
+
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("xiaobai_demo"), "{text}");
+        assert!(
+            !text.contains("[mcp_servers.demo]"),
+            "等价的未托管条目应被替换: {text}"
+        );
+        assert!(text.contains("model = \"gpt-5\""), "无关配置保留");
+    }
+
+    #[test]
+    fn codex_takeover_refuses_and_keeps_file_when_entry_differs() {
+        let (dir, backup) = temp_backup_root();
+        let path = dir.path().join("config.toml");
+        let original = "[mcp_servers.demo]\ncommand = \"user-edited\"\n";
+        fs::write(&path, original).unwrap();
+
+        let error = apply_to_codex(
+            &[server("demo", true)],
+            Some(dir.path().to_str().unwrap()),
+            &backup,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("demo"), "{error}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), original, "拒绝时原样保留");
+    }
+
+    #[test]
+    fn codex_writes_normally_when_no_untracked_entry_exists() {
+        // 没有同名条目时不该误报冲突。
+        let (dir, backup) = temp_backup_root();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "[mcp_servers.something-else]\ncommand = \"x\"\n").unwrap();
+
+        apply_to_codex(
+            &[server("demo", true)],
+            Some(dir.path().to_str().unwrap()),
+            &backup,
+        )
+        .unwrap();
+
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("xiaobai_demo"));
+        assert!(text.contains("something-else"), "其它条目保留");
     }
 }

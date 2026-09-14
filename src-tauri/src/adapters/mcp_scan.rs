@@ -93,6 +93,54 @@ fn read_text(path: &Path) -> AppResult<Option<String>> {
     Ok(Some(fs::read_to_string(path)?))
 }
 
+/// 把 Codex 的 `[mcp_servers.<name>]` 表转成 JSON 表示。
+///
+/// 统一形态是为了让「客户端里那条」与「库内记录」能用同一套规范化比对——
+/// 纳管、接管判断、导入三处共用，避免各写一套提取逻辑而出现口径分叉。
+/// `env` / `http_headers` 子表照原名保留。
+pub(crate) fn codex_entry_to_json(entry: &dyn toml_edit::TableLike) -> Value {
+    let mut map = serde_json::Map::new();
+    for (field, value) in entry.iter() {
+        if let Some(sub) = value.as_table_like() {
+            let mut nested = serde_json::Map::new();
+            for (key, item) in sub.iter() {
+                if let Some(text) = item.as_str() {
+                    nested.insert(key.to_string(), Value::String(text.to_string()));
+                }
+            }
+            map.insert(field.to_string(), Value::Object(nested));
+        } else if let Some(text) = value.as_str() {
+            map.insert(field.to_string(), Value::String(text.to_string()));
+        } else if let Some(array) = value.as_array() {
+            let values: Vec<Value> = array
+                .iter()
+                .filter_map(|item| item.as_str().map(|s| Value::String(s.to_string())))
+                .collect();
+            map.insert(field.to_string(), Value::Array(values));
+        }
+    }
+    Value::Object(map)
+}
+
+/// 库内记录在 Codex 里的等价 JSON 表示，供接管比对使用。
+///
+/// 与 `codex_entry_to_json` 对称：env 与 headers 分别落到 `env` / `http_headers`，
+/// 其余 config 字段原样铺开。
+pub(crate) fn codex_record_to_json(server: &crate::domain::McpServer) -> Value {
+    let mut map = server.config.as_object().cloned().unwrap_or_default();
+    if server.env.as_object().is_some_and(|env| !env.is_empty()) {
+        map.insert("env".to_string(), server.env.clone());
+    }
+    if server
+        .headers
+        .as_object()
+        .is_some_and(|headers| !headers.is_empty())
+    {
+        map.insert("http_headers".to_string(), server.headers.clone());
+    }
+    Value::Object(map)
+}
+
 /// 从条目对象里取**键名**列表（值会在调用方被丢弃）。
 fn keys_of(object: &serde_json::Map<String, Value>) -> Vec<String> {
     let mut names: Vec<String> = object.keys().cloned().collect();
@@ -443,7 +491,9 @@ pub fn entry_fingerprint(
 }
 
 /// 递归排序对象键，产出稳定字符串。
-fn canonical(value: &Value) -> String {
+///
+/// `pub(crate)`：接管比对（`adapters::mcp`）也需要同一套规范化，共用一份避免两边口径分叉。
+pub(crate) fn canonical(value: &Value) -> String {
     match value {
         Value::Object(map) => {
             let mut keys: Vec<&String> = map.keys().collect();

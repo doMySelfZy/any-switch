@@ -153,6 +153,8 @@ pub fn run() {
             commands::mcp_target_paths,
             commands::search_mcp_registry,
             commands::discover_mcp_registry,
+            commands::scan_existing_mcp,
+            commands::import_scanned_mcp,
             commands::check_mcp_updates,
             commands::update_mcp_server,
             commands::batch_update_mcp_servers,
