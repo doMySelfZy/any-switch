@@ -36,7 +36,7 @@ vi.mock("@/lib/invoke", async () => {
   const actual = await vi.importActual<typeof import("@/lib/invoke")>("@/lib/invoke");
   return {
     ...actual,
-    invoke: vi.fn((cmd: string, args?: unknown) => actual.invoke(cmd, args)),
+    invoke: vi.fn((cmd: string, args?: Record<string, unknown>) => actual.invoke(cmd, args)),
   };
 });
 
@@ -104,11 +104,11 @@ describe("FloatingWindow", () => {
 
     expect(await screen.findByText("Relay A")).toBeInTheDocument();
 
-    // 「收起」按钮：内容区消失、窗口高度收掉、状态写库。
+    // 收起：内容区被标记为隐藏（过渡需要它留在 DOM 里），窗口高度收掉、状态写库。
     fireEvent.click(screen.getByRole("button", { name: /收\s*起/ }));
 
     await waitFor(() => {
-      expect(screen.queryByText("Relay A")).toBeNull();
+      expect(screen.getByTestId("floating-content")).toHaveAttribute("aria-hidden", "true");
     });
     expect(screen.getByText("站点余额")).toBeInTheDocument();
     await waitFor(() => {
@@ -127,11 +127,14 @@ describe("FloatingWindow", () => {
     expect(await screen.findByText("Relay A")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /收\s*起/ }));
     await waitFor(() => {
-      expect(screen.queryByText("Relay A")).toBeNull();
+      expect(screen.getByTestId("floating-content")).toHaveAttribute("aria-hidden", "true");
     });
 
     fireEvent.click(screen.getByRole("button", { name: /展\s*开/ }));
-    expect(await screen.findByText("Relay A")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("floating-content")).toHaveAttribute("aria-hidden", "false");
+    });
+    expect(screen.getByText("Relay A")).toBeInTheDocument();
   });
 
   it("refreshes on the configured interval and stops after unmount", async () => {

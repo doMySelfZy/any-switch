@@ -292,8 +292,21 @@ export const FloatingWindow: React.FC = () => {
         </div>
       </div>
 
-      {/* 内容区：折叠时整块隐藏 */}
-      {!collapsed && (
+      {/* 内容区：折叠时淡出并收掉，配合窗口高度变化做过渡。
+          折叠后仍留在 DOM 里（过渡需要），用 aria-hidden 让辅助技术忽略它。 */}
+      <div
+        data-testid="floating-content"
+        aria-hidden={collapsed}
+        className="flex min-h-0 flex-col"
+        style={{
+          flex: collapsed ? "0 1 auto" : "1 1 auto",
+          maxHeight: collapsed ? 0 : "100%",
+          opacity: collapsed ? 0 : 1,
+          overflow: "hidden",
+          transition: "max-height 200ms ease, opacity 150ms ease",
+          pointerEvents: collapsed ? "none" : "auto",
+        }}
+      >
         <>
           <div className="flex-1 overflow-y-auto px-4 py-3">
             {loading && sites.length === 0 ? (
@@ -351,7 +364,7 @@ export const FloatingWindow: React.FC = () => {
             </div>
           )}
         </>
-      )}
+      </div>
     </div>
   );
 };
