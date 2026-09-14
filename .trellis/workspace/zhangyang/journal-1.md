@@ -359,3 +359,37 @@ CLI 配置里的口令不一致，表现为四个 CLI 全部 404。
 ### Status
 
 [OK] **Completed**
+
+
+## Session 13: 任务状态审计：MCP 纳管 adapter 未接线、悬浮窗待确认
+<!-- trellis-session: v=2 fp=dd8536104417657e -->
+
+**Date**: 2026-09-14
+**Task**: 任务状态审计：MCP 纳管 adapter 未接线、悬浮窗待确认
+**Branch**: `main`
+
+### Summary
+
+收尾审计，无新代码提交。三个 in_progress 任务状态核实
+
+### Main Changes
+
+收尾审计会话，无新代码提交（工作区干净，近期提交 41595ef / 2bf0e8f 已由 Session 11 记录）。
+
+1. 任务状态审计（3 个 in_progress）：
+   - `09-13-floating-window`（悬浮窗）：功能已完整实现并接线——`src-tauri/src/floating_window.rs`、`commands/floating.rs`、`FloatingWindow.tsx`、lib.rs 注册命令、设置页开关（settings.floatingWindow）齐备，随 41595ef 进入 main；但 PRD 的 24 条 AC 未勾选、check.jsonl 为空（实现与验证可能由并行会话完成，未做 Trellis 记账）。已征询用户是否归档，用户未作答，按流程默认保留。
+   - `09-13-mcp-scan-existing`（读取并纳管既有 MCP 配置）：**未完成**。`src-tauri/src/adapters/mcp_scan.rs` 已写好（`scan_target` / `scan_all` / `load_entry_for_import` / `entry_fingerprint`），但**全仓无任何调用方**（grep 确认），commands 层没有对应命令、前端 McpPage 也没有纳管 UI；9 条 AC 全未勾选。该 adapter 目前是孤儿代码。
+   - `00-bootstrap-guidelines`：未推进，`.trellis/spec/` 仍为初始空模板，保留。
+
+2. 发现的历史遗留噪音（已 tracked 但无 task.json，不构成任务）：`.trellis/tasks/` 下有 4 个仅含 markdown 的目录——`09-13-mcp-update-feature/`（IMPLEMENTATION_SUMMARY.md）、`09-13-mcp-update/`（README.md）、`09-13-mcp-version-update/`（plan.md）、`floating-window/`（implementation-summary.md），创建于 2026-09-14 19:27，内容对应已在 41595ef 实现的三个功能，疑为并行会话写计划文档时落到了非规范目录。未删除（需用户决定）。
+
+3. 本轮 finish-work 结论：无活跃任务、无待归档任务（floating-window 用户未确认）、工作区干净无需分类脏路径。
+
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**
