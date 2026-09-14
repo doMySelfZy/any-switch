@@ -26,12 +26,14 @@ describe("withAlpha", () => {
 
 // 悬浮窗要操作真实窗口对象；jsdom 里没有，这里替换掉。
 const setSize = vi.fn().mockResolvedValue(undefined);
+const setPosition = vi.fn().mockResolvedValue(undefined);
+const outerPosition = vi.fn().mockResolvedValue({ x: 100, y: 100 });
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     setSize,
-    setPosition: vi.fn().mockResolvedValue(undefined),
-    outerPosition: vi.fn().mockResolvedValue({ x: 100, y: 100 }),
+    setPosition,
+    outerPosition,
   }),
   LogicalPosition: class {
     constructor(
@@ -43,6 +45,12 @@ vi.mock("@tauri-apps/api/window", () => ({
     constructor(
       public width: number,
       public height: number,
+    ) {}
+  },
+  PhysicalPosition: class {
+    constructor(
+      public x: number,
+      public y: number,
     ) {}
   },
 }));
@@ -83,6 +91,10 @@ describe("FloatingWindow", () => {
   beforeEach(() => {
     resetBrowserMock();
     setSize.mockClear();
+    setPosition.mockClear();
+    outerPosition.mockClear();
+    outerPosition.mockResolvedValue({ x: 100, y: 100 });
+    Object.defineProperty(window, "devicePixelRatio", { value: 1, configurable: true });
   });
 
   afterEach(() => {
@@ -121,7 +133,7 @@ describe("FloatingWindow", () => {
     expect(screen.getByText(/最后更新/)).toBeInTheDocument();
   });
 
-  it("collapses to just the title bar and persists the state", async () => {
+  it("collapses into a small orb and persists the state", async () => {
     const invoke = await invokeMock();
     render(
       <Wrapper>
@@ -131,20 +143,20 @@ describe("FloatingWindow", () => {
 
     expect(await screen.findByText("Relay A")).toBeInTheDocument();
 
-    // 收起：内容区被标记为隐藏（过渡需要它留在 DOM 里），窗口高度收掉、状态写库。
+    // 收起：整块面板消失，只剩一个可点的小球；尺寸收成球、状态写库。
     fireEvent.click(screen.getByRole("button", { name: /收\s*起/ }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("floating-content")).toHaveAttribute("aria-hidden", "true");
+      expect(screen.queryByText("Relay A")).toBeNull();
     });
-    expect(screen.getByText("站点余额")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /展\s*开/ })).toBeInTheDocument();
     await waitFor(() => {
       expect(setSize).toHaveBeenCalled();
     });
     expect(invoke).toHaveBeenCalledWith("set_floating_window_collapsed", { collapsed: true });
   });
 
-  it("expands back to the full list", async () => {
+  it("expands back into the panel when the orb is clicked", async () => {
     render(
       <Wrapper>
         <FloatingWindow />
@@ -154,14 +166,37 @@ describe("FloatingWindow", () => {
     expect(await screen.findByText("Relay A")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /收\s*起/ }));
     await waitFor(() => {
-      expect(screen.getByTestId("floating-content")).toHaveAttribute("aria-hidden", "true");
+      expect(screen.queryByText("Relay A")).toBeNull();
     });
 
     fireEvent.click(screen.getByRole("button", { name: /展\s*开/ }));
     await waitFor(() => {
-      expect(screen.getByTestId("floating-content")).toHaveAttribute("aria-hidden", "false");
+      expect(screen.getByText("Relay A")).toBeInTheDocument();
     });
-    expect(screen.getByText("Relay A")).toBeInTheDocument();
+  });
+
+  it("drags the window with physical-pixel math", async () => {
+    // 回归：之前把「物理位置 + CSS 位移」当逻辑坐标交给 setPosition，
+    // 在高 DPI 下窗口会以缩放倍数乱飞，表现就是拖不动。这里锁住换算。
+    render(
+      <Wrapper>
+        <FloatingWindow />
+      </Wrapper>,
+    );
+
+    const header = await screen.findByTestId("floating-header");
+    outerPosition.mockResolvedValue({ x: 1000, y: 500 });
+    Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
+
+    fireEvent.mouseDown(header, { button: 0, clientX: 10, clientY: 10 });
+    await waitFor(() => expect(outerPosition).toHaveBeenCalled());
+    fireEvent.mouseMove(document, { clientX: 40, clientY: 30 });
+    fireEvent.mouseUp(document);
+
+    // CSS 位移 (30, 20) × dpr 2 = 物理 (60, 40)，叠加起点 (1000, 500)。
+    await waitFor(() => {
+      expect(setPosition).toHaveBeenCalledWith(expect.objectContaining({ x: 1060, y: 540 }));
+    });
   });
 
   it("refreshes on the configured interval and stops after unmount", async () => {
@@ -299,7 +334,7 @@ describe("FloatingWindow", () => {
 
     // 背景必须带透明度且启用 backdrop-filter：任一丢了毛玻璃就看不见。
     // （窗口侧还需 Rust 建窗时 transparent(true)，那部分在 floating_window.rs 的测试里。）
-    const root = screen.getByText("站点余额").closest("div.h-screen") as HTMLElement;
+    const root = screen.getByTestId("floating-panel");
     const style = root.style;
     expect(style.backdropFilter).toContain("blur(");
     const bg = style.background;

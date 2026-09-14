@@ -216,26 +216,6 @@ function GeneralSection() {
             addonAfter={t("settings.minutes")}
           />
         </div>
-        <Divider style={{ margin: "8px 0" }} />
-        <div style={rowStyle} className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <div>{t("settings.floatingWindowPosition")}</div>
-            <div className="text-xs" style={{ color: token.colorTextSecondary }}>
-              {t("settings.floatingWindowPositionHint")}
-            </div>
-          </div>
-          <Button
-            size="small"
-            onClick={() => {
-              void invoke("reset_floating_window_position", {}).catch((e) => {
-                message.error(t("settings.floatingWindowResetFailed"));
-                console.error(e);
-              });
-            }}
-          >
-            {t("settings.floatingWindowResetPosition")}
-          </Button>
-        </div>
       </SettingsGroup>
     </div>
   );
