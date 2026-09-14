@@ -529,9 +529,13 @@ describe("SitesPage", () => {
   });
 
   it("shows 停用 on the enable switch when the site is off", async () => {
+    let siteId = "";
     await act(async () => {
       const site = await seedSite();
+      siteId = site.id;
       await useSiteStore.getState().updateSite(site.id, { enabled: false });
+      // 详情面板在模型缓存就绪前显示骨架屏（没有开关），所以先把缓存备好。
+      useSiteStore.setState({ modelsBySite: { [site.id]: [] } });
     });
 
     render(
@@ -540,9 +544,20 @@ describe("SitesPage", () => {
       </Wrapper>,
     );
 
-    const sw = await screen.findByRole("switch");
-    expect(sw).not.toBeChecked();
-    expect(sw).toHaveTextContent("停用");
+    // 页面上有两个开关：列表行里的快捷开关（只有 aria-label）和详情面板里带
+    // 文字标签的开关。这里断言带「停用」字样的那个。
+    const labeled = await waitFor(() => {
+      const found = screen
+        .getAllByRole("switch")
+        .find((el) => el.textContent?.includes("停用"));
+      expect(found).toBeTruthy();
+      return found!;
+    });
+    expect(labeled).not.toBeChecked();
+    // 列表行里那个快捷开关同样应当反映停用状态。
+    expect(screen.getAllByRole("switch").find((el) => el.getAttribute("aria-label") === "启用"))
+      .not.toBeChecked();
+    expect(siteId).toBeTruthy();
   });
 
   it("shows a pulsing status dot for enabled sites and a gray one when disabled", async () => {

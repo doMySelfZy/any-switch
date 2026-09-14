@@ -92,6 +92,8 @@ export function SitesPage() {
     if (!siteIdsKey) return;
     const refreshAll = (force: boolean) => {
       for (const site of useSiteStore.getState().sites) {
+        // 禁用的站点不探测：关掉它就是不希望再为它发请求。
+        if (!site.enabled) continue;
         // 非强制刷新只传 siteId，保持与手动调用一致的签名（TTL 缓存会挡住重复请求）。
         const run = force
           ? probeQuota(site.id, { force: true })
@@ -445,6 +447,7 @@ export function SitesPage() {
                     setFormOpen(true);
                   }}
                   onDelete={() => handleDelete(site)}
+                  onToggleEnabled={(next) => void handleEnabledChange(site, next)}
                 />
               ))}
             </SortableContext>

@@ -42,8 +42,10 @@ pub fn create_floating_window(app: AppHandle) -> AppResult<()> {
     )
     .title("小白Switch - 余额")
     .inner_size(280.0, 400.0)
-    .min_inner_size(280.0, 200.0)
-    .max_inner_size(400.0, 800.0)
+    // 最小值必须容得下收起态的小球（56px），否则 setSize 会被下限挡住、
+    // 收起时窗口尺寸不变，看起来就是「点不动」。
+    .min_inner_size(56.0, 56.0)
+    .max_inner_size(420.0, 820.0)
     .resizable(true)
     .decorations(false)
     // 透明窗口：不设它的话 backdrop-filter 背后是窗口自己的底色而不是桌面，

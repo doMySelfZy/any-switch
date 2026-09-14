@@ -173,6 +173,8 @@
     "codexUrl": "Codex base_url",
     "enabled": "Enabled",
     "disabled": "Disabled",
+    "enabledHint": "Enabled: included in balance refresh and shown in the floating window",
+    "disabledHint": "Disabled: no balance refresh, hidden from the floating window, cannot be applied",
     "disableAppliedTitle": "Disable this site?",
     "disableAppliedHint": "This site is applied to {{targets}}. Clear those app configs as well?",
     "disableSkip": "Skip",

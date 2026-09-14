@@ -1,6 +1,6 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Button, Dropdown, Tooltip, theme } from "antd";
+import { Button, Dropdown, Switch, Tooltip, theme } from "antd";
 import type { MenuProps } from "antd";
 import { Ellipsis, GripVertical, Pencil, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -26,9 +26,18 @@ interface Props {
   onSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  /** 直接在列表里启用/禁用，不必先点进站点详情。 */
+  onToggleEnabled: (enabled: boolean) => void;
 }
 
-export function SiteListItem({ site, active, onSelect, onEdit, onDelete }: Props) {
+export function SiteListItem({
+  site,
+  active,
+  onSelect,
+  onEdit,
+  onDelete,
+  onToggleEnabled,
+}: Props) {
   const { t } = useTranslation();
   const { token } = theme.useToken();
   // 摘要只基于最近一次成功探测（quotaBySite）；失败/加载态交给右侧详情展示。
@@ -226,6 +235,21 @@ export function SiteListItem({ site, active, onSelect, onEdit, onDelete }: Props
               <div className="min-h-5 min-w-0">{quotaSummary}</div>
             </div>
           </button>
+          {/* 列表里直接开关：禁用后不再探测额度、不参与模型获取、也不出现在悬浮窗，
+              所以不必先点进详情页才能关掉某个不想用的站点。 */}
+          <Tooltip title={site.enabled ? t("sites.disabledHint") : t("sites.enabledHint")}>
+            <Switch
+              size="small"
+              className="site-enable-switch shrink-0"
+              checked={site.enabled}
+              onChange={(next, event) => {
+                event.stopPropagation();
+                onToggleEnabled(next);
+              }}
+              onClick={(_, event) => event.stopPropagation()}
+              aria-label={t("sites.enabled")}
+            />
+          </Tooltip>
           <Dropdown trigger={["click"]} destroyOnHidden menu={menu} placement="bottomRight">
             <Button
               type="text"

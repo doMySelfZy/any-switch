@@ -18,7 +18,15 @@ function CaptureToken() {
   return null;
 }
 
-function Harness({ site, onSelect = () => {} }: { site: Site; onSelect?: () => void }) {
+function Harness({
+  site,
+  onSelect = () => {},
+  onToggleEnabled = () => {},
+}: {
+  site: Site;
+  onSelect?: () => void;
+  onToggleEnabled?: (enabled: boolean) => void;
+}) {
   return (
     <ConfigProvider>
       <AntdApp>
@@ -31,6 +39,7 @@ function Harness({ site, onSelect = () => {} }: { site: Site; onSelect?: () => v
               onSelect={onSelect}
               onEdit={() => {}}
               onDelete={() => {}}
+              onToggleEnabled={onToggleEnabled}
             />
           </SortableContext>
         </DndContext>
@@ -231,5 +240,36 @@ describe("SiteListItem quota summary", () => {
     fireEvent.click(await screen.findByTestId("site-quota-summary"));
     expect(onSelect).toHaveBeenCalledTimes(1);
     unmount();
+  });
+
+  it("toggles enabled from the row without selecting the site", async () => {
+    const site = await seedSite();
+    const onSelect = vi.fn();
+    const onToggleEnabled = vi.fn();
+    render(
+      <ConfigProvider>
+        <AntdApp>
+          <DndContext>
+            <SortableContext items={[site.id]} strategy={verticalListSortingStrategy}>
+              <SiteListItem
+                site={site}
+                active={false}
+                onSelect={onSelect}
+                onEdit={() => {}}
+                onDelete={() => {}}
+                onToggleEnabled={onToggleEnabled}
+              />
+            </SortableContext>
+          </DndContext>
+        </AntdApp>
+      </ConfigProvider>,
+    );
+
+    // 点在开关上只切换启用状态，不该顺带选中站点（否则会跳到详情页）。
+    fireEvent.click(await screen.findByLabelText("启用"));
+    await waitFor(() => {
+      expect(onToggleEnabled).toHaveBeenCalled();
+    });
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });

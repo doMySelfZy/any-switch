@@ -144,6 +144,13 @@ export const FloatingWindow: React.FC = () => {
     moved: boolean;
   } | null>(null);
   const pendingPosition = useRef<{ x: number; y: number } | null>(null);
+  /**
+   * 「刚刚拖动过」标志。
+   *
+   * 不能靠 `drag.current.moved` 在 click 里判断——mouseup 已经把它清空了，
+   * 拖动之后 click 仍会触发，于是拖完窗口就自己收起/展开了。
+   */
+  const draggedRecently = useRef(false);
 
   /** 拉最新余额：后端并发探测所有站点并更新缓存，返回汇总。 */
   const refreshQuotas = useCallback(
@@ -306,6 +313,11 @@ export const FloatingWindow: React.FC = () => {
       const pending = pendingPosition.current;
       pendingPosition.current = null;
       if (!origin.moved || !pending) return;
+      // 拖动后紧跟的 click 要忽略掉，否则拖完就自己收起/展开。
+      draggedRecently.current = true;
+      window.setTimeout(() => {
+        draggedRecently.current = false;
+      }, 0);
       // 拖动结束才写库：拖动过程中每一帧都写会打满数据库。
       void invoke("save_floating_window_position", pending).catch((error) => {
         console.error("Failed to save position:", error);
@@ -322,7 +334,7 @@ export const FloatingWindow: React.FC = () => {
 
   /** 点击（而非拖动）时切换展开/收起。 */
   const handleOrbClick = () => {
-    if (drag.current?.moved) return;
+    if (draggedRecently.current) return;
     void persistCollapsed(!collapsed);
   };
 

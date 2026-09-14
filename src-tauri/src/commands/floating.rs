@@ -37,11 +37,15 @@ fn store_quota(site_id: &str, quota: SiteQuota) {
 }
 
 /// 汇总各站点余额。抽成函数是为了让「读缓存」与「刷新后回读」共用同一份拼装逻辑。
+///
+/// 只返回**启用中**的站点：禁用意味着用户暂时不用它，不该继续占着悬浮窗的位置、
+/// 也不该为它发探测请求。
 fn summarize(state: &AppState) -> AppResult<Vec<SiteQuotaSummary>> {
     state.db.with_conn(|conn| {
         let sites = repo::site::list_sites(conn)?;
         Ok(sites
             .into_iter()
+            .filter(|site| site.enabled)
             .map(|site| SiteQuotaSummary {
                 quota: cached_quota(&site.id),
                 site_id: site.id,
@@ -67,7 +71,12 @@ pub fn get_all_sites_quota(state: State<'_, AppState>) -> AppResult<Vec<SiteQuot
 /// （保留缓存里上一次的值），不影响其它站点。
 #[tauri::command]
 pub async fn refresh_sites_quota(state: State<'_, AppState>) -> AppResult<Vec<SiteQuotaSummary>> {
-    let sites = state.db.with_conn(repo::site::list_sites)?;
+    let sites: Vec<_> = state
+        .db
+        .with_conn(repo::site::list_sites)?
+        .into_iter()
+        .filter(|site| site.enabled)
+        .collect();
 
     let probes = sites
         .iter()
