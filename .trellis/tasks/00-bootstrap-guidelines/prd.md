@@ -21,8 +21,33 @@ the rest conversationally.
 
 ## Status (update the checkboxes as you complete each item)
 
-- [ ] Fill frontend guidelines
-- [ ] Add code examples
+- [x] Fill frontend guidelines
+- [x] Add code examples
+
+### 完成说明（2026-09-14）
+
+按 PRD 指引的 Step 1（优先从既有约定文件导入）执行：本仓库的权威约定文档是根目录
+`AGENTS.md`（产品规则、兼容红线、UI Shell、Ant Design、i18n、后端约定、测试要求），
+已按 spec 的分类结构提炼成六个文件，并补充了 Step 2 的「扫描真实代码」得到的内容
+（真实文件路径、真实反例）。
+
+写入的六个文件：
+
+| 文件 | 内容要点 |
+|------|----------|
+| `index.md` | 声明 `AGENTS.md` 是权威源、本目录是操作性索引；三条最常踩的坑 |
+| `directory-structure.md` | 前后端目录表；新增命令要动的三处；新增业务表必须进 `FINGERPRINT_TABLES` |
+| `component-guidelines.md` | Modal 属性表；`App.useApp()`；图标按钮 `aria-label`；异步 `onOk` 必须吞异常 |
+| `hook-guidelines.md` | 清理函数、防「卸载后才拿到句柄」、`useCallback` 依赖、纯函数放组件外（TDZ）、拖动不在 `mousemove` 里写库、跨窗口状态 |
+| `state-management.md` | store 边界、写后回读、前后端字段名对齐（附 `autoRefreshSeconds` 真实事故）、browserMock 契约 |
+| `type-safety.md` | `invoke<T>` 契约、少用 `as`、联合类型穷尽映射、Rust↔TS 类型对照表 |
+| `quality-guidelines.md` | i18n 双花括号与中英成对更新、测试命令、**断言质量与变异验证**、本机已知的 2 个既有失败 |
+
+全部内容基于真实代码与真实事故（不是理想化描述）：例如 Modal 异步 `onOk` 的两个
+反例、刷新间隔字段名不一致导致设置静默失效、悬浮窗每帧写库、`useMemo` 踩 TDZ。
+
+**未做**：`.trellis/spec/guides/` 是脚手架预置的通用思考指南，与本项目不冲突，
+按 PRD 说明「仅在不适用时定制」，故保持原样。
 
 ---
 
