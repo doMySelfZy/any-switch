@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 11
+- **Total Sessions**: 12
 - **Last Active**: 2026-09-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~338 | Active |
+| `journal-1.md` | ~361 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 12 | 2026-09-14 | MCP 体验修复：首屏常用列表、一键安装、已有配置读取层 | `f2048d8`, `a949e0b` | `main` |
 | 11 | 2026-09-14 | 分支整合：变基三分支工作并推送到远程 | `41595ef`, `2bf0e8f` | `main` |
 | 10 | 2026-09-13 | 全局约束：Agent 指令统一注入 | `4b6add3`, `fa237fb` | `-` |
 | 9 | 2026-09-13 | 三窗口措辞澄清与 v0.1.4 发布状态确认 | - | `main` |
