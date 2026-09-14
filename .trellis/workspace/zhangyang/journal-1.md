@@ -244,3 +244,95 @@ WebDAV 真同步全链路落地：逻辑内容指纹引擎+变更驱动守护任
 ### Status
 
 [OK] **Completed**
+
+
+## Session 11: 分支整合：变基三分支工作并推送到远程
+<!-- trellis-session: v=2 fp=63d07edace08db75 -->
+
+**Date**: 2026-09-14
+**Task**: 分支整合：变基三分支工作并推送到远程
+**Branch**: `main`
+
+### Summary
+
+变基整合三个会话的并行工作（悬浮窗、Agent 更新、MCP 版本管理 + 本地代理），修复 ApplyPage 回退与测试桩缺字段，清理本地/远程滞留分支并推送 21 个提交到 origin/main。
+
+### Main Changes
+
+本会话承接上一轮的本地代理任务，并完成三个并行会话工作的分支整合与推送。
+
+## 1. 本地代理（本地代理任务收尾）
+
+上一轮已实现 `src-tauri/src/local_proxy/`（routing / headers / log / server / forward）、
+代理页与站点请求头编辑器，并修复复核发现的 2 个 P0（路径口令无生成点、启用开关无写入点）
+与 3 个 P1。本会话确认其提交 `2bf0e8f` 位于 main，验收标准已逐条勾选并归档到
+`.trellis/tasks/archive/2026-09/09-13-local-proxy/`。
+
+关键设计（改动这块前必读）：走代理与直连必须落到同一上游 URL，两侧都由
+`url_normalize::normalize_base_url` 派生并取同一字段；接管注入只在写客户端配置前替换
+`base_url`（`routing::effective_site`），数据库始终保留真实上游，注入点共 3 处
+（`commands/apply.rs`、`key_switch.rs`、`route_switch.rs`）。路径口令存设备本地文件
+而非 settings —— settings 参与 WebDAV 同步，同步到别的机器会让本机监听口令与
+CLI 配置里的口令不一致，表现为四个 CLI 全部 404。
+
+## 2. 三分支整合（本会话主要工作）
+
+工作树当时停在 `feat/floating-window`（`a949e0b`），另两个分支持有的是
+`feat/global-agent-rules`（`fa237fb`）与悬浮窗 / Agent 更新的未提交工作。
+`main` 上是本会话的代理提交与更早的约束功能提交。
+
+整合方式：**变基而非直接 merge**。原因是三个会话并行改同一批文件
+（`lib.rs`、i18n、`domain/mod.rs`、`migrate.rs`、`browserMock.ts`），且
+`eda6426` 的基线（`a949e0b`）不含 `main` 上的代理与约束提交 —— 直接 merge 时若选
+"取某一方整份文件"，会把另一方已提交的内容删掉（第一次尝试确实删掉了代理测试、
+`mod rules` 声明与 browserMock 的 import，已中止）。变基后 9 处冲突全部按
+"两边都保留"解决，并清理了由此产生的 3 组重复测试函数与 1 处重复 import。
+
+产物：`41595ef`（悬浮窗、Agent 版本检查与更新、MCP 版本管理、读并纳管既有 MCP 配置，
+以及集成修复）。因三会话共用文件、无法拆成各自可独立编译的提交，故合为一个提交，
+提交信息内分节说明。
+
+## 3. 本会话发现并修复的问题
+
+- **ApplyPage 被误改回退**：另一会话为挂「一键更新」按钮整体重写了该文件，丢掉
+  keep-alive 与首访骨架屏，`useDeferredTabContent` / `ApplyPanelSkeleton` 沦为孤儿，
+  3 个既有测试失败。已恢复原行为并保留新按钮，同时改回具名导出。
+- **两处测试桩缺字段**：`McpServer` 新增版本字段后测试构造未同步，`cargo test`
+  编译不过（`adapters/mcp.rs`、`commands/mcp.rs`）。已补齐。
+- **缺失 i18n 键**：`apply.updateAllAgents` 被引用但中英文案都不存在，已补。
+- **临时文件与垃圾**：删除我自己的 hook 桩 `src-tauri/.zcode/`、`__pycache__/`，
+  并确认无临时脚本被提交。
+
+## 4. 分支与远程
+
+- 本地分支：清理至只剩 `main`（删除 `feat/floating-window`、`feat/global-agent-rules`、
+  变基用的 `integrate/sessions`）。
+- 远程分支：删除已并入 main 的滞留分支 `dev` 与 `feat/webdav-real-sync`。
+- 推送：`main` 从 `25ba00d` 推进到 `41595ef`，共 21 个提交推送到
+  `origin/main`（`doMySelfZy/xiaobai-switch-plus`），走本机代理 `127.0.0.1:7897`
+  （GitHub 直连不通；`git fetch`/`push` 均需带 `-c http.proxy=...`）。
+
+## 5. 验证
+
+- `cargo test`：505 passed / 1 ignored
+- `pnpm typecheck`：通过
+- `vitest`：347 passed（2 个 updater 脚本用例为本机既有失败，与本轮无关）
+
+## 6. 遗留
+
+三个任务的验收标准仍全部未勾选，本轮未归档（用户未确认）：`09-13-floating-window`
+（24 项，多为需真机目视的观感与性能项）、`09-13-mcp-scan-existing`（9 项，代码含
+11 个单测且已合并）、`00-bootstrap-guidelines`（长期未推进的空壳任务）。
+它们的代码均已并入 main 并推送，但**完成度由本会话代跑测试确认，非原会话自检**。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `41595ef` | feat: 悬浮窗、Agent 更新检查与 MCP 版本管理，并修复应用中心回归 |
+| `2bf0e8f` | feat(proxy): 本地代理按站点改写请求头后再转发 |
+
+### Status
+
+[OK] **Completed**
