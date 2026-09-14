@@ -487,6 +487,7 @@ mod tests {
                 notes: None,
                 capabilities: None,
                 proxy_headers: None,
+                zcode_api_type: None,
             },
         )
         .unwrap();
@@ -534,6 +535,7 @@ mod tests {
                 notes: None,
                 capabilities: None,
                 proxy_headers: None,
+                zcode_api_type: None,
             },
         )
         .unwrap();

@@ -56,9 +56,15 @@ pub fn target_statuses(
         .with_conn(crate::repo::binding::list_bindings)
         .unwrap_or_default();
 
-    [TargetKind::ClaudeCode, TargetKind::Codex, TargetKind::Pi, TargetKind::Prime]
-        .into_iter()
-        .map(|target| {
+    [
+        TargetKind::ClaudeCode,
+        TargetKind::Codex,
+        TargetKind::Pi,
+        TargetKind::Prime,
+        TargetKind::ZCode,
+    ]
+    .into_iter()
+    .map(|target| {
             let binding = bindings.iter().find(|b| b.target == target && !b.orphan);
             let client_base_url = routing::takeover_base_url(settings, target).ok();
             LocalProxyTargetStatus {

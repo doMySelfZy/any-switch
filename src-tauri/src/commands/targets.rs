@@ -44,6 +44,7 @@ pub(crate) fn list_target_status_with_tools(
         TargetKind::Codex,
         TargetKind::Pi,
         TargetKind::Prime,
+        TargetKind::ZCode,
     ] {
         let binding = bindings.iter().find(|b| b.target == kind);
         let tool = tools.iter().find(|t| t.kind == kind);
@@ -88,6 +89,31 @@ pub(crate) fn list_target_status_with_tools(
                 api_key.as_deref(),
                 settings.prime_agent_dir_override.as_deref(),
             )?,
+            TargetKind::ZCode => match binding {
+                Some(binding) => (
+                    crate::adapters::zcode::detect_status(
+                        binding,
+                        settings.zcode_home_override.as_deref(),
+                    )?,
+                    None,
+                ),
+                // 没有绑定记录时只能看 ZCode 里还留着哪些托管 provider。
+                None => {
+                    let orphan = crate::adapters::zcode::live_summary(
+                        settings.zcode_home_override.as_deref(),
+                    )?
+                    .keys()
+                    .any(|id| id.starts_with(crate::adapters::zcode::PROVIDER_PREFIX));
+                    (
+                        if orphan {
+                            ApplyStatus::Orphan
+                        } else {
+                            ApplyStatus::NotApplied
+                        },
+                        orphan.then(|| "untracked ZCode provider".to_string()),
+                    )
+                }
+            },
         };
 
         let mut live_summary = match kind {
@@ -102,6 +128,9 @@ pub(crate) fn list_target_status_with_tools(
             }
             TargetKind::Prime => {
                 crate::adapters::prime::live_summary(settings.prime_agent_dir_override.as_deref())?
+            }
+            TargetKind::ZCode => {
+                crate::adapters::zcode::live_summary(settings.zcode_home_override.as_deref())?
             }
         };
         if kind == TargetKind::Pi || kind == TargetKind::Prime {
@@ -134,6 +163,11 @@ pub(crate) fn list_target_status_with_tools(
                     .display()
                     .to_string()
             }
+            TargetKind::ZCode => crate::paths::zcode_provider_path(
+                settings.zcode_home_override.as_deref(),
+            )?
+            .display()
+            .to_string(),
         };
 
         out.push(TargetLiveStatus {
@@ -224,6 +258,12 @@ pub fn cleanup_orphan_target(
                     settings.prime_agent_dir_override.as_deref(),
                 )?;
             }
+            TargetKind::ZCode => {
+                crate::adapters::zcode::surgical_revert(
+                    &b,
+                    settings.zcode_home_override.as_deref(),
+                )?;
+            }
         }
         state
             .db
@@ -234,6 +274,9 @@ pub fn cleanup_orphan_target(
         crate::tray::request_tray_menu_sync(&app);
     } else if target == TargetKind::Prime {
         crate::adapters::prime::cleanup_orphans(settings.prime_agent_dir_override.as_deref())?;
+        crate::tray::request_tray_menu_sync(&app);
+    } else if target == TargetKind::ZCode {
+        crate::adapters::zcode::cleanup_orphans(settings.zcode_home_override.as_deref())?;
         crate::tray::request_tray_menu_sync(&app);
     }
     Ok(())

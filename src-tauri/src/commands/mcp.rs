@@ -287,6 +287,11 @@ fn apply_to_targets(state: &AppState, requested: &[TargetKind]) -> AppResult<Mcp
                 settings.prime_agent_dir_override.as_deref(),
                 &backup_root,
             ),
+            TargetKind::ZCode => mcp_adapters::apply_to_zcode(
+                &target_servers,
+                settings.zcode_home_override.as_deref(),
+                &backup_root,
+            ),
         };
 
         match outcome {
@@ -346,6 +351,12 @@ pub fn mcp_target_paths(state: State<'_, AppState>) -> AppResult<Vec<(TargetKind
             TargetKind::Prime,
             crate::paths::resolve_prime_agent_dir(settings.prime_agent_dir_override.as_deref())?
                 .join("settings.json")
+                .display()
+                .to_string(),
+        ),
+        (
+            TargetKind::ZCode,
+            crate::paths::zcode_mcp_path(settings.zcode_home_override.as_deref())?
                 .display()
                 .to_string(),
         ),

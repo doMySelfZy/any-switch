@@ -3,7 +3,7 @@ use crate::domain::{McpKind, McpServer};
 use crate::error::{AppError, AppResult};
 use crate::paths::{
     claude_mcp_json_path, resolve_codex_home, resolve_pi_agent_dir, resolve_prime_agent_dir,
-    set_secret_permissions,
+    set_secret_permissions, zcode_mcp_path,
 };
 use serde_json::{Map, Value};
 use std::fs;
@@ -407,6 +407,64 @@ pub fn apply_to_prime(
     })
 }
 
+/// ZCode 的托管条目在 `mcp.servers`（不是顶层 `mcpServers`），其余与 Pi/Prime 一致。
+pub fn apply_to_zcode(
+    servers: &[McpServer],
+    zcode_home_override: Option<&str>,
+    backup_root: &Path,
+) -> AppResult<McpTargetResult> {
+    let path = zcode_mcp_path(zcode_home_override)?;
+    // ZCode 自己也写这个文件，读-改-写期间必须持锁。
+    let _lock = FileLock::acquire(&path)?;
+    let (mut root, backup_paths) =
+        read_json_config(&path, backup_root, "~/.zcode/cli/config.json")?;
+    if !root.is_object() {
+        return Err(AppError::new(
+            "invalid_config",
+            "MCP config root must be a JSON object",
+        ));
+    }
+    let mut mcp = match root.get("mcp") {
+        None => Map::new(),
+        Some(Value::Object(map)) => map.clone(),
+        Some(_) => {
+            return Err(AppError::new(
+                "invalid_config",
+                "existing mcp must be a JSON object in ~/.zcode/cli/config.json",
+            ))
+        }
+    };
+    let existing = match mcp.remove("servers") {
+        None => Value::Object(Map::new()),
+        Some(Value::Object(map)) => Value::Object(map),
+        Some(_) => {
+            return Err(AppError::new(
+                "invalid_config",
+                "existing mcp.servers must be a JSON object in ~/.zcode/cli/config.json",
+            ))
+        }
+    };
+    // 套进 `merge_servers_into_json` 认识的形状（顶层 `mcpServers`），合并完再放回原处。
+    let mut holder = Map::new();
+    holder.insert("mcpServers".to_string(), existing);
+    let mut holder = Value::Object(holder);
+    merge_servers_into_json(&mut holder, servers)?;
+    let merged = holder
+        .as_object_mut()
+        .and_then(|object| object.remove("mcpServers"))
+        .unwrap_or_else(|| Value::Object(Map::new()));
+    mcp.insert("servers".to_string(), merged);
+    if let Some(object) = root.as_object_mut() {
+        object.insert("mcp".to_string(), Value::Object(mcp));
+    }
+    write_json(&path, &root, true)?;
+    Ok(McpTargetResult {
+        ok: true,
+        backup_paths,
+        message: format!("Applied {} MCP servers to ZCode", servers.len()),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -542,6 +600,61 @@ mod tests {
         .unwrap();
         assert_eq!(pi["mcpServers"]["xiaobai_demo"]["command"], "mcp-demo");
         assert_eq!(prime["mcpServers"]["xiaobai_demo"]["command"], "mcp-demo");
+    }
+
+    #[test]
+    fn zcode_merges_into_mcp_servers_and_keeps_other_fields() {
+        let (dir, backup) = temp_backup_root();
+        let path = dir.path().join("cli").join("config.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!({
+                "theme": "dark",
+                "mcp": {
+                    "servers": {
+                        "user-server": {"command": "user-cmd"},
+                        "xiaobai_removed": {"command": "old"}
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        apply_to_zcode(
+            &[server("demo", true)],
+            Some(dir.path().to_str().unwrap()),
+            &backup,
+        )
+        .unwrap();
+
+        let root: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(root["theme"], "dark");
+        assert_eq!(root["mcp"]["servers"]["user-server"]["command"], "user-cmd");
+        assert!(root["mcp"]["servers"]["xiaobai_removed"].is_null());
+        assert_eq!(root["mcp"]["servers"]["xiaobai_demo"]["command"], "mcp-demo");
+        // 不能写到顶层：ZCode 只认 `mcp.servers`。
+        assert!(root["mcpServers"].is_null());
+    }
+
+    #[test]
+    fn zcode_rejects_malformed_shape_and_keeps_file() {
+        let (dir, backup) = temp_backup_root();
+        let path = dir.path().join("cli").join("config.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = r#"{"mcp":{"servers":"oops"}}"#;
+        fs::write(&path, original).unwrap();
+
+        let error = apply_to_zcode(
+            &[server("demo", true)],
+            Some(dir.path().to_str().unwrap()),
+            &backup,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("mcp.servers"), "{error}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
     }
 
     #[test]

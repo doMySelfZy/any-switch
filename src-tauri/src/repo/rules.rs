@@ -15,6 +15,7 @@ pub fn canonical_targets(targets: &[TargetKind]) -> Vec<TargetKind> {
         TargetKind::Codex,
         TargetKind::Pi,
         TargetKind::Prime,
+        TargetKind::ZCode,
     ]
     .into_iter()
     .filter(|target| targets.contains(target))

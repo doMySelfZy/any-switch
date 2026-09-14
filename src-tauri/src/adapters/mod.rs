@@ -10,6 +10,7 @@ pub mod mcp_version;
 pub mod pi;
 pub mod prime;
 pub mod thinking;
+pub mod zcode;
 
 use std::collections::HashMap;
 

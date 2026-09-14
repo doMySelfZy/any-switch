@@ -27,6 +27,7 @@ pub struct TrayLabels {
     pub codex: &'static str,
     pub pi: &'static str,
     pub prime: &'static str,
+    pub zcode: &'static str,
     pub applied: &'static str,
     pub stale: &'static str,
     pub orphan: &'static str,
@@ -49,6 +50,7 @@ pub fn tray_labels(language: &str) -> TrayLabels {
             codex: "Codex",
             pi: "Pi",
             prime: "Prime",
+            zcode: "ZCode",
             applied: "Applied",
             stale: "Stale",
             orphan: "Orphan",
@@ -68,6 +70,7 @@ pub fn tray_labels(language: &str) -> TrayLabels {
             codex: "Codex",
             pi: "Pi",
             prime: "Prime",
+            zcode: "ZCode",
             applied: "已应用",
             stale: "已过期",
             orphan: "配置游离",
@@ -96,6 +99,7 @@ fn kind_label(labels: &TrayLabels, kind: TargetKind) -> &'static str {
         TargetKind::Codex => labels.codex,
         TargetKind::Pi => labels.pi,
         TargetKind::Prime => labels.prime,
+        TargetKind::ZCode => labels.zcode,
     }
 }
 
@@ -142,10 +146,11 @@ pub fn format_tooltip(
     codex: &str,
     pi: &str,
     prime: &str,
+    zcode: &str,
 ) -> String {
     format!(
-        "{}\n{}\n{}\n{}\n{}",
-        labels.header, claude, codex, pi, prime
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        labels.header, claude, codex, pi, prime, zcode
     )
 }
 
@@ -191,6 +196,8 @@ pub struct TraySnapshot {
     pub pi_model: Option<String>,
     pub prime_line: String,
     pub prime_model: Option<String>,
+    pub zcode_line: String,
+    pub zcode_model: Option<String>,
     pub tooltip: String,
     pub sites: Vec<QuickSite>,
 }
@@ -221,6 +228,13 @@ impl TraySnapshot {
             None,
             None,
         );
+        let zcode = format_target_status_line(
+            &labels,
+            TargetKind::ZCode,
+            ApplyStatus::NotApplied,
+            None,
+            None,
+        );
         Self {
             language: language.to_string(),
             claude_line: claude.clone(),
@@ -231,7 +245,9 @@ impl TraySnapshot {
             pi_model: None,
             prime_line: prime.clone(),
             prime_model: None,
-            tooltip: format_tooltip(&labels, &claude, &codex, &pi, &prime),
+            zcode_line: zcode.clone(),
+            zcode_model: None,
+            tooltip: format_tooltip(&labels, &claude, &codex, &pi, &prime, &zcode),
             sites: vec![],
         }
     }
@@ -312,6 +328,10 @@ fn build_menu(
     if let Some(model) = &snapshot.prime_model {
         append_plain_item(app, &menu, "status_prime_model", model, false)?;
     }
+    append_plain_item(app, &menu, "status_zcode", &snapshot.zcode_line, false)?;
+    if let Some(model) = &snapshot.zcode_model {
+        append_plain_item(app, &menu, "status_zcode_model", model, false)?;
+    }
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     append_native_icon_item(
@@ -379,6 +399,7 @@ fn collect_snapshot(app: &AppHandle) -> TraySnapshot {
     let codex = find(TargetKind::Codex);
     let pi = find(TargetKind::Pi);
     let prime = find(TargetKind::Prime);
+    let zcode = find(TargetKind::ZCode);
 
     let claude_line = match claude {
         Some(s) => format_target_status_line(
@@ -445,6 +466,24 @@ fn collect_snapshot(app: &AppHandle) -> TraySnapshot {
     };
     let prime_model =
         prime.and_then(|status| format_model_line(status.applied_model_id.as_deref()));
+    let zcode_line = match zcode {
+        Some(status) => format_target_status_line(
+            &labels,
+            TargetKind::ZCode,
+            status.status,
+            status.applied_site_name.as_deref(),
+            None,
+        ),
+        None => format_target_status_line(
+            &labels,
+            TargetKind::ZCode,
+            ApplyStatus::NotApplied,
+            None,
+            None,
+        ),
+    };
+    let zcode_model =
+        zcode.and_then(|status| format_model_line(status.applied_model_id.as_deref()));
 
     let tooltip_claude = match claude {
         Some(s) => format_target_status_line(
@@ -486,6 +525,16 @@ fn collect_snapshot(app: &AppHandle) -> TraySnapshot {
         ),
         None => prime_line.clone(),
     };
+    let tooltip_zcode = match zcode {
+        Some(status) => format_target_status_line(
+            &labels,
+            TargetKind::ZCode,
+            status.status,
+            status.applied_site_name.as_deref(),
+            status.applied_model_id.as_deref(),
+        ),
+        None => zcode_line.clone(),
+    };
 
     let sites = state
         .db
@@ -510,12 +559,15 @@ fn collect_snapshot(app: &AppHandle) -> TraySnapshot {
         pi_model,
         prime_line,
         prime_model,
+        zcode_line,
+        zcode_model,
         tooltip: format_tooltip(
             &labels,
             &tooltip_claude,
             &tooltip_codex,
             &tooltip_pi,
             &tooltip_prime,
+            &tooltip_zcode,
         ),
         sites: pick_quick_sites(&rows, &applied, QUICK_SITE_LIMIT),
     }
@@ -592,7 +644,9 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         | "status_pi"
         | "status_pi_model"
         | "status_prime"
-        | "status_prime_model" => {}
+        | "status_prime_model"
+        | "status_zcode"
+        | "status_zcode_model" => {}
         other if other.starts_with(APPLY_PREFIX) => {
             let site_id = other[APPLY_PREFIX.len()..].to_string();
             if site_id.is_empty() {
@@ -738,13 +792,15 @@ mod tests {
             "Codex · 未应用",
             "Pi · 已应用",
             "Prime · 未应用",
+            "ZCode · 未应用",
         );
         assert!(tip.starts_with("XiaoBaiSwitch Plus"));
         assert!(tip.contains("Claude Code"));
         assert!(tip.contains("Codex"));
         assert!(tip.contains("Pi"));
         assert!(tip.contains("Prime"));
-        assert_eq!(tip.lines().count(), 5);
+        assert!(tip.contains("ZCode"));
+        assert_eq!(tip.lines().count(), 6);
     }
 
     #[test]

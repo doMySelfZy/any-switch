@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS sites (
   capabilities_json TEXT,
   newapi_access_token_encrypted TEXT,
   newapi_user_id TEXT,
+  zcode_api_type TEXT,
   proxy_headers_encrypted TEXT,
   proxy_header_count INTEGER NOT NULL DEFAULT 0
 );
@@ -199,6 +200,14 @@ fn ensure_sites_newapi_columns(conn: &Connection) -> AppResult<()> {
         "sites",
         "newapi_user_id",
         "ALTER TABLE sites ADD COLUMN newapi_user_id TEXT",
+    )?;
+    // ZCode 目标用的协议（anthropic-messages / openai-responses / openai-chat-completions）。
+    // 只加列、不改 SCHEMA_VERSION：版本号达标的库会走早退分支，也会跑到这里。
+    ensure_column(
+        conn,
+        "sites",
+        "zcode_api_type",
+        "ALTER TABLE sites ADD COLUMN zcode_api_type TEXT",
     )?;
     Ok(())
 }

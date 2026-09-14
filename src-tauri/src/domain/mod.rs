@@ -78,6 +78,7 @@ pub enum TargetKind {
     Pi,
     #[serde(alias = "prime_agent", alias = "prime-agent")]
     Prime,
+    ZCode,
 }
 
 impl TargetKind {
@@ -87,6 +88,7 @@ impl TargetKind {
             Self::Codex => "codex",
             Self::Pi => "pi",
             Self::Prime => "prime",
+            Self::ZCode => "zcode",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -95,6 +97,7 @@ impl TargetKind {
             "codex" => Some(Self::Codex),
             "pi" => Some(Self::Pi),
             "prime" | "prime_agent" | "prime-agent" => Some(Self::Prime),
+            "zcode" => Some(Self::ZCode),
             _ => None,
         }
     }
@@ -159,6 +162,9 @@ pub struct SiteDto {
     /// 已配置的代理请求头条数（明文计数，列表不返回请求头内容）。
     #[serde(default)]
     pub proxy_header_count: u32,
+    /// ZCode 目标的 API 协议；`None` = 按站点协议推断。
+    #[serde(default)]
+    pub zcode_api_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -207,6 +213,9 @@ pub struct CreateSiteInput {
     /// 本地代理请求头覆盖。`None` = 不改动既有值。
     #[serde(default)]
     pub proxy_headers: Option<Vec<ProxyHeader>>,
+    /// ZCode 目标的 API 协议（`anthropic-messages` 等）。`None` = 按站点协议推断。
+    #[serde(default)]
+    pub zcode_api_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -274,6 +283,9 @@ pub struct UpdateSiteInput {
     /// 本地代理请求头覆盖。`None` = 不改动既有值。
     #[serde(default)]
     pub proxy_headers: Option<Vec<ProxyHeader>>,
+    /// ZCode 目标的 API 协议（`anthropic-messages` 等）。`None` = 按站点协议推断。
+    #[serde(default)]
+    pub zcode_api_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -560,6 +572,9 @@ pub struct AppSettings {
     pub pi_agent_dir_override: Option<String>,
     #[serde(default)]
     pub prime_agent_dir_override: Option<String>,
+    /// ZCode 配置根目录覆盖（默认 `~/.zcode`，provider 在 `v2/`、MCP 在 `cli/`）。
+    #[serde(default)]
+    pub zcode_home_override: Option<String>,
     pub codex_env_inject_mode: String,
     pub force_exclusive_claude_auth_key: bool,
     #[serde(default = "default_true")]
@@ -873,6 +888,7 @@ impl Default for AppSettings {
             codex_home_override: None,
             pi_agent_dir_override: None,
             prime_agent_dir_override: None,
+            zcode_home_override: None,
             codex_env_inject_mode: "auto".into(),
             force_exclusive_claude_auth_key: false,
             auto_check_update: true,
@@ -1064,6 +1080,8 @@ pub struct SiteRow {
     /// 加密存储的 `Vec<ProxyHeader>` JSON；UI 只在编辑时按需解密。
     pub proxy_headers_encrypted: Option<String>,
     pub proxy_header_count: u32,
+    /// ZCode 目标使用的 API 协议；未设置时按 `protocol` 推断。
+    pub zcode_api_type: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1132,6 +1150,7 @@ impl SiteRow {
                 .is_some_and(|token| !token.is_empty()),
             newapi_user_id: self.newapi_user_id.clone(),
             proxy_header_count: self.proxy_header_count,
+            zcode_api_type: self.zcode_api_type.clone(),
         }
     }
 

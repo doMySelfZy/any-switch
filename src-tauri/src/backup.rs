@@ -83,6 +83,7 @@ pub fn prune_all(max: u32) -> AppResult<usize> {
     n += prune_target_backups(TargetKind::Codex, max)?;
     n += prune_target_backups(TargetKind::Pi, max)?;
     n += prune_target_backups(TargetKind::Prime, max)?;
+    n += prune_target_backups(TargetKind::ZCode, max)?;
     Ok(n)
 }
 
@@ -188,6 +189,8 @@ pub fn parse_backup_id(id: &str) -> AppResult<(TargetKind, String)> {
         (TargetKind::Pi, rest)
     } else if let Some(rest) = id.strip_prefix("prime-") {
         (TargetKind::Prime, rest)
+    } else if let Some(rest) = id.strip_prefix("zcode-") {
+        (TargetKind::ZCode, rest)
     } else {
         return Err(AppError::new("validation_failed", "invalid backup id"));
     };
@@ -253,6 +256,12 @@ pub fn mapped_dest(
         (TargetKind::Prime, "settings.json") => Some(prime::settings_path(
             settings.prime_agent_dir_override.as_deref(),
         )?),
+        (TargetKind::ZCode, "config.json") => Some(crate::paths::zcode_provider_path(
+            settings.zcode_home_override.as_deref(),
+        )?),
+        (TargetKind::ZCode, "provider_config.json") => Some(
+            crate::paths::zcode_provider_config_path(settings.zcode_home_override.as_deref())?,
+        ),
         _ => None,
     })
 }
@@ -271,6 +280,9 @@ fn dest_is_allowed(dest: &Path, settings: &AppSettings) -> bool {
     if let Ok(p) =
         crate::paths::resolve_prime_agent_dir(settings.prime_agent_dir_override.as_deref())
     {
+        roots.push(p);
+    }
+    if let Ok(p) = crate::paths::resolve_zcode_home(settings.zcode_home_override.as_deref()) {
         roots.push(p);
     }
     if let Ok(p) = crate::paths::app_dir() {
@@ -319,6 +331,9 @@ pub fn restore_backup_in(
         crate::adapters::atomic::restore_file(&dir.join(&name), &dest)?;
         if name == "codex.env"
             || ((target == TargetKind::Pi || target == TargetKind::Prime) && name == "auth.json")
+            // ZCode 两份配置里都含明文 apiKey。
+            || (target == TargetKind::ZCode
+                && (name == "config.json" || name == "provider_config.json"))
         {
             crate::paths::set_secret_permissions(&dest);
         }
@@ -355,6 +370,9 @@ fn summary_from_backup_dir(dir: &Path, target: TargetKind) -> HashMap<String, Op
     }
     if target == TargetKind::Prime {
         return prime::backup_summary(dir);
+    }
+    if target == TargetKind::ZCode {
+        return crate::adapters::zcode::backup_summary(dir);
     }
     let mut out = HashMap::new();
     let settings_json = dir.join("settings.json");
@@ -452,6 +470,10 @@ mod tests {
         assert_eq!(
             parse_backup_id("prime-1710000000000").unwrap().0,
             TargetKind::Prime
+        );
+        assert_eq!(
+            parse_backup_id("zcode-1710000000000").unwrap().0,
+            TargetKind::ZCode
         );
     }
 

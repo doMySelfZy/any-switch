@@ -964,6 +964,7 @@ wire_api = "responses"
             newapi_user_id: None,
             proxy_headers_encrypted: None,
             proxy_header_count: 0,
+            zcode_api_type: None,
         };
         let bak = dir.path().join("bak");
         fs::create_dir_all(&bak).unwrap();
@@ -1046,6 +1047,7 @@ image_generation = false
             newapi_user_id: None,
             proxy_headers_encrypted: None,
             proxy_header_count: 0,
+            zcode_api_type: None,
         };
         let bak = dir.path().join("bak");
         fs::create_dir_all(&bak).unwrap();
