@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 13
+- **Total Sessions**: 14
 - **Last Active**: 2026-09-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~395 | Active |
+| `journal-1.md` | ~416 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 14 | 2026-09-14 | 收尾核查：三个 in_progress 任务的真实完成度 | - | `main` |
 | 13 | 2026-09-14 | 任务状态审计：MCP 纳管 adapter 未接线、悬浮窗待确认 | - | `main` |
 | 12 | 2026-09-14 | MCP 体验修复：首屏常用列表、一键安装、已有配置读取层 | `f2048d8`, `a949e0b` | `main` |
 | 11 | 2026-09-14 | 分支整合：变基三分支工作并推送到远程 | `41595ef`, `2bf0e8f` | `main` |

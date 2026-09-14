@@ -96,6 +96,7 @@ WebDAV 真同步全链路落地：逻辑内容指纹引擎+变更驱动守护任
 
 | Hash | Message |
 |------|---------|
+| `75da226` | feat(sites): 站点列表条目直接显示额度摘要 |
 | `eb236c6` | feat(sites): 列表第二行显示余额并自动刷新 |
 
 ### Status
@@ -385,6 +386,26 @@ CLI 配置里的口令不一致，表现为四个 CLI 全部 404。
 
 3. 本轮 finish-work 结论：无活跃任务、无待归档任务（floating-window 用户未确认）、工作区干净无需分类脏路径。
 
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 14: 收尾核查：三个 in_progress 任务的真实完成度
+<!-- trellis-session: v=2 fp=a279fe69bdd8c0bd -->
+
+**Date**: 2026-09-14
+**Task**: 收尾核查：三个 in_progress 任务的真实完成度
+**Branch**: `main`
+
+### Summary
+
+收尾会话，无新代码提交。逐一读源码核实三个 in_progress 任务的完成度（Session 11 曾按「代码已并入 main」记为接近完成，与实际不符）：①09-13-floating-window 未完成——commands/floating.rs 的 get_all_sites_quota 把 quota 硬编码为 None（源码 TODO：「暂时返回 None，后续可以添加缓存机制」），悬浮窗余额列只会显示「未知」；auto_refresh_minutes / autoRefreshSeconds 设置无人消费（前端仅挂载时拉一次，无定时器）；FloatingWindow.tsx 硬编码中文（对应 i18n 键已存在但未使用）与 hex 颜色，并静态 import message from antd（违反 AGENTS.md），无组件测试。已实现部分：窗口创建/显隐、鼠标拖动、位置保存恢复、设置页开关、手动刷新。②09-13-mcp-scan-existing 完成 1/5——仅后端读取层 adapters/mcp_scan.rs（11 单测通过），mcp_scan 未接任何 tauri 命令、前端无入口，接管逻辑与端到端验证未做。③00-bootstrap-guidelines 未推进（.trellis/spec/ 仍为空模板）。结论：三个任务均未完成、不可归档，本轮未归档；用户已知悉。另补记 Session 4 提交表遗漏的 75da226（站点列表额度摘要首个提交，与 eb236c6 同属该会话工作）。
 
 ### Git Commits
 
