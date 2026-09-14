@@ -161,7 +161,7 @@ function GeneralSection() {
               void patch({
                 floatingWindow: {
                   enabled,
-                  autoRefreshSeconds: settings.floatingWindow?.autoRefreshSeconds ?? 300,
+                  autoRefreshMinutes: settings.floatingWindow?.autoRefreshMinutes ?? 5,
                   positionX: settings.floatingWindow?.positionX ?? 100,
                   positionY: settings.floatingWindow?.positionY ?? 100,
                   collapsed: settings.floatingWindow?.collapsed ?? false,
@@ -181,17 +181,17 @@ function GeneralSection() {
           <span>{t("settings.floatingWindowRefreshInterval")}</span>
           <InputNumber
             size="small"
-            min={60}
-            max={3600}
-            step={60}
+            min={1}
+            max={60}
+            step={1}
             style={{ width: 120 }}
-            value={settings.floatingWindow?.autoRefreshSeconds ?? 300}
-            onChange={(autoRefreshSeconds) => {
-              if (autoRefreshSeconds) {
+            value={settings.floatingWindow?.autoRefreshMinutes ?? 5}
+            onChange={(autoRefreshMinutes) => {
+              if (autoRefreshMinutes) {
                 void patch({
                   floatingWindow: {
                     enabled: settings.floatingWindow?.enabled ?? true,
-                    autoRefreshSeconds,
+                    autoRefreshMinutes,
                     positionX: settings.floatingWindow?.positionX ?? 100,
                     positionY: settings.floatingWindow?.positionY ?? 100,
                     collapsed: settings.floatingWindow?.collapsed ?? false,
@@ -199,8 +199,28 @@ function GeneralSection() {
                 });
               }
             }}
-            addonAfter={t("settings.seconds")}
+            addonAfter={t("settings.minutes")}
           />
+        </div>
+        <Divider style={{ margin: "8px 0" }} />
+        <div style={rowStyle} className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div>{t("settings.floatingWindowPosition")}</div>
+            <div className="text-xs" style={{ color: token.colorTextSecondary }}>
+              {t("settings.floatingWindowPositionHint")}
+            </div>
+          </div>
+          <Button
+            size="small"
+            onClick={() => {
+              void invoke("reset_floating_window_position", {}).catch((e) => {
+                message.error(t("settings.floatingWindowResetFailed"));
+                console.error(e);
+              });
+            }}
+          >
+            {t("settings.floatingWindowResetPosition")}
+          </Button>
         </div>
       </SettingsGroup>
     </div>

@@ -1,39 +1,90 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+use once_cell::sync::Lazy;
 use tauri::{AppHandle, Manager, State};
 
-use crate::floating_window;
-use crate::state::AppState;
-use crate::domain::SiteQuotaSummary;
-use crate::repo;
+use crate::domain::{SiteQuota, SiteQuotaSummary};
 use crate::error::AppResult;
+use crate::floating_window;
+use crate::repo;
+use crate::state::AppState;
 
-/// 获取所有站点的余额汇总
-#[tauri::command]
-pub async fn get_all_sites_quota(state: State<'_, AppState>) -> AppResult<Vec<SiteQuotaSummary>> {
+/// 悬浮窗用的额度缓存：站点 id → 最近一次探测到的额度。
+///
+/// 为什么要在后端存一份：悬浮窗是**独立的 webview 窗口**，拿不到主窗口 zustand store
+/// 里的额度缓存；而每次刷新都对所有站点发网络请求既慢又容易触发限流。所以后端记住上次
+/// 结果，悬浮窗打开时立刻有内容显示，再按设定的间隔去刷新。
+struct CachedQuota {
+    quota: SiteQuota,
+}
+
+static QUOTA_CACHE: Lazy<Mutex<HashMap<String, CachedQuota>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn cached_quota(site_id: &str) -> Option<SiteQuota> {
+    QUOTA_CACHE
+        .lock()
+        .ok()?
+        .get(site_id)
+        .map(|entry| entry.quota.clone())
+}
+
+fn store_quota(site_id: &str, quota: SiteQuota) {
+    if let Ok(mut cache) = QUOTA_CACHE.lock() {
+        cache.insert(site_id.to_string(), CachedQuota { quota });
+    }
+}
+
+/// 汇总各站点余额。抽成函数是为了让「读缓存」与「刷新后回读」共用同一份拼装逻辑。
+fn summarize(state: &AppState) -> AppResult<Vec<SiteQuotaSummary>> {
     state.db.with_conn(|conn| {
         let sites = repo::site::list_sites(conn)?;
-        let mut summaries = Vec::new();
-
-        for site in sites {
-            // 尝试获取最新的余额信息
-            let quota = if !site.api_key_encrypted.is_empty() {
-                // 这里可以调用 probe_quota，但为了避免阻塞，我们可以从缓存或数据库读取
-                // 暂时返回 None，后续可以添加缓存机制
-                None
-            } else {
-                None
-            };
-
-            summaries.push(SiteQuotaSummary {
-                site_id: site.id.clone(),
-                site_name: site.name.clone(),
-                quota,
+        Ok(sites
+            .into_iter()
+            .map(|site| SiteQuotaSummary {
+                quota: cached_quota(&site.id),
+                site_id: site.id,
+                site_name: site.name,
                 enabled: site.enabled,
                 sort_order: site.sort_order,
-            });
-        }
-
-        Ok(summaries)
+            })
+            .collect())
     })
+}
+
+/// 读各站点的余额汇总（只读缓存，不发网络请求）。
+///
+/// 悬浮窗打开时先调这个立刻显示内容，再调 `refresh_sites_quota` 取最新值。
+#[tauri::command]
+pub fn get_all_sites_quota(state: State<'_, AppState>) -> AppResult<Vec<SiteQuotaSummary>> {
+    summarize(&state)
+}
+
+/// 并发探测所有站点的余额并更新缓存。
+///
+/// 串行探测在站点多时会让悬浮窗转很久，所以这里并发发请求；单个站点失败只跳过它
+/// （保留缓存里上一次的值），不影响其它站点。
+#[tauri::command]
+pub async fn refresh_sites_quota(state: State<'_, AppState>) -> AppResult<Vec<SiteQuotaSummary>> {
+    let sites = state.db.with_conn(repo::site::list_sites)?;
+
+    let probes = sites
+        .iter()
+        .map(|site| crate::commands::quota::probe_quota_for(&state, &site.id));
+    let results = futures_util::future::join_all(probes).await;
+
+    for (site, result) in sites.iter().zip(results) {
+        match result {
+            Ok(quota) => store_quota(&site.id, quota),
+            Err(error) => {
+                // 失败不清缓存：显示上一次的余额比显示「未知」更有用。
+                tracing::warn!(site = %site.name, error = %error, "floating window quota probe failed");
+            }
+        }
+    }
+
+    summarize(&state)
 }
 
 /// 切换悬浮窗显示/隐藏
@@ -49,7 +100,8 @@ pub async fn toggle_floating_window(
 
     if enabled {
         if let Some(window) = app.get_webview_window(floating_window::FLOATING_WINDOW_LABEL) {
-            let visible = window.is_visible()
+            let visible = window
+                .is_visible()
                 .map_err(|e| crate::error::AppError::new("window_error", e.to_string()))?;
             if visible {
                 floating_window::hide_floating_window(app)?;
@@ -63,7 +115,10 @@ pub async fn toggle_floating_window(
             Ok(true)
         }
     } else {
-        Err(crate::error::AppError::new("validation_failed", "Floating window is disabled in settings"))
+        Err(crate::error::AppError::new(
+            "validation_failed",
+            "Floating window is disabled in settings",
+        ))
     }
 }
 
@@ -93,6 +148,20 @@ pub async fn save_floating_window_position(
         let mut settings = repo::settings::get_settings(conn)?;
         settings.floating_window.position_x = Some(x);
         settings.floating_window.position_y = Some(y);
+        repo::settings::save_settings(conn, &settings)?;
+        Ok(())
+    })
+}
+
+/// 保存收起/展开状态
+#[tauri::command]
+pub async fn set_floating_window_collapsed(
+    state: State<'_, AppState>,
+    collapsed: bool,
+) -> AppResult<()> {
+    state.db.with_conn(|conn| {
+        let mut settings = repo::settings::get_settings(conn)?;
+        settings.floating_window.collapsed = collapsed;
         repo::settings::save_settings(conn, &settings)?;
         Ok(())
     })
@@ -129,7 +198,8 @@ pub async fn set_floating_window_refresh_interval(
 ) -> AppResult<()> {
     state.db.with_conn(|conn| {
         let mut settings = repo::settings::get_settings(conn)?;
-        settings.floating_window.auto_refresh_minutes = crate::domain::clamp_floating_refresh_interval(minutes);
+        settings.floating_window.auto_refresh_minutes =
+            crate::domain::clamp_floating_refresh_interval(minutes);
         repo::settings::save_settings(conn, &settings)?;
         Ok(())
     })
@@ -142,16 +212,19 @@ pub async fn reset_floating_window_position(
     state: State<'_, AppState>,
 ) -> AppResult<()> {
     if let Some(window) = app.get_webview_window(floating_window::FLOATING_WINDOW_LABEL) {
-        if let Some(monitor) = window.current_monitor()
+        if let Some(monitor) = window
+            .current_monitor()
             .map_err(|e| crate::error::AppError::new("window_error", e.to_string()))?
         {
             let monitor_size = monitor.size();
-            let window_size = window.inner_size()
+            let window_size = window
+                .inner_size()
                 .map_err(|e| crate::error::AppError::new("window_error", e.to_string()))?;
             let x = monitor_size.width as i32 - window_size.width as i32 - 20;
             let y = monitor_size.height as i32 - window_size.height as i32 - 60;
 
-            window.set_position(tauri::PhysicalPosition::new(x, y))
+            window
+                .set_position(tauri::PhysicalPosition::new(x, y))
                 .map_err(|e| crate::error::AppError::new("window_error", e.to_string()))?;
 
             state.db.with_conn(|conn| {
@@ -165,4 +238,35 @@ pub async fn reset_floating_window_position(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 缓存的读写是悬浮窗「打开即有内容」的基础，单独覆盖一下。
+    #[test]
+    fn quota_cache_round_trips_and_survives_unknown_sites() {
+        // 未知站点返回 None，而不是 panic 或伪造数据。
+        assert!(cached_quota("no-such-site").is_none());
+
+        let mut quota = crate::quota_probe::empty_key_result();
+        quota.remaining_usd = Some(12.5);
+        quota.fetched_at = 111;
+        store_quota("site-a", quota);
+
+        let cached = cached_quota("site-a").expect("cached");
+        assert_eq!(cached.remaining_usd, Some(12.5));
+        assert_eq!(cached.fetched_at, 111);
+
+        // 同一站点再写会覆盖，不会留下两份。
+        let mut updated = crate::quota_probe::empty_key_result();
+        updated.remaining_usd = Some(9.0);
+        updated.fetched_at = 222;
+        store_quota("site-a", updated);
+
+        let cached = cached_quota("site-a").unwrap();
+        assert_eq!(cached.remaining_usd, Some(9.0));
+        assert_eq!(cached.fetched_at, 222, "second write must replace the first");
+    }
 }

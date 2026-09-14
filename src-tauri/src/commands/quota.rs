@@ -59,9 +59,17 @@ pub async fn test_newapi_access(
 
 #[tauri::command]
 pub async fn probe_site_quota(state: State<'_, AppState>, site_id: String) -> AppResult<SiteQuota> {
+    probe_quota_for(&state, &site_id).await
+}
+
+/// 探测单个站点的额度。
+///
+/// 从命令层抽出来是为了让悬浮窗能并发刷新所有站点（`State` 只能从命令参数拿到，
+/// 没法在 `join_all` 里传递）。
+pub(crate) async fn probe_quota_for(state: &AppState, site_id: &str) -> AppResult<SiteQuota> {
     let (site, api_key, newapi, settings) = state.db.with_conn(|c| {
-        let site = repo::site::get_site(c, &site_id)?;
-        let key = repo::site_api_key::get_active(c, &site_id)?;
+        let site = repo::site::get_site(c, site_id)?;
+        let key = repo::site_api_key::get_active(c, site_id)?;
         let secret = repo::site_api_key::decrypt(&state.crypto, &key)?;
         let newapi = match (&site.newapi_access_token_encrypted, &site.newapi_user_id) {
             (Some(token), Some(user_id)) if !token.is_empty() && !user_id.is_empty() => {

@@ -361,7 +361,8 @@ export interface AppSettings {
   /** Floating window settings */
   floatingWindow?: {
     enabled: boolean;
-    autoRefreshSeconds: number;
+    /** 自动刷新间隔（分钟）。与后端 `auto_refresh_minutes` 同名同单位。 */
+    autoRefreshMinutes: number;
     positionX: number;
     positionY: number;
     collapsed: boolean;

@@ -75,6 +75,13 @@ const DEFAULT_SETTINGS: AppSettings = {
   localProxyTargets: [],
   closeToTray: true,
   startInTray: false,
+  floatingWindow: {
+    enabled: true,
+    autoRefreshMinutes: 5,
+    positionX: 100,
+    positionY: 100,
+    collapsed: false,
+  },
 };
 
 function declareClaude1m(modelId: string, enabled: boolean): string {
@@ -1387,6 +1394,103 @@ export async function handleBrowserCommand<T>(
       ];
       return tools as T;
     }
+    // 悬浮窗：浏览器模式返回样例余额，覆盖「正常 / 低余额 / 无限额 / 未知」四种展示。
+    case "get_all_sites_quota":
+    case "refresh_sites_quota":
+      return [
+        {
+          siteId: "s1",
+          siteName: "Relay A",
+          enabled: true,
+          sortOrder: 0,
+          quota: {
+            status: "available",
+            remainingUsd: 42.5,
+            usedUsd: 7.5,
+            totalUsd: 50,
+            unlimited: false,
+            unit: "usd",
+            expiresAt: null,
+            source: "token_usage",
+            endpoint: null,
+            fetchedAt: 1,
+            latencyMs: 12,
+            error: null,
+            windows: [],
+          },
+        },
+        {
+          siteId: "s2",
+          siteName: "Relay B",
+          enabled: true,
+          sortOrder: 1,
+          quota: {
+            status: "available",
+            remainingUsd: 1.25,
+            usedUsd: 8.75,
+            totalUsd: 10,
+            unlimited: false,
+            unit: "usd",
+            expiresAt: null,
+            source: "token_usage",
+            endpoint: null,
+            fetchedAt: 1,
+            latencyMs: 12,
+            error: null,
+            windows: [],
+          },
+        },
+        {
+          siteId: "s3",
+          siteName: "Unlimited C",
+          enabled: true,
+          sortOrder: 2,
+          quota: {
+            status: "available",
+            remainingUsd: null,
+            usedUsd: null,
+            totalUsd: null,
+            unlimited: true,
+            unit: null,
+            expiresAt: null,
+            source: null,
+            endpoint: null,
+            fetchedAt: 1,
+            latencyMs: 12,
+            error: null,
+            windows: [],
+          },
+        },
+        {
+          siteId: "s4",
+          siteName: "Unknown D",
+          enabled: false,
+          sortOrder: 3,
+          quota: null,
+        },
+      ] as T;
+    case "set_floating_window_collapsed": {
+      const collapsed = Boolean(args?.collapsed);
+      settings = {
+        ...settings,
+        floatingWindow: {
+          enabled: settings.floatingWindow?.enabled ?? true,
+          autoRefreshMinutes: settings.floatingWindow?.autoRefreshMinutes ?? 5,
+          positionX: settings.floatingWindow?.positionX ?? 100,
+          positionY: settings.floatingWindow?.positionY ?? 100,
+          collapsed,
+        },
+      };
+      return undefined as T;
+    }
+    case "toggle_floating_window":
+    case "show_floating_window_cmd":
+    case "hide_floating_window_cmd":
+    case "save_floating_window_position":
+    case "reset_floating_window_position":
+    case "set_floating_window_enabled":
+    case "set_floating_window_refresh_interval":
+      return undefined as T;
     case "get_app_paths": {
       const paths: AppPaths = {
         appDir: "~/.xiaobai-switch",
