@@ -16,26 +16,37 @@ import { App, Button, Empty, Spin, Tooltip, Typography, theme } from "antd";
 
 const { Text } = Typography;
 
-/** 把主题 token 的颜色加上透明度——深/浅主题下都要能透出桌面。 */
-function withAlpha(color: string, alpha: number): string {
-  const hex = color.trim();
-  if (hex.startsWith("#")) {
-    const body = hex.slice(1);
+/**
+ * 给颜色套一个透明度上限。
+ *
+ * 注意是「上限」而不是「覆盖」：antd 在深色主题下很多 token 本身就是 rgba
+ * （如 colorFillTertiary 约等于 rgba(255,255,255,0.08)），那一层低透明度正是
+ * 「很淡的填充」这个设计意图。直接替换成 0.6 会让本该几乎看不见的填充变成
+ * 一块明显的白 —— 卡片就会亮得刺眼。
+ */
+export function withAlpha(color: string, alpha: number): string {
+  const c = color.trim();
+  if (c.startsWith("#")) {
+    const body = c.slice(1);
     const full =
       body.length === 3
         ? body
             .split("")
-            .map((c) => c + c)
+            .map((ch) => ch + ch)
             .join("")
         : body;
     const num = Number.parseInt(full.slice(0, 6), 16);
-    if (!Number.isNaN(num)) {
-      return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
-    }
+    if (Number.isNaN(num)) return c;
+    return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
   }
-  if (hex.startsWith("rgb(")) return hex.replace("rgb(", "rgba(").replace(")", `, ${alpha})`);
-  if (hex.startsWith("rgba(")) return hex.replace(/[\d.]+\)$/, `${alpha})`);
-  return hex;
+  const match = c.match(/^rgba?\(([^)]+)\)$/);
+  if (match) {
+    const parts = match[1].split(",").map((s) => s.trim());
+    const original = parts.length > 3 ? Number(parts[3]) : 1;
+    const final = Number.isNaN(original) ? alpha : Math.min(original, alpha);
+    return `rgba(${parts[0]}, ${parts[1]}, ${parts[2]}, ${final})`;
+  }
+  return c;
 }
 
 /** 余额低于这个值（美元）就提示，避免用户用到一半才发现没钱了。 */

@@ -3,8 +3,26 @@ import { App as AntdApp, ConfigProvider } from "antd";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleBrowserCommand, resetBrowserMock } from "@/lib/browserMock";
-import { FloatingWindow } from "./FloatingWindow";
+import { FloatingWindow, withAlpha } from "./FloatingWindow";
 import "@/i18n";
+
+describe("withAlpha", () => {
+  it("applies the cap to opaque colors", () => {
+    expect(withAlpha("#141414", 0.72)).toBe("rgba(20, 20, 20, 0.72)");
+    expect(withAlpha("rgb(20, 20, 20)", 0.72)).toBe("rgba(20, 20, 20, 0.72)");
+  });
+
+  it("never raises an already-translucent color", () => {
+    // 深色主题下 antd token 常是「很淡的 rgba」，放大透明度会把卡片变成亮白块
+    // —— 这正是截图里看到的问题，用这条锁住。
+    expect(withAlpha("rgba(255, 255, 255, 0.08)", 0.6)).toBe("rgba(255, 255, 255, 0.08)");
+    expect(withAlpha("rgba(255, 255, 255, 0.9)", 0.6)).toBe("rgba(255, 255, 255, 0.6)");
+  });
+
+  it("passes through values it cannot parse", () => {
+    expect(withAlpha("var(--x)", 0.5)).toBe("var(--x)");
+  });
+});
 
 // 悬浮窗要操作真实窗口对象；jsdom 里没有，这里替换掉。
 const setSize = vi.fn().mockResolvedValue(undefined);
