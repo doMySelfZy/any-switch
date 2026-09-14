@@ -418,6 +418,15 @@ export const FloatingWindow: React.FC = () => {
                     <Text strong style={{ color: quotaColor(site.quota, token), fontSize: 13 }}>
                       {formatQuota(site.quota, t)}
                     </Text>
+                    {/* 刷新失败时说明原因：否则用户只看到「不可用」，
+                        无从判断是网络、密钥还是站点不提供余额接口。 */}
+                    {site.quota?.error && (
+                      <Tooltip title={site.quota.error}>
+                        <WarningOutlined
+                          style={{ color: token.colorWarning, fontSize: 12, marginLeft: 4 }}
+                        />
+                      </Tooltip>
+                    )}
                   </div>
                 ))}
               </div>

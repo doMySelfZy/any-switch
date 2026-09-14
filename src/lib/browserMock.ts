@@ -1468,6 +1468,28 @@ export async function handleBrowserCommand<T>(
           sortOrder: 3,
           quota: null,
         },
+        {
+          // 刷新失败的站点：界面应当在余额旁显示可查看的原因。
+          siteId: "s5",
+          siteName: "Failed E",
+          enabled: true,
+          sortOrder: 4,
+          quota: {
+            status: "error",
+            remainingUsd: null,
+            usedUsd: null,
+            totalUsd: null,
+            unlimited: false,
+            unit: null,
+            expiresAt: null,
+            source: null,
+            endpoint: null,
+            fetchedAt: 1,
+            latencyMs: 0,
+            error: "unauthorized: invalid api key",
+            windows: [],
+          },
+        },
       ] as T;
     case "set_floating_window_collapsed": {
       const collapsed = Boolean(args?.collapsed);

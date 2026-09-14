@@ -78,7 +78,12 @@ pub async fn refresh_sites_quota(state: State<'_, AppState>) -> AppResult<Vec<Si
         match result {
             Ok(quota) => store_quota(&site.id, quota),
             Err(error) => {
-                // 失败不清缓存：显示上一次的余额比显示「未知」更有用。
+                // 失败时保留上一次的余额（显示旧数字比整片「不可用」有用），
+                // 同时把失败原因记进去——界面能据此说明为什么没刷新成功。
+                let mut quota = cached_quota(&site.id)
+                    .unwrap_or_else(crate::quota_probe::empty_key_result);
+                quota.error = Some(error.to_string());
+                store_quota(&site.id, quota);
                 tracing::warn!(site = %site.name, error = %error, "floating window quota probe failed");
             }
         }

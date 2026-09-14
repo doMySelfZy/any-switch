@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App as AntdApp, ConfigProvider } from "antd";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -78,16 +78,18 @@ describe("FloatingWindow", () => {
       </Wrapper>,
     );
 
-    // 正常余额
+    // 「不可用」在多个站点上都会出现，断言按站点所在行限定。
+    const cell = (name: string) =>
+      within(screen.getByText(name).parentElement as HTMLElement);
+
     expect(await screen.findByText("Relay A")).toBeInTheDocument();
-    expect(screen.getByText("$42.50")).toBeInTheDocument();
-    // 低余额仍显示金额（警示色由样式承担，这里只断言不隐藏）
-    expect(screen.getByText("$1.25")).toBeInTheDocument();
+    expect(cell("Relay A").getByText("$42.50")).toBeInTheDocument();
+    // 低余额仍显示金额（警示色由样式承担）
+    expect(cell("Relay B").getByText("$1.25")).toBeInTheDocument();
     // 无限额
-    expect(screen.getByText("无限")).toBeInTheDocument();
+    expect(cell("Unlimited C").getByText("无限")).toBeInTheDocument();
     // 未知
-    expect(screen.getByText("不可用")).toBeInTheDocument();
-    expect(screen.getByText("Unknown D")).toBeInTheDocument();
+    expect(cell("Unknown D").getByText("不可用")).toBeInTheDocument();
   });
 
   it("shows the last update time once balances are loaded", async () => {
@@ -251,6 +253,19 @@ describe("FloatingWindow", () => {
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith("set_floating_window_enabled", { enabled: false });
     });
+  });
+
+  it("shows the reason when a site's balance could not be read", async () => {
+    render(
+      <Wrapper>
+        <FloatingWindow />
+      </Wrapper>,
+    );
+
+    // 失败站点显示「不可用」，并挂上可查看的原因。
+    expect(await screen.findByText("Failed E")).toBeInTheDocument();
+    const cell = within(screen.getByText("Failed E").parentElement as HTMLElement);
+    expect(cell.getByText("不可用")).toBeInTheDocument();
   });
 
   it("keeps the glass background translucent", async () => {
