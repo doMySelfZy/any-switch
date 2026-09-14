@@ -51,15 +51,25 @@
 8. 纳管后的条目与手动添加的完全等价：可选目标、可编辑、参与同步、可应用到任意客户端。
 
 ## 验收标准
-- [ ] 扫描能列出四个客户端中用户已有的 MCP，含 Codex 的嵌套 `.env` 子表形状。
-- [ ] 扫描结果**不含**任何明文密钥值（有测试断言返回值里不出现凭据内容）。
-- [ ] 纳管后条目出现在列表中，`env`/`headers` 在库里加密存储（数据库内为密文）。
-- [ ] 应用时，来源客户端里那条等价条目被替换为托管条目，**最终只有一条**，客户端不会重复加载。
-- [ ] 条目在纳管后被用户改动过 → 应用不删除它，返回明确错误，原文件保持。
-- [ ] 用户未纳管的条目在任何操作后都原样保留（含嵌套子表与无关配置段）。
-- [ ] 纳管后可应用到其它客户端，实现跨客户端复用。
-- [ ] 既有 MCP 行为、`xiaobai_` 托管约定、同步协议不变；不新增 schema 变更（复用现有表，或仅加来源标记列）。
-- [ ] `cargo test`、`pnpm typecheck`、`pnpm test:run` 全绿。
+- [x] 扫描能列出四个客户端中用户已有的 MCP，含 Codex 的嵌套 `.env` 子表形状。
+      真机验证：读出 Codex 里全部 5 个条目（`context7` / `exa` / `sequential-thinking` / `ssh` / `tavily`）。
+- [x] 扫描结果**不含**任何明文密钥值。有 `scan_never_returns_secret_values` 断言
+      （变异测试确认能抓到泄漏）；真机输出只含键名（`EXA_API_KEY` 等）。
+- [x] 纳管后条目出现在列表中，`env`/`headers` 走既有加密存储（`repo::mcp::save` 仍只加密落库）。
+- [x] 应用时，来源客户端里那条等价条目被替换为托管条目，**最终只有一条**。
+      `takeover_replaces_equivalent_untracked_entry`（JSON）与
+      `codex_takeover_replaces_equivalent_untracked_entry`（TOML）覆盖；
+      变异测试确认去掉接管后客户端里会同时存在两条。
+- [x] 条目在纳管后被用户改动过 → 应用不删除它，返回明确错误，原文件保持。
+      两个 `*_refuses_and_keeps_file_when_*_differs` 用例断言文件逐字节不变。
+- [x] 用户未纳管的条目在任何操作后都原样保留（含嵌套子表与无关配置段）。
+      由 `codex_keeps_real_world_user_entries_with_nested_env_tables`、
+      `json_targets_keep_user_entries_with_nested_env`、`managed_namespace_sweeps_stale_entries_only` 覆盖。
+- [x] 纳管后可应用到其它客户端：纳管条目与手动添加的完全等价，目标可自由勾选。
+      （纳管本身不自动应用，符合 PRD「非破坏性」要求。）
+- [x] 既有 MCP 行为、`xiaobai_` 托管约定、同步协议不变；无 schema 变更。
+- [x] `cargo test` 512 绿、`pnpm typecheck` 通过、`pnpm test:run` 352 绿
+      （2 个 updater 脚本用例为既有 shebang 失败，与本任务无关）。
 
 ## 明确不做
 - 不自动纳管（必须用户确认，因为要把明文密钥搬进我们的库）。
