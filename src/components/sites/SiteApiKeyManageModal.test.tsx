@@ -113,4 +113,33 @@ describe("SiteApiKeyManageModal", () => {
       ["claude-sonnet-4", "gpt-4.1"],
     );
   });
+
+  it("closes after a successful save", async () => {
+    // 回归：保存成功只提示、不关闭，用户会以为弹窗卡住了（按钮写的是「保存」）。
+    const created = await useSiteStore.getState().createSite({
+      name: "Relay",
+      baseUrl: "https://api.example.com",
+      apiKey: "sk-one",
+    });
+    const site = useSiteStore.getState().sites.find((item) => item.id === created.id) ?? created;
+    const onClose = vi.fn();
+
+    render(
+      <Wrapper>
+        <SiteApiKeyManageModal open site={site} onClose={onClose} />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("sk-...")).toHaveValue("sk-one");
+    });
+    fireEvent.change(screen.getByPlaceholderText("sk-..."), {
+      target: { value: "sk-updated" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /保\s*存/ }));
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
 });

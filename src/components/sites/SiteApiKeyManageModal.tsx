@@ -113,6 +113,9 @@ export function SiteApiKeyManageModal({ open, site, onClose }: Props) {
       const drafts = await loadSiteKeyDrafts(saved, getSiteApiKey);
       form.setFieldValue("apiKeys", drafts);
       message.success(t("sites.updateSuccess"));
+      // 保存完成就关闭：按钮写的是「保存」，用户点完期待这个弹窗收起来。
+      // 还要继续改可以重新打开——留一个不关的窗口反而像卡住了。
+      onClose();
     } catch (e) {
       if (e && typeof e === "object" && "errorFields" in e) return;
       message.error(isAppError(e) ? e.message : String(e));

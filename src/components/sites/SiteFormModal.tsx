@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { App, Button, Collapse, Form, Input, Modal, Select, Typography } from "antd";
+import { App, Button, Collapse, Divider, Form, Input, Modal, Select, Typography } from "antd";
 import { useTranslation } from "react-i18next";
 import type { NewApiAccessProbe, Site, SiteCapabilities, SiteProtocol } from "@/types/domain";
 import { invoke, isAppError } from "@/lib/invoke";
@@ -359,6 +359,13 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
                 label: t("sites.advanced"),
                 children: (
                   <>
+                    {/* 分三组并标注「可选」：高级区原本把 4 类不同人群才需要的字段平铺，
+                        普通用户看不出哪些能跳过。分组后每块都自带适用范围。 */}
+                    <Divider titlePlacement="start" style={{ marginTop: 0 }}>
+                      <span style={{ fontSize: 12, fontWeight: 400 }}>
+                        {t("sites.groupSiteInfo")}
+                      </span>
+                    </Divider>
                     <Form.Item name="protocol" label={t("sites.protocol")}>
                       <Select
                         options={[
@@ -370,6 +377,11 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
                     <Form.Item name="notes" label={t("sites.notes")}>
                       <Input.TextArea rows={2} allowClear />
                     </Form.Item>
+                    <Divider titlePlacement="start">
+                      <span style={{ fontSize: 12, fontWeight: 400 }}>
+                        {t("sites.groupQuota")}
+                      </span>
+                    </Divider>
                     <Form.Item
                       name="newapiAccessToken"
                       label={t("sites.newapiAccessToken")}
@@ -389,14 +401,8 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
                     >
                       <Input allowClear placeholder="1" inputMode="numeric" />
                     </Form.Item>
-                    <ProxyHeaderEditor
-                      value={proxyHeadersJson}
-                      onChange={(next) => {
-                        setProxyHeadersJson(next);
-                        if (proxyHeadersError) setProxyHeadersError(null);
-                      }}
-                      error={proxyHeadersError}
-                    />
+                    {/* 测试按钮紧跟它要用的字段——原先被下面的请求头编辑器隔开，
+                        看起来像两个无关的东西。 */}
                     <div className="mt-3 flex items-center gap-3">
                       <Button
                         size="small"
@@ -418,6 +424,19 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
                         </Text>
                       )}
                     </div>
+                    <Divider titlePlacement="start" style={{ marginBottom: 12 }}>
+                      <span style={{ fontSize: 12, fontWeight: 400 }}>
+                        {t("sites.groupProxy")}
+                      </span>
+                    </Divider>
+                    <ProxyHeaderEditor
+                      value={proxyHeadersJson}
+                      onChange={(next) => {
+                        setProxyHeadersJson(next);
+                        if (proxyHeadersError) setProxyHeadersError(null);
+                      }}
+                      error={proxyHeadersError}
+                    />
                   </>
                 ),
               },
