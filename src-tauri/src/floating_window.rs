@@ -46,6 +46,11 @@ pub fn create_floating_window(app: AppHandle) -> AppResult<()> {
     .max_inner_size(400.0, 800.0)
     .resizable(true)
     .decorations(false)
+    // 透明窗口：不设它的话 backdrop-filter 背后是窗口自己的底色而不是桌面，
+    // 毛玻璃与半透明都不会显示（整块变成不透明色板）。
+    .transparent(true)
+    // 无边框 + 透明之后，圆角与阴影才能透出来（否则被窗口矩形裁掉）。
+    .shadow(true)
     .always_on_top(true)
     .skip_taskbar(true)
     .visible(false) // 先隐藏，加载完成后再显示

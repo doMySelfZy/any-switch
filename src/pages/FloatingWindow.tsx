@@ -12,9 +12,31 @@ import {
   UpOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { App, Button, Empty, Spin, Tooltip, Typography } from "antd";
+import { App, Button, Empty, Spin, Tooltip, Typography, theme } from "antd";
 
 const { Text } = Typography;
+
+/** 把主题 token 的颜色加上透明度——深/浅主题下都要能透出桌面。 */
+function withAlpha(color: string, alpha: number): string {
+  const hex = color.trim();
+  if (hex.startsWith("#")) {
+    const body = hex.slice(1);
+    const full =
+      body.length === 3
+        ? body
+            .split("")
+            .map((c) => c + c)
+            .join("")
+        : body;
+    const num = Number.parseInt(full.slice(0, 6), 16);
+    if (!Number.isNaN(num)) {
+      return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
+    }
+  }
+  if (hex.startsWith("rgb(")) return hex.replace("rgb(", "rgba(").replace(")", `, ${alpha})`);
+  if (hex.startsWith("rgba(")) return hex.replace(/[\d.]+\)$/, `${alpha})`);
+  return hex;
+}
 
 /** 余额低于这个值（美元）就提示，避免用户用到一半才发现没钱了。 */
 const LOW_BALANCE_USD = 5;
@@ -35,12 +57,16 @@ function isLowBalance(quota: SiteQuotaSummary["quota"]): boolean {
   );
 }
 
-function quotaColor(quota: SiteQuotaSummary["quota"]): string {
-  if (!quota) return "#94a3b8";
-  if (quota.unlimited) return "#6ee7b7";
-  if (isLowBalance(quota)) return "#fbbf24";
-  if ((quota.remainingUsd ?? 0) > 0) return "#38bdf8";
-  return "#94a3b8";
+/** 余额文字颜色：主题色系里挑，避免自己造一套配色与主窗口打架。 */
+function quotaColor(
+  quota: SiteQuotaSummary["quota"],
+  token: { colorSuccess: string; colorWarning: string; colorPrimary: string; colorTextTertiary: string },
+): string {
+  if (!quota) return token.colorTextTertiary;
+  if (quota.unlimited) return token.colorSuccess;
+  if (isLowBalance(quota)) return token.colorWarning;
+  if ((quota.remainingUsd ?? 0) > 0) return token.colorPrimary;
+  return token.colorTextTertiary;
 }
 
 function formatQuota(
@@ -71,6 +97,7 @@ interface FloatingPrefs {
 
 export const FloatingWindow: React.FC = () => {
   const { t } = useTranslation();
+  const { token } = theme.useToken();
   const { message } = App.useApp();
   const [sites, setSites] = useState<SiteQuotaSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -195,7 +222,11 @@ export const FloatingWindow: React.FC = () => {
   };
 
   const handleClose = () => {
-    void appWindow.hide();
+    // 「关闭」= 关掉这个功能。只 hide 的话下次启动它又冒出来，用户会以为关不掉；
+    // 后端在 enabled=false 时会真正 close 掉窗口。
+    void invoke("set_floating_window_enabled", { enabled: false }).catch((error) => {
+      console.error("Failed to close floating window:", error);
+    });
   };
 
   const handleMouseDown = (event: React.MouseEvent) => {
@@ -256,24 +287,34 @@ export const FloatingWindow: React.FC = () => {
     <div
       className="h-screen w-full flex flex-col"
       style={{
-        background: "rgba(15, 19, 28, 0.95)",
-        backdropFilter: "blur(12px)",
+        // 半透明 + 毛玻璃：窗口本身开了 transparent，这里才能透出桌面。
+        // 颜色取自主题 token（不再硬编码一套深色），深浅主题都与主窗口协调。
+        background: withAlpha(token.colorBgElevated, 0.72),
+        backdropFilter: "blur(24px) saturate(1.6)",
+        WebkitBackdropFilter: "blur(24px) saturate(1.6)",
+        borderRadius: 14,
+        overflow: "hidden",
+        border: `1px solid ${withAlpha(token.colorBorderSecondary, 0.7)}`,
+        color: token.colorText,
       }}
     >
       {/* 标题栏：拖动区 + 刷新/折叠/关闭 */}
       <div
-        className="flex items-center justify-between px-4 py-3 border-b"
-        style={{ borderColor: "rgba(56, 189, 248, 0.2)", cursor: "move" }}
+        className="flex items-center justify-between px-3 py-2.5 border-b"
+        style={{
+          borderColor: withAlpha(token.colorBorderSecondary, 0.6),
+          cursor: "move",
+        }}
         onMouseDown={handleMouseDown}
       >
         <div className="flex items-center gap-2">
-          <DollarOutlined style={{ color: "#38bdf8", fontSize: 18 }} />
-          <Text strong style={{ color: "#38bdf8", fontSize: 14 }}>
+          <DollarOutlined style={{ color: token.colorPrimary, fontSize: 16 }} />
+          <Text strong style={{ color: token.colorText, fontSize: 13 }}>
             {t("settings.floatingWindowTitle")}
           </Text>
           {lowCount > 0 && (
             <Tooltip title={t("settings.floatingWindowLowBalance")}>
-              <WarningOutlined style={{ color: "#fbbf24", fontSize: 13 }} />
+              <WarningOutlined style={{ color: token.colorWarning, fontSize: 13 }} />
             </Tooltip>
           )}
         </div>
@@ -286,7 +327,7 @@ export const FloatingWindow: React.FC = () => {
               icon={<ReloadOutlined />}
               onClick={() => void refreshQuotas()}
               loading={loading}
-              style={{ color: "#94a3b8" }}
+              style={{ color: token.colorTextTertiary }}
             />
           </Tooltip>
           <Tooltip
@@ -306,7 +347,7 @@ export const FloatingWindow: React.FC = () => {
               }
               icon={collapsed ? <DownOutlined /> : <UpOutlined />}
               onClick={() => void toggleCollapsed()}
-              style={{ color: "#94a3b8" }}
+              style={{ color: token.colorTextTertiary }}
             />
           </Tooltip>
           <Tooltip title={t("common.close")}>
@@ -316,7 +357,7 @@ export const FloatingWindow: React.FC = () => {
               aria-label={t("common.close")}
               icon={<CloseOutlined />}
               onClick={handleClose}
-              style={{ color: "#94a3b8" }}
+              style={{ color: token.colorTextTertiary }}
             />
           </Tooltip>
         </div>
@@ -350,22 +391,22 @@ export const FloatingWindow: React.FC = () => {
                 style={{ marginTop: 60 }}
               />
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {sites.map((site) => (
                   <div
                     key={site.siteId}
-                    className="flex items-center justify-between px-3 py-2 rounded-lg transition-colors"
+                    className="flex items-center justify-between rounded-lg px-3 py-2"
                     style={{
-                      background: "rgba(30, 38, 54, 0.6)",
-                      border: "1px solid rgba(56, 189, 248, 0.1)",
-                      opacity: site.enabled ? 1 : 0.5,
+                      background: withAlpha(token.colorFillTertiary, 0.6),
+                      border: `1px solid ${withAlpha(token.colorBorderSecondary, 0.5)}`,
+                      opacity: site.enabled ? 1 : 0.45,
                     }}
                   >
                     <Text
                       style={{
-                        color: "#e2e8f0",
+                        color: token.colorText,
                         fontSize: 13,
-                        maxWidth: 140,
+                        maxWidth: 150,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
@@ -374,7 +415,7 @@ export const FloatingWindow: React.FC = () => {
                     >
                       {site.siteName}
                     </Text>
-                    <Text strong style={{ color: quotaColor(site.quota), fontSize: 13 }}>
+                    <Text strong style={{ color: quotaColor(site.quota, token), fontSize: 13 }}>
                       {formatQuota(site.quota, t)}
                     </Text>
                   </div>
@@ -385,10 +426,10 @@ export const FloatingWindow: React.FC = () => {
 
           {lastUpdate && (
             <div
-              className="px-4 py-2 border-t text-center"
-              style={{ borderColor: "rgba(56, 189, 248, 0.2)" }}
+              className="px-3 py-2 border-t text-center"
+              style={{ borderColor: withAlpha(token.colorBorderSecondary, 0.6) }}
             >
-              <Text style={{ color: "#64748b", fontSize: 11 }}>
+              <Text style={{ color: token.colorTextTertiary, fontSize: 11 }}>
                 {t("settings.floatingWindowLastUpdate")} {lastUpdate.toLocaleTimeString()}
               </Text>
             </div>

@@ -8,14 +8,12 @@ import "@/i18n";
 
 // 悬浮窗要操作真实窗口对象；jsdom 里没有，这里替换掉。
 const setSize = vi.fn().mockResolvedValue(undefined);
-const hide = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     setSize,
     setPosition: vi.fn().mockResolvedValue(undefined),
     outerPosition: vi.fn().mockResolvedValue({ x: 100, y: 100 }),
-    hide,
   }),
   LogicalPosition: class {
     constructor(
@@ -67,7 +65,6 @@ describe("FloatingWindow", () => {
   beforeEach(() => {
     resetBrowserMock();
     setSize.mockClear();
-    hide.mockClear();
   });
 
   afterEach(() => {
@@ -237,7 +234,8 @@ describe("FloatingWindow", () => {
     expect(countRefreshes()).toBeGreaterThan(before);
   });
 
-  it("hides the window instead of quitting on close", async () => {
+  it("closes the window and turns the feature off", async () => {
+    const invoke = await invokeMock();
     render(
       <Wrapper>
         <FloatingWindow />
@@ -247,7 +245,33 @@ describe("FloatingWindow", () => {
     await waitFor(() => {
       expect(screen.getByText("Relay A")).toBeInTheDocument();
     });
+
+    // 「关闭」应当真正关掉功能——只 hide 的话下次启动它又冒出来，用户会以为关不掉。
     fireEvent.click(screen.getByRole("button", { name: /关\s*闭/ }));
-    expect(hide).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("set_floating_window_enabled", { enabled: false });
+    });
+  });
+
+  it("keeps the glass background translucent", async () => {
+    render(
+      <Wrapper>
+        <FloatingWindow />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Relay A")).toBeInTheDocument();
+    });
+
+    // 背景必须带透明度且启用 backdrop-filter：任一丢了毛玻璃就看不见。
+    // （窗口侧还需 Rust 建窗时 transparent(true)，那部分在 floating_window.rs 的测试里。）
+    const root = screen.getByText("站点余额").closest("div.h-screen") as HTMLElement;
+    const style = root.style;
+    expect(style.backdropFilter).toContain("blur(");
+    const bg = style.background;
+    const alpha = Number(/rgba\([^)]*,\s*([\d.]+)\)/.exec(bg)?.[1] ?? "1");
+    expect(alpha).toBeGreaterThan(0);
+    expect(alpha).toBeLessThan(1);
   });
 });
