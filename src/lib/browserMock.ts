@@ -60,6 +60,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   codexHomeOverride: null,
   piAgentDirOverride: null,
   primeAgentDirOverride: null,
+  zcodeHomeOverride: null,
   codexEnvInjectMode: "auto",
   forceExclusiveClaudeAuthKey: false,
   autoCheckUpdate: true,
@@ -151,6 +152,21 @@ function defaultTargetStatuses(): TargetLiveStatus[] {
       lastAppliedAt: null,
       staleReason: null,
     },
+    {
+      kind: "zcode",
+      installed: false,
+      version: null,
+      configPath: "~/.zcode/v2/config.json",
+      status: "not_applied",
+      appliedSiteId: null,
+      appliedSiteName: null,
+      appliedModelId: null,
+      providerId: null,
+      orphan: false,
+      liveSummary: {},
+      lastAppliedAt: null,
+      staleReason: null,
+    },
   ];
 }
 
@@ -165,7 +181,7 @@ const MOCK_PROXY_PATH_TOKEN = "0123456789abcdef0123456789abcdef";
 
 function mockProxyStatus(): LocalProxyStatus {
   const running = proxyRuntime?.running ?? false;
-  const targets = (["claude_code", "codex", "pi", "prime"] as TargetKind[]).map((target) => {
+  const targets = (["claude_code", "codex", "pi", "prime", "zcode"] as TargetKind[]).map((target) => {
     const takeover = settings.localProxyTargets.includes(target);
     const binding = targetStatuses.find((item) => item.kind === target);
     const suffix = target === "codex" || target === "pi" || target === "prime" ? "/v1" : "";
@@ -254,6 +270,17 @@ const INITIAL_SCANNED_MCP: ScannedMcp[] = [
     headerKeys: [],
     importedId: null,
   },
+  {
+    target: "zcode",
+    key: "existing-zcode",
+    name: "existing-zcode",
+    managed: false,
+    kind: "stdio",
+    config: { command: "npx", args: ["-y", "existing-zcode-mcp"] },
+    envKeys: [],
+    headerKeys: [],
+    importedId: null,
+  },
 ];
 let scannedMcp: ScannedMcp[] = INITIAL_SCANNED_MCP.map((entry) => ({ ...entry }));
 let agentRules: AgentRules = { body: "", targets: [], updatedAt: 0 };
@@ -264,6 +291,7 @@ const AGENT_RULES_PATHS: [TargetKind, string, boolean][] = [
   ["codex", "/Users/demo/.codex/AGENTS.md", false],
   ["pi", "/Users/demo/.pi/agent/AGENTS.md", false],
   ["prime", "/Users/demo/.prime/agent/AGENTS.md", false],
+  ["zcode", "/Users/demo/.zcode/AGENTS.md", false],
 ];
 
 type BrowserMarketplaceSkill = Omit<MarketplaceSkill, "installedTargets">;
@@ -812,6 +840,7 @@ export async function handleBrowserCommand<T>(
         capabilities: input.capabilities ?? {},
         activeApiKeyId: active.id,
         apiKeys,
+        zcodeApiType: input.zcodeApiType || null,
       });
       if (input.proxyHeaders) {
         siteProxyHeaders.set(site.id, input.proxyHeaders);
@@ -937,6 +966,10 @@ export async function handleBrowserCommand<T>(
             input.selectedModelId !== undefined ? input.selectedModelId : s.selectedModelId,
           sortOrder: input.sortOrder ?? s.sortOrder,
           capabilities: input.capabilities !== undefined ? input.capabilities : s.capabilities,
+          zcodeApiType:
+            input.zcodeApiType !== undefined
+              ? input.zcodeApiType || null
+              : (s.zcodeApiType ?? null),
           updatedAt: now(),
         };
       });
@@ -1160,6 +1193,12 @@ export async function handleBrowserCommand<T>(
       const primeModelCount = primeWriteAllModels
         ? Math.max(models.get(siteId)?.length ?? 0, 1)
         : 1;
+      const zcodeWriteAllModels = Boolean(args?.zcodeWriteAllModels);
+      const zcodeModelCount = zcodeWriteAllModels
+        ? Math.max(models.get(siteId)?.length ?? 0, 1)
+        : 1;
+      const zcodeApiType =
+        site?.zcodeApiType ?? (site?.protocol === "anthropic" ? "anthropic-messages" : "openai-responses");
       targetStatuses = targetStatuses.map((row) =>
         targets.includes(row.kind)
           ? {
@@ -1169,7 +1208,7 @@ export async function handleBrowserCommand<T>(
               appliedSiteName: site?.name ?? null,
               appliedModelId: modelId,
               providerId:
-                row.kind === "pi" || row.kind === "prime"
+                row.kind === "pi" || row.kind === "prime" || row.kind === "zcode"
                   ? `xiaobai_${siteId.slice(0, 8)}`
                   : row.providerId,
               liveSummary:
@@ -1187,9 +1226,17 @@ export async function handleBrowserCommand<T>(
                         modelCount: String(primeModelCount),
                         writeAllModels: String(primeWriteAllModels),
                       }
-                  : row.kind === "claude_code"
-                    ? claudeLiveSummary
-                    : row.liveSummary,
+                    : row.kind === "zcode"
+                      ? {
+                          defaultProvider: `xiaobai_${siteId.slice(0, 8)}`,
+                          defaultModel: modelId,
+                          apiType: zcodeApiType,
+                          modelCount: String(zcodeModelCount),
+                          writeAllModels: String(zcodeWriteAllModels),
+                        }
+                      : row.kind === "claude_code"
+                        ? claudeLiveSummary
+                        : row.liveSummary,
               lastAppliedAt: appliedAt,
             }
           : row,
@@ -1391,6 +1438,7 @@ export async function handleBrowserCommand<T>(
         { kind: "codex", installed: false, version: null, path: null },
         { kind: "pi", installed: false, version: null, path: null },
         { kind: "prime", installed: false, version: null, path: null },
+        { kind: "zcode", installed: false, version: null, path: null },
       ];
       return tools as T;
     }
@@ -2019,6 +2067,7 @@ export async function handleBrowserCommand<T>(
         ["codex", "/Users/demo/.codex/config.toml"],
         ["pi", "/Users/demo/.pi/agent/mcp.json"],
         ["prime", "/Users/demo/.prime/agent/settings.json"],
+        ["zcode", "/Users/demo/.zcode/cli/config.json"],
       ] as T;
     case "get_agent_rules":
       return { ...agentRules, targets: [...agentRules.targets] } as T;

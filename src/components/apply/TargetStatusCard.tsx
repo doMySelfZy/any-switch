@@ -289,11 +289,17 @@ export function TargetStatusCard({
 
 export function targetKindLabelKey(
   kind: TargetKind,
-): "apply.targetClaude" | "apply.targetCodex" | "apply.targetPi" | "apply.targetPrime" {
+):
+  | "apply.targetClaude"
+  | "apply.targetCodex"
+  | "apply.targetPi"
+  | "apply.targetPrime"
+  | "apply.targetZCode" {
   if (kind === "claude_code") return "apply.targetClaude";
   if (kind === "codex") return "apply.targetCodex";
   if (kind === "pi") return "apply.targetPi";
-  return "apply.targetPrime";
+  if (kind === "prime") return "apply.targetPrime";
+  return "apply.targetZCode";
 }
 
 export function statusFor(

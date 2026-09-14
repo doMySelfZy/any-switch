@@ -18,6 +18,7 @@ describe("proxyStore", () => {
       "codex",
       "pi",
       "prime",
+      "zcode",
     ]);
     expect(status?.targets.every((item) => !item.takeover)).toBe(true);
   });

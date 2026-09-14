@@ -7,13 +7,14 @@ import { useProxyStore, useUIStore } from "@/stores";
 import type { LocalProxyRequestLogEntry } from "@/types/proxy";
 import type { TargetKind } from "@/types/domain";
 
-const TARGETS: TargetKind[] = ["claude_code", "codex", "pi", "prime"];
+const TARGETS: TargetKind[] = ["claude_code", "codex", "pi", "prime", "zcode"];
 
 const TARGET_LABEL_KEYS: Record<TargetKind, string> = {
   claude_code: "proxy.targetClaudeCode",
   codex: "proxy.targetCodex",
   pi: "proxy.targetPi",
   prime: "proxy.targetPrime",
+  zcode: "proxy.targetZCode",
 };
 
 /** invoke 抛出的错误对象形状（与 McpPage 一致）。 */
