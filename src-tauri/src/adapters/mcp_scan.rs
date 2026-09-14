@@ -720,4 +720,26 @@ X_Trace = "PLACEHOLDER"
         // 前缀之外的相似名字不能被误剥。
         assert_eq!(normalize_scanned_name("xiaobaiXdemo"), "xiaobaiXdemo");
     }
+
+    /// 诊断：读本机真实客户端配置，确认扫描能认出用户已有的 MCP。
+    /// 手动运行：`cargo test scan_real_user_config -- --ignored --nocapture`
+    ///
+    /// 不假设本机一定配过 MCP——空结果同样合法，所以这里不做断言，只打印。
+    #[test]
+    #[ignore = "读取真实用户目录，仅用于本机诊断"]
+    fn scan_real_user_config() {
+        let settings = crate::domain::AppSettings::default();
+        let outcome = scan_all(&settings);
+        println!("=== entries ({}) ===", outcome.entries.len());
+        for entry in &outcome.entries {
+            println!(
+                "  [{:?}] key={} managed={} kind={:?} env={:?} headers={:?}",
+                entry.target, entry.key, entry.managed, entry.kind, entry.env_keys, entry.header_keys
+            );
+        }
+        println!("=== warnings ({}) ===", outcome.warnings.len());
+        for warning in &outcome.warnings {
+            println!("  [{:?}] {}", warning.target, warning.message);
+        }
+    }
 }
