@@ -83,8 +83,10 @@ describe("McpPage", () => {
     );
 
     expect(await screen.findByText("demo")).toBeInTheDocument();
-    expect(screen.getByText("Claude Code")).toBeInTheDocument();
-    expect(screen.getByText("Prime")).toBeInTheDocument();
+    // 扫描区也会出现同名目标标签，断言限定在已保存表格的那一行内。
+    const row = screen.getByText("demo").closest("tr")!;
+    expect(within(row as HTMLElement).getByText("Claude Code")).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText("Prime")).toBeInTheDocument();
   });
 
   it("rejects a server name with characters that would break config keys", async () => {
@@ -427,6 +429,82 @@ describe("McpPage", () => {
       const nameInput = (await screen.findByLabelText("服务名称")) as HTMLInputElement;
       expect(nameInput.value).toBe("");
       expect(screen.getByLabelText("启动命令")).toBeInTheDocument();
+    });
+  });
+
+  describe("importing existing MCP servers", () => {
+    it("lists hand-configured servers from other clients on open", async () => {
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      // 打开即扫描，用户能立刻看到别的客户端里配了什么。
+      expect(await screen.findByText("existing-fs")).toBeInTheDocument();
+      expect(screen.getByText("existing-db")).toBeInTheDocument();
+    });
+
+    it("shows which keys an entry needs without exposing values", async () => {
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      // 只列键名，密钥值从不离开后端。
+      expect(await screen.findByText(/需要 DB_URL/)).toBeInTheDocument();
+      expect(screen.queryByText(/DB_URL=/)).toBeNull();
+    });
+
+    it("marks servers this app manages instead of offering import", async () => {
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      expect(await screen.findByText("managed-one")).toBeInTheDocument();
+      expect(screen.getByText("本工具管理")).toBeInTheDocument();
+      // 两条可纳管，托管那条没有单条纳管按钮（批量按钮不计入）。
+      expect(screen.getAllByRole("button", { name: /^纳\s*管$/ })).toHaveLength(2);
+    });
+
+    it("imports a single entry and marks it as imported", async () => {
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      const row = (await screen.findByText("existing-fs")).closest(".ant-list-item")!;
+      fireEvent.click(within(row as HTMLElement).getByRole("button", { name: /^纳\s*管$/ }));
+
+      // 导入后进入已保存列表，并在扫描结果里标成「已纳管」。
+      await waitFor(() => {
+        expect(useMcpStore.getState().servers).toHaveLength(1);
+      });
+      await waitFor(() => {
+        expect(screen.getAllByText("已纳管").length).toBeGreaterThan(0);
+      });
+    });
+
+    it("imports all remaining entries at once", async () => {
+      render(
+        <Wrapper>
+          <McpPage />
+        </Wrapper>,
+      );
+
+      fireEvent.click(await screen.findByRole("button", { name: /全部纳管/ }));
+
+      await waitFor(() => {
+        expect(useMcpStore.getState().servers).toHaveLength(2);
+      });
+      // 全部纳管后不再提供批量入口。
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: /全部纳管/ })).toBeNull();
+      });
     });
   });
 });

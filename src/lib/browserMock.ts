@@ -35,7 +35,17 @@ import type {
   UrlProbeResult,
   WebDavConfigView,
 } from "@/types/domain";
-import type { McpApplyResult, McpApplyTargetResult, McpServer, McpServerInput, RegistryCandidate } from "@/types/mcp";
+import type {
+  McpApplyResult,
+  McpApplyTargetResult,
+  McpImportLocator,
+  McpImportResult,
+  McpServer,
+  McpServerInput,
+  RegistryCandidate,
+  ScanOutcome,
+  ScannedMcp,
+} from "@/types/mcp";
 import type { AgentRules, AgentRulesApplyResult } from "@/types/rules";
 import type { LocalProxyRequestLogEntry, LocalProxyStatus, ProxyHeader } from "@/types/proxy";
 import { keyPrefix, normalizeBaseUrl } from "./urlNormalize";
@@ -201,6 +211,44 @@ const exclusions = new Map<string, Set<string>>();
 let quotaProbeCallCount = 0;
 let quotaProbeHandler: ((site: Site) => SiteQuota | Promise<SiteQuota>) | null = null;
 let mcpServers: McpServer[] = [];
+
+/** 浏览器模式下模拟「其它客户端里手工配过的 MCP」，覆盖托管/自有/需要密钥三类。 */
+const INITIAL_SCANNED_MCP: ScannedMcp[] = [
+  {
+    target: "codex",
+    key: "existing-fs",
+    name: "existing-fs",
+    managed: false,
+    kind: "stdio",
+    config: { command: "npx", args: ["-y", "existing-fs-mcp"] },
+    envKeys: [],
+    headerKeys: [],
+    importedId: null,
+  },
+  {
+    target: "claude_code",
+    key: "existing-db",
+    name: "existing-db",
+    managed: false,
+    kind: "stdio",
+    config: { command: "uvx", args: ["existing-db-mcp"] },
+    envKeys: ["DB_URL"],
+    headerKeys: [],
+    importedId: null,
+  },
+  {
+    target: "codex",
+    key: "xiaobai_managed-one",
+    name: "managed-one",
+    managed: true,
+    kind: "stdio",
+    config: { command: "npx", args: ["managed-one"] },
+    envKeys: [],
+    headerKeys: [],
+    importedId: null,
+  },
+];
+let scannedMcp: ScannedMcp[] = INITIAL_SCANNED_MCP.map((entry) => ({ ...entry }));
 let agentRules: AgentRules = { body: "", targets: [], updatedAt: 0 };
 
 /** 浏览器模式下全局约束的落点样例，覆盖「已存在」与「尚未创建」两种状态。 */
@@ -344,6 +392,7 @@ export function resetBrowserMock() {
   quotaProbeCallCount = 0;
   quotaProbeHandler = null;
   mcpServers = [];
+  scannedMcp = INITIAL_SCANNED_MCP.map((entry) => ({ ...entry }));
   agentRules = { body: "", targets: [], updatedAt: 0 };
   skills = INITIAL_SKILLS.map((skill) => ({ ...skill }));
   marketplaceTargets = new Map([
@@ -1795,6 +1844,47 @@ export async function handleBrowserCommand<T>(
         message: `Applied to ${target} (browser mock)`,
       }));
       const result: McpApplyResult = { results, appliedAt: now() };
+      return result as T;
+    }
+    case "scan_existing_mcp": {
+      // 与已保存的 MCP 比对，标出已纳管项（真实实现同样由后端比对）。
+      const entries = scannedMcp.map((entry) => {
+        const existing = mcpServers.find(
+          (server) => server.name.toLowerCase() === entry.name.toLowerCase(),
+        );
+        return { ...entry, importedId: existing?.id ?? null };
+      });
+      const outcome: ScanOutcome = { entries, warnings: [] };
+      return outcome as T;
+    }
+    case "import_scanned_mcp": {
+      const locators = (args?.locators ?? []) as McpImportLocator[];
+      const result: McpImportResult = { imported: [], failed: [] };
+      for (const locator of locators) {
+        const entry = scannedMcp.find(
+          (item) => item.target === locator.target && item.key === locator.key,
+        );
+        if (!entry) {
+          result.failed.push({ ...locator, message: "entry not found" });
+          continue;
+        }
+        const timestamp = now();
+        const saved: McpServer = {
+          id: uid(),
+          name: entry.name,
+          kind: entry.kind,
+          enabled: true,
+          targets: [],
+          config: entry.config,
+          env: {},
+          headers: {},
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        mcpServers.push(saved);
+        const { config: _config, env: _env, headers: _headers, ...summary } = saved;
+        result.imported.push(summary);
+      }
       return result as T;
     }
     case "mcp_target_paths":

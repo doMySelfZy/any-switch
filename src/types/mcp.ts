@@ -98,3 +98,55 @@ export interface RegistrySearchResult {
   candidates: RegistryCandidate[];
   nextCursor?: string | null;
 }
+
+/** 扫描目标：四个 Agent 客户端。 */
+export type ScanTarget = "claude_code" | "codex" | "pi" | "prime";
+
+/**
+ * 扫描到的已有 MCP。
+ *
+ * **不含任何密钥值**——只带依赖的密钥键名（`envKeys` / `headerKeys`），
+ * 界面据此提示「需要填什么」。密钥要到纳管时才由后端直接读盘入库。
+ */
+export interface ScannedMcp {
+  target: ScanTarget;
+  /** 客户端配置里的原始键名（可能带 xiaobai_ 前缀）。 */
+  key: string;
+  /** 归一化名称：与库内记录比对用。 */
+  name: string;
+  /** 由本工具写入（带托管前缀）；这类不提供纳管。 */
+  managed: boolean;
+  kind: McpKind;
+  /** 启动方式摘要，用于展示「将运行：npx -y xxx」。 */
+  config: Record<string, unknown>;
+  envKeys: string[];
+  headerKeys: string[];
+  /** 非空表示已纳管过，界面不该重复提供纳管。 */
+  importedId?: string | null;
+}
+
+export interface ScanWarning {
+  target: ScanTarget;
+  message: string;
+}
+
+export interface ScanOutcome {
+  entries: ScannedMcp[];
+  warnings: ScanWarning[];
+}
+
+export interface McpImportLocator {
+  target: ScanTarget;
+  key: string;
+}
+
+export interface McpImportFailure {
+  target: ScanTarget;
+  key: string;
+  message: string;
+}
+
+export interface McpImportResult {
+  imported: McpServerSummary[];
+  failed: McpImportFailure[];
+}

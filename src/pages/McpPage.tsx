@@ -25,6 +25,7 @@ import {
   CloudUploadOutlined,
   DeleteOutlined,
   EditOutlined,
+  ImportOutlined,
   InfoCircleOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -36,12 +37,15 @@ import { invoke } from "@/lib/invoke";
 import { useMcpStore } from "@/stores";
 import { useMcpUpdateStore } from "@/stores/mcpUpdateStore";
 import type {
+  McpImportLocator,
   McpKind,
   McpServerInput,
   McpServerSummary,
   RegistryCandidate,
   RegistryInstallDraft,
   RegistryRequiredField,
+  ScanOutcome,
+  ScannedMcp,
 } from "@/types/mcp";
 import type { TargetKind } from "@/types/domain";
 
@@ -133,6 +137,19 @@ function describeDraft(draft: RegistryInstallDraft, t: (key: string) => string) 
   return typeof url === "string" ? `${t("mcp.registryWillConnect")} ${url}` : "";
 }
 
+/** 扫描条目的启动方式摘要：本地是命令行，远程是地址。 */
+function describeScanned(entry: ScannedMcp): string {
+  const command = entry.config.command;
+  if (typeof command === "string") {
+    const args = Array.isArray(entry.config.args)
+      ? entry.config.args.filter((item): item is string => typeof item === "string")
+      : [];
+    return [command, ...args].join(" ");
+  }
+  const url = entry.config.url;
+  return typeof url === "string" ? url : "—";
+}
+
 function hostOf(url: string): string | null {
   try {
     return new URL(url).host;
@@ -155,6 +172,8 @@ export function McpPage() {
     applyServers,
     searchRegistry,
     discoverRegistry,
+    scanExisting,
+    importScanned,
   } = useMcpStore();
 
   const updateStore = useMcpUpdateStore();
@@ -173,6 +192,10 @@ export function McpPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
   const [targetPaths, setTargetPaths] = useState<[TargetKind, string][]>([]);
+  // 「其它客户端已有的 MCP」扫描结果。null = 还没扫描过。
+  const [scanOutcome, setScanOutcome] = useState<ScanOutcome | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [form] = Form.useForm<FormValues>();
   const kind = Form.useWatch("kind", form);
 
@@ -196,6 +219,8 @@ export function McpPage() {
       .catch(() => setTargetPaths([]));
     // 首次打开就直接给出内容：空查询表示「浏览最近更新的 MCP」，避免进来是一片空白。
     void browseRecent(true);
+    // 顺带扫一次本地已有配置：读本地文件，开销很小，用户一进来就能看到能纳管什么。
+    void runScan();
     // 检查更新
     void checkUpdates().catch((error) => {
       console.error('Failed to check updates on mount:', error);
@@ -538,6 +563,58 @@ export function McpPage() {
       void message.error(errorText(error));
     } finally {
       setSearching(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------
+  // 扫描并纳管其它客户端已有的 MCP
+  // ---------------------------------------------------------------------
+
+  /** 可纳管的条目：排除本工具托管的、以及已纳管过的。 */
+  const importable = useMemo(
+    () => (scanOutcome?.entries ?? []).filter((entry) => !entry.managed && !entry.importedId),
+    [scanOutcome],
+  );
+
+  const runScan = async () => {
+    setScanning(true);
+    try {
+      setScanOutcome(await scanExisting());
+    } catch (error) {
+      void message.error(errorText(error));
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const importEntries = async (locators: McpImportLocator[]) => {
+    if (locators.length === 0) return;
+    setImporting(true);
+    try {
+      const result = await importScanned(locators);
+      if (result.failed.length === 0) {
+        void message.success(
+          t("mcp.existingImportSuccess", { count: result.imported.length }),
+        );
+      } else if (result.imported.length > 0) {
+        void message.warning(
+          t("mcp.existingImportPartial", {
+            ok: result.imported.length,
+            failed: result.failed.length,
+          }),
+        );
+      } else {
+        // 全失败时把第一条原因带出来，否则用户不知道卡在哪。
+        void message.error(
+          `${t("mcp.existingImportFailed")}: ${result.failed[0]?.message ?? ""}`,
+        );
+      }
+      // 重新扫描，让「已纳管」标记立刻刷新。
+      setScanOutcome(await scanExisting());
+    } catch (error) {
+      void message.error(errorText(error));
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -894,6 +971,133 @@ export function McpPage() {
 
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {t("mcp.registrySourceHint")}
+          </Typography.Text>
+        </div>
+      </Card>
+
+      <Card
+        size="small"
+        title={
+          <Space>
+            <ImportOutlined />
+            <span>{t("mcp.existingTitle")}</span>
+          </Space>
+        }
+        extra={
+          <Space>
+            {importable.length > 0 && (
+              <Button
+                size="small"
+                type="primary"
+                loading={importing}
+                onClick={() =>
+                  void importEntries(
+                    importable.map((entry) => ({ target: entry.target, key: entry.key })),
+                  )
+                }
+              >
+                {t("mcp.existingImportAll", { count: importable.length })}
+              </Button>
+            )}
+            <Button
+              size="small"
+              icon={<SearchOutlined />}
+              loading={scanning}
+              onClick={() => void runScan()}
+            >
+              {scanOutcome ? t("mcp.existingRescan") : t("mcp.existingScan")}
+            </Button>
+          </Space>
+        }
+      >
+        <div className="flex flex-col gap-2">
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {t("mcp.existingDesc")}
+          </Typography.Text>
+
+          {/* 单个客户端读不了不影响其它客户端，逐条提示 */}
+          {(scanOutcome?.warnings ?? []).map((warning) => (
+            <Typography.Text
+              key={`${warning.target}:${warning.message}`}
+              type="warning"
+              style={{ fontSize: 12 }}
+            >
+              {t("mcp.existingWarning", {
+                target: targetLabel(warning.target as TargetKind),
+                message: warning.message,
+              })}
+            </Typography.Text>
+          ))}
+
+          {scanOutcome && importable.length === 0 && scanOutcome.entries.length === 0 && (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={t("mcp.existingEmpty")}
+            />
+          )}
+
+          {(scanOutcome?.entries.length ?? 0) > 0 && (
+            <List
+              size="small"
+              dataSource={scanOutcome?.entries ?? []}
+              rowKey={(entry) => `${entry.target}:${entry.key}`}
+              renderItem={(entry) => {
+                const keys = [...entry.envKeys, ...entry.headerKeys];
+                return (
+                  <List.Item
+                    actions={
+                      entry.managed || entry.importedId
+                        ? [
+                            <Tag key="state" color={entry.managed ? "blue" : "green"}>
+                              {entry.managed
+                                ? t("mcp.existingManagedTag")
+                                : t("mcp.existingImported")}
+                            </Tag>,
+                          ]
+                        : [
+                            <Button
+                              key="import"
+                              size="small"
+                              loading={importing}
+                              onClick={() =>
+                                void importEntries([{ target: entry.target, key: entry.key }])
+                              }
+                            >
+                              {t("mcp.existingImport")}
+                            </Button>,
+                          ]
+                    }
+                  >
+                    <List.Item.Meta
+                      title={
+                        <Space size={6} wrap>
+                          <Typography.Text strong>{entry.name}</Typography.Text>
+                          {/* ScanTarget 与 TargetKind 取值一致，展示名可复用 */}
+                          <Tag>{targetLabel(entry.target as TargetKind)}</Tag>
+                        </Space>
+                      }
+                      description={
+                        <div className="flex flex-col gap-1">
+                          <Typography.Text code style={{ fontSize: 12 }}>
+                            {describeScanned(entry)}
+                          </Typography.Text>
+                          {/* 只列键名，值从不离开后端 */}
+                          {keys.length > 0 && (
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              {t("mcp.existingKeys", { keys: keys.join(", ") })}
+                            </Typography.Text>
+                          )}
+                        </div>
+                      }
+                    />
+                  </List.Item>
+                );
+              }}
+            />
+          )}
+
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {t("mcp.existingNote")}
           </Typography.Text>
         </div>
       </Card>

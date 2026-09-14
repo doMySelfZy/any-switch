@@ -2,11 +2,14 @@ import { create } from "zustand";
 import { invoke } from "@/lib/invoke";
 import type {
   McpApplyResult,
+  McpImportLocator,
+  McpImportResult,
   McpSaveResult,
   McpServer,
   McpServerInput,
   McpServerSummary,
   RegistrySearchResult,
+  ScanOutcome,
 } from "@/types/mcp";
 import type { TargetKind } from "@/types/domain";
 
@@ -26,6 +29,10 @@ interface McpState {
     localOnly?: boolean;
     minResults?: number;
   }) => Promise<RegistrySearchResult>;
+  /** 扫描四个客户端里用户已有的 MCP（只读，不含密钥值）。 */
+  scanExisting: () => Promise<ScanOutcome>;
+  /** 纳管：把扫描到的条目导入数据库，密钥由后端读盘取得。 */
+  importScanned: (locators: McpImportLocator[]) => Promise<McpImportResult>;
 }
 
 export const useMcpStore = create<McpState>((set) => ({
@@ -76,4 +83,14 @@ export const useMcpStore = create<McpState>((set) => ({
       localOnly: options?.localOnly ?? true,
       minResults: options?.minResults ?? 20,
     }),
+
+  scanExisting: async () => invoke<ScanOutcome>("scan_existing_mcp"),
+
+  importScanned: async (locators) => {
+    const result = await invoke<McpImportResult>("import_scanned_mcp", { locators });
+    // 纳管会改变列表，重新拉一次保持一致。
+    const servers = await invoke<McpServerSummary[]>("list_mcp_servers");
+    set({ servers });
+    return result;
+  },
 }));
