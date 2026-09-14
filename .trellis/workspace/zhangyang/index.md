@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
+- **Total Sessions**: 15
 - **Last Active**: 2026-09-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~416 | Active |
+| `journal-1.md` | ~442 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 15 | 2026-09-14 | 清空任务队列：悬浮窗补齐为可用功能、填充前端 spec、归档全部任务 | `31151f1`, `143c01d`, `763a1f2`, `13d1ca6`, `5fd6eaf` | `main` |
 | 14 | 2026-09-14 | 收尾核查：三个 in_progress 任务的真实完成度 | - | `main` |
 | 13 | 2026-09-14 | 任务状态审计：MCP 纳管 adapter 未接线、悬浮窗待确认 | - | `main` |
 | 12 | 2026-09-14 | MCP 体验修复：首屏常用列表、一键安装、已有配置读取层 | `f2048d8`, `a949e0b` | `main` |
