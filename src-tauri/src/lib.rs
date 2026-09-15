@@ -199,6 +199,7 @@ pub fn run() {
             commands::delete_site_model,
             commands::clear_site_models,
             commands::probe_site_model,
+            commands::test_site_connection,
             commands::probe_site_quota,
             commands::test_newapi_access,
             commands::list_target_status,

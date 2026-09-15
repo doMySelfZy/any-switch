@@ -2,9 +2,17 @@ use crate::domain::{AppSettings, FetchModelsResult, SiteModelDto, SiteProtocol, 
 use crate::error::{AppError, AppResult};
 use crate::url_normalize::normalize_base_url;
 use chrono::Utc;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use uuid::Uuid;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolDetectionResult {
+    pub detected_protocol: SiteProtocol,
+    pub model_preview: Vec<SiteModelDto>,
+    pub endpoint: String,
+}
 
 #[derive(Debug, Deserialize)]
 struct OpenAiModelsResponse {
@@ -196,6 +204,49 @@ pub async fn fetch_models(
     })
 }
 
+/// 自动检测站点协议：先尝试 OpenAI，失败则尝试 Anthropic。
+pub async fn detect_protocol(
+    base_url: &str,
+    api_key: &str,
+    settings: &AppSettings,
+) -> AppResult<ProtocolDetectionResult> {
+    let preview = normalize_base_url(base_url)?;
+    let endpoint = preview.models_url.clone();
+    let client = crate::http_client::build_client(settings, std::time::Duration::from_secs(15))?;
+
+    // 先尝试 OpenAI 协议
+    if let Ok(models) = attempt_models(&client, &endpoint, api_key, AuthStyle::Bearer, false).await
+    {
+        return Ok(ProtocolDetectionResult {
+            detected_protocol: SiteProtocol::OpenaiCompatible,
+            model_preview: models,
+            endpoint,
+        });
+    }
+
+    // 失败则尝试 Anthropic 协议（三种方式）
+    let attempts = [
+        (AuthStyle::XApiKey, false),
+        (AuthStyle::Bearer, true),
+        (AuthStyle::XApiKey, true),
+    ];
+    
+    for (style, impersonate) in attempts {
+        if let Ok(models) = attempt_models(&client, &endpoint, api_key, style, impersonate).await {
+            return Ok(ProtocolDetectionResult {
+                detected_protocol: SiteProtocol::Anthropic,
+                model_preview: models,
+                endpoint,
+            });
+        }
+    }
+
+    Err(AppError::new(
+        "protocol_detection_failed",
+        "Could not detect protocol. Both OpenAI and Anthropic protocols failed.",
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,4 +349,59 @@ mod tests {
         let result = fetch_models(&site, "sk-real", &none_proxy()).await.unwrap();
         assert_eq!(result.models[0].model_id, "claude-sonnet-4");
     }
+}
+
+/// 自动检测站点协议：先尝试 OpenAI，失败则尝试 Anthropic。
+/// 返回检测到的协议 + 模型预览（最多 5 个）。
+pub async fn detect_protocol(
+    base_url: &str,
+    api_key: &str,
+    settings: &AppSettings,
+) -> AppResult<ProtocolDetectionResult> {
+    let preview = normalize_base_url(base_url)?;
+    let client = crate::http_client::build_client(settings, std::time::Duration::from_secs(15))?;
+    let endpoint = preview.models_url.clone();
+
+    // 先尝试 OpenAI 协议（标准 Bearer）
+    let openai_result = attempt_models(&client, &endpoint, api_key, AuthStyle::Bearer, false).await;
+    if let Ok(models) = openai_result {
+        return Ok(ProtocolDetectionResult {
+            detected_protocol: SiteProtocol::OpenaiCompatible,
+            model_preview: models.into_iter().take(5).collect(),
+            endpoint,
+        });
+    }
+
+    // OpenAI 标准失败，尝试 Claude Code 伪装的 OpenAI
+    let openai_impersonate = attempt_models(&client, &endpoint, api_key, AuthStyle::Bearer, true).await;
+    if let Ok(models) = openai_impersonate {
+        return Ok(ProtocolDetectionResult {
+            detected_protocol: SiteProtocol::OpenaiCompatible,
+            model_preview: models.into_iter().take(5).collect(),
+            endpoint,
+        });
+    }
+
+    // OpenAI 都失败，尝试 Anthropic 协议（三种组合）
+    let anthropic_attempts = [
+        (AuthStyle::XApiKey, false),
+        (AuthStyle::Bearer, true),
+        (AuthStyle::XApiKey, true),
+    ];
+
+    for (style, impersonate) in anthropic_attempts {
+        if let Ok(models) = attempt_models(&client, &endpoint, api_key, style, impersonate).await {
+            return Ok(ProtocolDetectionResult {
+                detected_protocol: SiteProtocol::Anthropic,
+                model_preview: models.into_iter().take(5).collect(),
+                endpoint,
+            });
+        }
+    }
+
+    // 全部失败
+    Err(AppError::new(
+        "protocol_detection_failed",
+        "Could not detect protocol. Both OpenAI and Anthropic endpoints failed.",
+    ))
 }

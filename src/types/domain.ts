@@ -218,6 +218,12 @@ export interface ProbeSiteApiKeyResult {
   endpoint: string;
 }
 
+export interface ProtocolDetectionResult {
+  detectedProtocol: SiteProtocol;
+  modelPreview: SiteModel[];
+  endpoint: string;
+}
+
 export interface ModelFetchOutcome {
   ok: boolean;
   apiKeyId: string;

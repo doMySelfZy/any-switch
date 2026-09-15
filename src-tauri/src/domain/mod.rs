@@ -309,6 +309,14 @@ pub struct ProbeSiteApiKeyResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProtocolDetectionResult {
+    pub detected_protocol: SiteProtocol,
+    pub model_preview: Vec<SiteModelDto>,
+    pub endpoint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModelFetchOutcome {
     pub ok: bool,
     pub api_key_id: String,

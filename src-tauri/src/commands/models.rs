@@ -1,4 +1,4 @@
-use crate::domain::{FetchModelsResult, ModelProbeResult, ProbeSiteApiKeyResult, SiteModelDto};
+use crate::domain::{FetchModelsResult, ModelProbeResult, ProbeSiteApiKeyResult, ProtocolDetectionResult, SiteModelDto};
 use crate::error::{AppError, AppResult};
 use crate::redact;
 use crate::repo;
@@ -148,4 +148,22 @@ pub async fn probe_site_model(
         return Err(AppError::new("validation_failed", "api key required"));
     }
     crate::model_probe::probe_model(&site, &api_key, &model_id, &settings).await
+}
+
+#[tauri::command]
+pub async fn test_site_connection(
+    state: State<'_, AppState>,
+    base_url: String,
+    api_key: String,
+) -> AppResult<ProtocolDetectionResult> {
+    let base_url = base_url.trim().to_string();
+    let api_key = api_key.trim().to_string();
+    if base_url.is_empty() {
+        return Err(AppError::new("validation_failed", "Base URL is required"));
+    }
+    if api_key.is_empty() {
+        return Err(AppError::new("validation_failed", "API key is required"));
+    }
+    let settings = state.db.with_conn(|c| repo::settings::get_settings(c))?;
+    crate::models_fetch::detect_protocol(&base_url, &api_key, &settings).await
 }

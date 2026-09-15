@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { App, Button, Collapse, Divider, Form, Input, Modal, Select, Typography } from "antd";
 import { useTranslation } from "react-i18next";
-import type { NewApiAccessProbe, Site, SiteCapabilities, SiteProtocol } from "@/types/domain";
+import type { NewApiAccessProbe, ProtocolDetectionResult, Site, SiteCapabilities, SiteProtocol } from "@/types/domain";
 import { invoke, isAppError } from "@/lib/invoke";
 import { useSiteStore } from "@/stores";
 import { UrlWritePreviewIcon } from "./UrlWritePreview";
@@ -68,6 +68,13 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
   const [newapiTesting, setNewapiTesting] = useState(false);
   const [proxyHeadersJson, setProxyHeadersJson] = useState("");
   const [proxyHeadersError, setProxyHeadersError] = useState<string | null>(null);
+  const [protocolTesting, setProtocolTesting] = useState(false);
+  const [protocolTestResult, setProtocolTestResult] = useState<{
+    ok: boolean;
+    protocol?: SiteProtocol;
+    modelCount?: number;
+    error?: string;
+  } | null>(null);
   const [newapiTestResult, setNewapiTestResult] = useState<{
     ok: boolean;
     amount?: string;
@@ -178,6 +185,51 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
       cancelled = true;
     };
   }, [open, site, form, initialValues, forceAdvancedOpen, getSiteApiKey, message, t]);
+
+  const handleTestProtocol = async () => {
+    const values = form.getFieldsValue(["baseUrls", "apiKeys"]);
+    const baseUrls = normalizeBaseUrls((values.baseUrls as string[] | undefined) ?? []);
+    const keys = normalizeApiKeyDrafts(values.apiKeys);
+    if (!baseUrls[0]) {
+      message.error(t("sites.baseUrlRequired"));
+      return;
+    }
+    if (keys.length === 0 || !keys[0]?.apiKey) {
+      message.error(t("sites.apiKeyRequired"));
+      return;
+    }
+    setProtocolTesting(true);
+    setProtocolTestResult(null);
+    try {
+      const result = await invoke<ProtocolDetectionResult>("test_site_connection", {
+        baseUrl: baseUrls[0],
+        apiKey: keys[0].apiKey,
+      });
+      setProtocolTestResult({
+        ok: true,
+        protocol: result.detectedProtocol,
+        modelCount: result.modelPreview.length,
+      });
+      // 自动填入检测到的协议
+      form.setFieldValue("protocol", result.detectedProtocol);
+      message.success(
+        t("sites.protocolDetected", {
+          protocol: result.detectedProtocol === "openai_compatible" 
+            ? t("sites.protocolOpenai") 
+            : t("sites.protocolAnthropic"),
+          count: result.modelPreview.length,
+        })
+      );
+    } catch (error) {
+      setProtocolTestResult({
+        ok: false,
+        error: isAppError(error) ? error.message : String(error),
+      });
+      message.error(t("sites.protocolTestFailed"));
+    } finally {
+      setProtocolTesting(false);
+    }
+  };
 
   const handleTestNewapi = async () => {
     const values = form.getFieldsValue(["newapiAccessToken", "newapiUserId", "baseUrls"]);
@@ -366,7 +418,7 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
                         {t("sites.groupSiteInfo")}
                       </span>
                     </Divider>
-                    <Form.Item name="protocol" label={t("sites.protocol")}>
+                    <Form.Item name="protocol" label={t("sites.protocol")} extra={t("sites.protocolHint")}>
                       <Select
                         options={[
                           { value: "openai_compatible", label: t("sites.protocolOpenai") },
@@ -374,6 +426,30 @@ export function SiteFormModal({ open, site, initialValues, forceAdvancedOpen, on
                         ]}
                       />
                     </Form.Item>
+                    <div className="mt-[-12px] mb-3 flex items-center gap-3">
+                      <Button
+                        size="small"
+                        loading={protocolTesting}
+                        onClick={() => void handleTestProtocol()}
+                      >
+                        {t("sites.testConnection")}
+                      </Button>
+                      {protocolTestResult && (
+                        <Text
+                          type={protocolTestResult.ok ? "success" : "danger"}
+                          style={{ fontSize: 12 }}
+                        >
+                          {protocolTestResult.ok
+                            ? t("sites.protocolDetected", {
+                                protocol: protocolTestResult.protocol === "openai_compatible"
+                                  ? t("sites.protocolOpenai")
+                                  : t("sites.protocolAnthropic"),
+                                count: protocolTestResult.modelCount,
+                              })
+                            : protocolTestResult.error}
+                        </Text>
+                      )}
+                    </div>
                     <Form.Item name="notes" label={t("sites.notes")}>
                       <Input.TextArea rows={2} allowClear />
                     </Form.Item>
