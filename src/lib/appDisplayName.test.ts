@@ -22,7 +22,7 @@ describe("user-facing app display name", () => {
 
   it("is XiaoBaiSwitch Plus in HTML / README titles", () => {
     expect(readRepoFile("index.html")).toMatch(/<title>XiaoBaiSwitch Plus<\/title>/);
-    expect(readRepoFile("README.md")).toMatch(/^# XiaoBaiSwitch Plus$/m);
+    expect(readRepoFile("README.md")).toMatch(/<h1[^>]*>XiaoBaiSwitch Plus<\/h1>/);
   });
 
   it("is XiaoBaiSwitch Plus in Tauri window and bundle metadata", () => {
