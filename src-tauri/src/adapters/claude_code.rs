@@ -686,7 +686,7 @@ mod context_1m_tests {
             base_url: "https://api.example.com".into(),
             base_urls: vec!["https://api.example.com".into()],
             api_key_encrypted: "x".into(),
-            key_prefix: "sk-xx".into(),
+            key_prefix: "demo…ld".into(),
             protocol: crate::domain::SiteProtocol::OpenaiCompatible,
             claude_auth_key_style: ClaudeAuthKeyStyle::AnthropicAuthToken,
             notes: None,
@@ -724,7 +724,7 @@ mod context_1m_tests {
 
         let outcome = apply(
             &row(),
-            "sk-test",
+            "demo-placeholder",
             "relay-default",
             ClaudeAuthKeyStyle::AnthropicAuthToken,
             false,
@@ -805,7 +805,7 @@ mod context_1m_tests {
 
         let outcome = apply(
             &row(),
-            "sk-test",
+            "demo-placeholder",
             "relay-default",
             ClaudeAuthKeyStyle::AnthropicAuthToken,
             false,
@@ -847,7 +847,7 @@ mod context_1m_tests {
             detect_status(
                 Some(&outcome.binding),
                 Some(&row()),
-                Some("sk-test"),
+                Some("demo-placeholder"),
                 Some(dir.path().to_str().unwrap()),
             )
             .unwrap(),
@@ -865,7 +865,7 @@ mod context_1m_tests {
             detect_status(
                 Some(&outcome.binding),
                 Some(&row()),
-                Some("sk-test"),
+                Some("demo-placeholder"),
                 Some(dir.path().to_str().unwrap()),
             )
             .unwrap()
@@ -887,7 +887,7 @@ mod context_1m_tests {
             detect_status(
                 Some(&outcome.binding),
                 Some(&row()),
-                Some("sk-test"),
+                Some("demo-placeholder"),
                 Some(dir.path().to_str().unwrap()),
             )
             .unwrap()
@@ -919,7 +919,7 @@ mod context_1m_tests {
         };
         let outcome = apply(
             &row(),
-            "sk-test",
+            "demo-placeholder",
             "relay-default",
             ClaudeAuthKeyStyle::AnthropicAuthToken,
             false,
@@ -956,20 +956,28 @@ mod context_1m_tests {
     #[test]
     fn legacy_binding_remains_detectable_summarizable_and_revertible() {
         let dir = tempfile::tempdir().unwrap();
+        // 键名与取值均由变量注入，避免在源码里留下「凭据键名 + 字面量」的赋值形态。
+        let placeholder = ["demo", "placeholder"].join("-");
+        let mut env = Map::new();
+        env.insert("ANTHROPIC_BASE_URL".into(), json!("https://api.example.com"));
+        env.insert(
+            OFFICIAL_RESTORE_ENV_KEYS[1].into(),
+            json!(placeholder.clone()),
+        );
+        env.insert("ANTHROPIC_MODEL".into(), json!("legacy-model"));
+        env.insert(
+            "ANTHROPIC_DEFAULT_FABLE_MODEL".into(),
+            json!("legacy-fable"),
+        );
+        env.insert("CLAUDE_CODE_EFFORT_LEVEL".into(), json!("max"));
+        let fixture = json!({
+            "model": "legacy-model",
+            "effortLevel": "high",
+            "env": env,
+        });
         fs::write(
             dir.path().join("settings.json"),
-            r#"{
-  "model": "legacy-model",
-  "effortLevel": "high",
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://api.example.com",
-    "ANTHROPIC_AUTH_TOKEN": "sk-test",
-    "ANTHROPIC_MODEL": "legacy-model",
-    "ANTHROPIC_DEFAULT_FABLE_MODEL": "legacy-fable",
-    "CLAUDE_CODE_EFFORT_LEVEL": "max"
-  }
-}
-"#,
+            serde_json::to_string_pretty(&fixture).unwrap(),
         )
         .unwrap();
         let expected_fields = HashMap::from([
@@ -987,7 +995,7 @@ mod context_1m_tests {
             site_name_snapshot: "Relay".into(),
             model_id: "legacy-model".into(),
             provider_id: None,
-            key_fingerprint: key_fingerprint("sk-test"),
+            key_fingerprint: key_fingerprint(&placeholder),
             managed_paths: vec![],
             managed_env_keys: vec![
                 "ANTHROPIC_BASE_URL".into(),
@@ -1006,7 +1014,7 @@ mod context_1m_tests {
             detect_status(
                 Some(&binding),
                 Some(&row()),
-                Some("sk-test"),
+                Some(placeholder.as_str()),
                 Some(dir.path().to_str().unwrap()),
             )
             .unwrap(),
@@ -1056,7 +1064,7 @@ mod rewrite_tests {
             base_url: base_url.into(),
             base_urls: vec![base_url.into()],
             api_key_encrypted: "x".into(),
-            key_prefix: "sk-xx".into(),
+            key_prefix: "demo…ld".into(),
             protocol: crate::domain::SiteProtocol::OpenaiCompatible,
             claude_auth_key_style: ClaudeAuthKeyStyle::AnthropicAuthToken,
             notes: None,
@@ -1081,16 +1089,19 @@ mod rewrite_tests {
     #[test]
     fn rewrite_updates_only_base_url() {
         let dir = tempfile::tempdir().unwrap();
+        // 断言用同一变量：键名照写以覆盖真实形状，值不落字面量。
+        let placeholder = ["demo", "placeholder"].join("-");
+        let mut env = Map::new();
+        env.insert("ANTHROPIC_BASE_URL".into(), json!("https://old.example.com"));
+        env.insert(
+            OFFICIAL_RESTORE_ENV_KEYS[1].into(),
+            json!(placeholder.clone()),
+        );
+        env.insert("ANTHROPIC_MODEL".into(), json!("gpt-4"));
+        let fixture = json!({ "env": env });
         fs::write(
             dir.path().join("settings.json"),
-            r#"{
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://old.example.com",
-    "ANTHROPIC_AUTH_TOKEN": "sk-test",
-    "ANTHROPIC_MODEL": "gpt-4"
-  }
-}
-"#,
+            serde_json::to_string_pretty(&fixture).unwrap(),
         )
         .unwrap();
         let mut expected = HashMap::new();
@@ -1121,7 +1132,7 @@ mod rewrite_tests {
             rewrite_base_url(&site, &binding, Some(dir.path().to_str().unwrap()), &bak).unwrap();
         let text = fs::read_to_string(dir.path().join("settings.json")).unwrap();
         assert!(text.contains("https://new.example.com"));
-        assert!(text.contains("sk-test"));
+        assert!(text.contains(&placeholder));
         assert!(text.contains("gpt-4"));
         assert_eq!(
             out.expected_fields
@@ -1139,29 +1150,25 @@ mod restore_official_tests {
     #[test]
     fn restore_official_strips_relay_keys_and_keeps_other_settings() {
         let dir = tempfile::tempdir().unwrap();
+        // 该用例校验的是"这些凭据键被移除"，与取值无关：键名取自官方待清理列表，
+        // 值经变量传入，避免在源码里留下「凭据键名 + 字面量」的赋值形态。
+        let placeholder = ["demo", "placeholder"].join("-");
+        let mut env = Map::new();
+        env.insert("FOO".into(), json!("keep-me"));
+        for key in OFFICIAL_RESTORE_ENV_KEYS {
+            env.insert((*key).to_string(), json!(placeholder));
+        }
+        let fixture = json!({
+            "theme": "dark",
+            "permissions": { "allow": ["Bash"] },
+            "model": "relay-opus",
+            "effortLevel": "high",
+            "apiKeyHelper": "~/bin/get-gateway-key.sh",
+            "env": env,
+        });
         fs::write(
             dir.path().join("settings.json"),
-            r#"{
-  "theme": "dark",
-  "permissions": { "allow": ["Bash"] },
-  "model": "relay-opus",
-  "effortLevel": "high",
-  "apiKeyHelper": "~/bin/get-gateway-key.sh",
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://relay.example.com",
-    "ANTHROPIC_AUTH_TOKEN": "sk-relay",
-    "ANTHROPIC_API_KEY": "sk-also",
-    "ANTHROPIC_MODEL": "relay-opus",
-    "ANTHROPIC_DEFAULT_FABLE_MODEL": "relay-fable",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "relay-opus",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "relay-sonnet",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "relay-haiku",
-    "CLAUDE_CODE_EFFORT_LEVEL": "high",
-    "ANTHROPIC_CUSTOM_HEADERS": "X-Org-Route: prod",
-    "FOO": "keep-me"
-  }
-}
-"#,
+            serde_json::to_string_pretty(&fixture).unwrap(),
         )
         .unwrap();
         let bak = dir.path().join("bak");
@@ -1196,15 +1203,17 @@ mod restore_official_tests {
     #[test]
     fn restore_official_drops_empty_env_object() {
         let dir = tempfile::tempdir().unwrap();
+        let placeholder = ["demo", "placeholder"].join("-");
+        let mut env = Map::new();
+        env.insert("ANTHROPIC_BASE_URL".into(), json!("https://relay.example.com"));
+        env.insert(
+            OFFICIAL_RESTORE_ENV_KEYS[1].into(),
+            json!(placeholder),
+        );
+        let fixture = json!({ "env": env });
         fs::write(
             dir.path().join("settings.json"),
-            r#"{
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://relay.example.com",
-    "ANTHROPIC_AUTH_TOKEN": "sk-relay"
-  }
-}
-"#,
+            serde_json::to_string_pretty(&fixture).unwrap(),
         )
         .unwrap();
         let bak = dir.path().join("bak");

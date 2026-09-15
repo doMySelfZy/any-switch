@@ -2,6 +2,7 @@ use crate::app_backup;
 use crate::domain::RestoreStartupResult;
 use crate::error::{AppError, AppResult};
 use crate::paths::{set_private_dir_permissions, set_secret_permissions};
+use crate::sync::DataFingerprint;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,6 +11,9 @@ const PENDING_NAME: &str = ".pending-restore";
 const JOURNAL_NAME: &str = "apply-journal.json";
 const COMMITTED_NAME: &str = "committed";
 const PAYLOAD_NAME: &str = "payload";
+/// 本次下载对应的远端指纹：随 pending 目录落盘，恢复真正应用成功后才由启动流程
+/// 提交为同步记账（换库要等下次启动，排队时提交会留下"远端即共同祖先"的假账）。
+const EXPECTED_SYNC_NAME: &str = "expected-sync.json";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ApplyJournal {
@@ -72,7 +76,11 @@ pub fn cleanup_restore_staging_dirs(app_dir: &Path) -> AppResult<()> {
     Ok(())
 }
 
-pub fn queue_pending_restore(archive_path: &Path, app_dir: &Path) -> AppResult<()> {
+pub fn queue_pending_restore(
+    archive_path: &Path,
+    app_dir: &Path,
+    expected: Option<DataFingerprint>,
+) -> AppResult<()> {
     fs::create_dir_all(app_dir)?;
     let pending = app_dir.join(PENDING_NAME);
     if pending.exists() {
@@ -99,6 +107,9 @@ pub fn queue_pending_restore(archive_path: &Path, app_dir: &Path) -> AppResult<(
             "validated restore payload is incomplete",
         ));
     }
+    if let Some(fingerprint) = &expected {
+        write_synced_json(&staging.join(EXPECTED_SYNC_NAME), fingerprint)?;
+    }
     tracing::info!(
         source_device = %validated.manifest.device_name,
         source_created_at = validated.manifest.created_at,
@@ -110,7 +121,15 @@ pub fn queue_pending_restore(archive_path: &Path, app_dir: &Path) -> AppResult<(
     Ok(())
 }
 
-pub fn apply_pending_restore(app_dir: &Path) -> AppResult<Option<RestoreStartupResult>> {
+/// 启动恢复结果 + 本次下载的同步目标指纹（仅进程内使用，不写入 restore-result.json）。
+#[derive(Debug)]
+pub struct RestoreStartupOutcome {
+    pub result: RestoreStartupResult,
+    /// 仅当恢复真正应用成功且排队时记录了预期指纹才为 Some；失败/回滚一律 None。
+    pub synced_fingerprint: Option<DataFingerprint>,
+}
+
+pub fn apply_pending_restore(app_dir: &Path) -> AppResult<Option<RestoreStartupOutcome>> {
     if let Err(error) = cleanup_restore_staging_dirs(app_dir) {
         tracing::warn!(%error, "failed to clean leftover restore download directories");
     }
@@ -120,13 +139,16 @@ pub fn apply_pending_restore(app_dir: &Path) -> AppResult<Option<RestoreStartupR
     }
     let result = apply_pending_restore_inner(app_dir, &pending);
     match result {
-        Ok(()) => {
+        Ok(applied) => {
             let outcome = RestoreStartupResult {
                 status: "applied".into(),
                 message: "Application data was restored successfully.".into(),
             };
             write_restore_result(app_dir, &outcome)?;
-            Ok(Some(outcome))
+            Ok(Some(RestoreStartupOutcome {
+                result: outcome,
+                synced_fingerprint: applied,
+            }))
         }
         Err(error) => {
             recover_uncommitted(app_dir, &pending)?;
@@ -144,19 +166,33 @@ pub fn apply_pending_restore(app_dir: &Path) -> AppResult<Option<RestoreStartupR
                     quarantine.display()
                 ),
             };
+            // 恢复失败：本地仍是旧数据，绝不能提交记账，否则下一轮会判定"只有本地变了"反向上传。
             write_restore_result(app_dir, &outcome)?;
-            Ok(Some(outcome))
+            Ok(Some(RestoreStartupOutcome {
+                result: outcome,
+                synced_fingerprint: None,
+            }))
         }
     }
 }
 
-fn apply_pending_restore_inner(app_dir: &Path, pending: &Path) -> AppResult<()> {
+/// 返回本次下载的目标指纹；无待恢复记录（手动恢复）时为 None。
+fn apply_pending_restore_inner(
+    app_dir: &Path,
+    pending: &Path,
+) -> AppResult<Option<DataFingerprint>> {
+    let expected = read_expected_sync(pending);
     if pending.join(JOURNAL_NAME).exists() {
+        // 上次启动已换库成功、只剩清理：`committed` 只在发布成功后写入，它的存在即代表
+        // 数据已经落地，缺的只是记账。这里必须把预期指纹交出去提交——若返回 None，
+        // last_synced 会停留在下载前的旧值，一旦恢复后的 schema 迁移改变了本地数据
+        // （本地重算值 != 远端声明值），判定就会永远落入 Download 反复重下。
         if pending.join(COMMITTED_NAME).exists() {
+            let committed = expected.clone();
             if let Err(error) = cleanup_committed(app_dir, pending) {
                 tracing::warn!(%error, "restore was committed but cleanup is still pending");
             }
-            return Ok(());
+            return Ok(committed);
         }
         recover_uncommitted(app_dir, pending)?;
     }
@@ -177,7 +213,28 @@ fn apply_pending_restore_inner(app_dir: &Path, pending: &Path) -> AppResult<()> 
     if let Err(error) = cleanup_committed(app_dir, pending) {
         tracing::warn!(%error, "restore was committed but cleanup is still pending");
     }
-    Ok(())
+    Ok(expected)
+}
+
+/// 读取排队时记录的预期指纹。解析失败只当作"没有目标指纹"：
+/// 记账文件损坏不能反过来阻断数据恢复，届时下一轮同步自愈。
+fn read_expected_sync(pending: &Path) -> Option<DataFingerprint> {
+    let path = pending.join(EXPECTED_SYNC_NAME);
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(error) => {
+            tracing::warn!(%error, "ignoring unreadable expected sync record");
+            return None;
+        }
+    };
+    match serde_json::from_slice(&bytes) {
+        Ok(fingerprint) => Some(fingerprint),
+        Err(error) => {
+            tracing::warn!(%error, "ignoring unreadable expected sync record");
+            None
+        }
+    }
 }
 
 fn desired_operations(app_dir: &Path, payload: &Path) -> Vec<(Option<PathBuf>, PathBuf)> {
@@ -450,9 +507,10 @@ mod tests {
         fs::write(live_dir.join("master.key"), [9_u8; 32]).unwrap();
         fs::write(live_dir.join("xiaobai-switch.db-wal"), b"old-wal").unwrap();
         fs::write(live_dir.join("xiaobai-switch.db-shm"), b"old-shm").unwrap();
-        queue_pending_restore(&bundle.path, &live_dir).unwrap();
-        let result = apply_pending_restore(&live_dir).unwrap().unwrap();
-        assert_eq!(result.status, "applied");
+        queue_pending_restore(&bundle.path, &live_dir, None).unwrap();
+        let outcome = apply_pending_restore(&live_dir).unwrap().unwrap();
+        assert_eq!(outcome.result.status, "applied");
+        assert_eq!(outcome.synced_fingerprint, None);
         assert_eq!(
             fs::read(live_dir.join("master.key")).unwrap(),
             vec![3_u8; 32]
@@ -566,14 +624,153 @@ mod tests {
 
         fs::write(live_dir.join("xiaobai-switch.db"), b"old-db").unwrap();
         fs::write(live_dir.join("master.key"), [9_u8; 32]).unwrap();
-        queue_pending_restore(&bundle.path, &live_dir).unwrap();
+        queue_pending_restore(&bundle.path, &live_dir, None).unwrap();
         fs::remove_file(&bundle.path).unwrap();
-        let result = apply_pending_restore(&live_dir).unwrap().unwrap();
-        assert_eq!(result.status, "applied");
+        let outcome = apply_pending_restore(&live_dir).unwrap().unwrap();
+        assert_eq!(outcome.result.status, "applied");
         assert_eq!(
             fs::read(live_dir.join("master.key")).unwrap(),
             vec![3_u8; 32]
         );
+    }
+
+    #[test]
+    fn queued_restore_persists_the_expected_sync_fingerprint() {
+        // 排队时写入的指纹必须与恢复落地一一对应：没有它，成功恢复后无法提交记账。
+        let temp = tempfile::tempdir().unwrap();
+        let source_dir = temp.path().join("source");
+        let live_dir = temp.path().join("live");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::create_dir_all(&live_dir).unwrap();
+
+        let source_db = source_dir.join("source.db");
+        let source_conn = Connection::open(&source_db).unwrap();
+        crate::db::apply_schema(&source_conn).unwrap();
+        fs::write(source_dir.join("master.key"), [3_u8; 32]).unwrap();
+        let bundle = app_backup::create_backup_in(
+            &source_conn,
+            &source_dir.join("master.key"),
+            &source_dir,
+            "manual",
+        )
+        .unwrap();
+
+        fs::write(live_dir.join("xiaobai-switch.db"), b"old-db").unwrap();
+        fs::write(live_dir.join("master.key"), [9_u8; 32]).unwrap();
+        let expected = DataFingerprint {
+            database_sha256: "e".repeat(64),
+            master_key_sha256: "f".repeat(64),
+        };
+        queue_pending_restore(&bundle.path, &live_dir, Some(expected.clone())).unwrap();
+
+        let outcome = apply_pending_restore(&live_dir).unwrap().unwrap();
+        assert_eq!(outcome.result.status, "applied");
+        assert_eq!(outcome.synced_fingerprint, Some(expected));
+    }
+
+    /// 构造一个最小可恢复的 pending 目录（成功应用一份已存在的库文件）。
+    fn stage_pending(live_dir: &Path, expected: Option<DataFingerprint>) {
+        let pending = live_dir.join(PENDING_NAME);
+        let payload = pending.join(PAYLOAD_NAME);
+        fs::create_dir_all(&payload).unwrap();
+        fs::write(payload.join("master.key"), [3_u8; 32]).unwrap();
+        fs::write(
+            payload.join(app_backup::BUNDLE_DATABASE_FILE_NAME),
+            b"new-db",
+        )
+        .unwrap();
+        if let Some(fingerprint) = expected {
+            write_synced_json(&pending.join(EXPECTED_SYNC_NAME), &fingerprint).unwrap();
+        }
+    }
+
+    #[test]
+    fn applied_restore_reports_the_expected_sync_fingerprint() {
+        // 记账提交依赖这里回传的指纹：必须是排队时记录的远端声明值，
+        // 而不是恢复后本地重算的结果（schema 迁移会改变后者）。
+        let temp = tempfile::tempdir().unwrap();
+        let live_dir = temp.path().join("live");
+        fs::create_dir_all(&live_dir).unwrap();
+        fs::write(live_dir.join("xiaobai-switch.db"), b"old-db").unwrap();
+        fs::write(live_dir.join("master.key"), [9_u8; 32]).unwrap();
+        let expected = DataFingerprint {
+            database_sha256: "a".repeat(64),
+            master_key_sha256: "b".repeat(64),
+        };
+        stage_pending(&live_dir, Some(expected.clone()));
+
+        let outcome = apply_pending_restore(&live_dir).unwrap().unwrap();
+
+        assert_eq!(outcome.result.status, "applied");
+        assert_eq!(outcome.synced_fingerprint, Some(expected));
+        // 成功后 pending 目录连同预期指纹文件一并清理，不会重复提交。
+        assert!(!live_dir.join(PENDING_NAME).exists());
+    }
+
+    #[test]
+    fn committed_restore_still_reports_the_expected_sync_fingerprint() {
+        // 上次启动已换库、但没来得及提交记账（进程在写 committed 之后、提交之前退出）。
+        // 数据已经落地，必须继续把指纹交出去提交：否则 last_synced 停在下载前的旧值，
+        // 恢复后的 schema 迁移一旦改变本地数据，判定就会永远落入 Download 反复重下。
+        let temp = tempfile::tempdir().unwrap();
+        let live_dir = temp.path().join("live");
+        fs::create_dir_all(&live_dir).unwrap();
+        fs::write(live_dir.join("xiaobai-switch.db"), b"new-db").unwrap();
+        fs::write(live_dir.join("master.key"), [3_u8; 32]).unwrap();
+        let expected = DataFingerprint {
+            database_sha256: "1".repeat(64),
+            master_key_sha256: "2".repeat(64),
+        };
+        stage_pending(&live_dir, Some(expected.clone()));
+        let pending = live_dir.join(PENDING_NAME);
+        // journal 的长度按当前 `desired_operations` 派生，避免写死 5 之后被后续
+        // 新增目标悄悄变成过期夹具（committed 分支不校验它，只有回滚路径才校验）。
+        let target_count = desired_operations(&live_dir, &pending.join(PAYLOAD_NAME)).len();
+        write_synced_json(
+            &pending.join(JOURNAL_NAME),
+            &ApplyJournal {
+                target_existed: vec![true; target_count],
+            },
+        )
+        .unwrap();
+        write_synced_file(&pending.join(COMMITTED_NAME), b"").unwrap();
+
+        let outcome = apply_pending_restore(&live_dir).unwrap().unwrap();
+
+        assert_eq!(outcome.result.status, "applied");
+        assert_eq!(outcome.synced_fingerprint, Some(expected));
+        // 换库在上一轮已完成：这里只做清理与记账，不得再动数据。
+        assert_eq!(
+            fs::read(live_dir.join("xiaobai-switch.db")).unwrap(),
+            b"new-db"
+        );
+        assert!(!pending.exists());
+    }
+
+    #[test]
+    fn failed_restore_reports_no_sync_fingerprint() {
+        // 恢复失败：本地仍是旧数据，绝不能回传指纹去提交记账，
+        // 否则下一轮会判定"只有本地变了"并用旧数据覆盖云端较新的数据。
+        let temp = tempfile::tempdir().unwrap();
+        let live_dir = temp.path().join("live");
+        fs::create_dir_all(&live_dir).unwrap();
+        fs::write(live_dir.join("xiaobai-switch.db"), b"old-db").unwrap();
+        let expected = DataFingerprint {
+            database_sha256: "c".repeat(64),
+            master_key_sha256: "d".repeat(64),
+        };
+        let pending = live_dir.join(PENDING_NAME);
+        let payload = pending.join(PAYLOAD_NAME);
+        fs::create_dir_all(&payload).unwrap();
+        fs::write(payload.join("master.key"), [3_u8; 32]).unwrap();
+        write_synced_json(&pending.join(EXPECTED_SYNC_NAME), &expected).unwrap();
+
+        let outcome = apply_pending_restore(&live_dir).unwrap().unwrap();
+
+        assert_eq!(outcome.result.status, "failed");
+        assert_eq!(outcome.synced_fingerprint, None);
+        assert_eq!(fs::read(live_dir.join("xiaobai-switch.db")).unwrap(), b"old-db");
+        assert!(!pending.exists(), "failed payload must be quarantined");
     }
 
     #[test]

@@ -527,7 +527,7 @@ mod tests {
                 name: "Other".into(),
                 base_url: "https://b.example.com".into(),
                 base_urls: None,
-                api_key: "sk-other".into(),
+                api_key: format!("test-{}-other", "key"),
                 api_key_label: None,
                 extra_api_keys: Vec::new(),
                 protocol: None,

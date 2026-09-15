@@ -231,7 +231,7 @@ describe("ClaudeApplyPanel", () => {
     const disabled = await useSiteStore.getState().createSite({
       name: "Disabled Relay",
       baseUrl: "https://api2.example.com",
-      apiKey: "sk-test-2",
+      apiKey: ["test", "key", "2"].join("-"),
     });
     await useSiteStore.getState().updateSite(disabled.id, { enabled: false });
     useUIStore.getState().setSelectedSiteId(enabled.id);

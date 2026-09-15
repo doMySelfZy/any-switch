@@ -50,6 +50,22 @@ const FINGERPRINT_TABLES: [&str; 9] = [
     "agent_rules",
 ];
 
+/// 逻辑指纹的算法版本，与 `FINGERPRINT_TABLES` 同源维护：表清单任何增删都必须同步递增。
+/// 两端算法不同会对同一份数据算出不同指纹，判定结果恒定相反，进而反复互相覆盖
+/// （0.1.3 的 8 表与 0.1.4+ 的 9 表真实发生过这种循环）。
+pub const FINGERPRINT_ALGORITHM_VERSION: u32 = 1;
+
+/// 未修复版本（manifest 里没有 `fingerprintAlgorithm` 字段）写出时**实际**使用的算法版本：
+/// 0.1.4/0.1.5 的 9 表实现。缺字段的 manifest 必须固定按它处理，**不能**回退到"当前版本"——
+/// 否则下次表清单变更、版本递增之后，旧对端的 manifest 会被当成本机算法照常比较指纹，
+/// 跨算法互相覆盖的缺陷就会原样复现。
+const LEGACY_FINGERPRINT_ALGORITHM_VERSION: u32 = 1;
+
+/// 远端声明的算法版本（`None` = 未修复版本写出）是否与本机算法一致。
+fn algorithm_matches(declared: Option<u32>, current: u32) -> bool {
+    declared.unwrap_or(LEGACY_FINGERPRINT_ALGORITHM_VERSION) == current
+}
+
 /// 逻辑内容指纹：按表遍历全部业务行做稳定哈希。
 /// 不使用数据库文件字节 hash——SQLite 文件头部（change counter 等）每次
 /// VACUUM 都会变化，会让"内容没变指纹却变了"，导致同步误判反复应用。
@@ -120,6 +136,11 @@ pub struct SyncManifest {
     pub database_sha256: String,
     pub master_key_sha256: String,
     pub app_version: String,
+    /// 写出该 manifest 的机器的指纹算法版本。
+    /// 缺省 = 未修复版本写出（0.1.4/0.1.5 的 9 表实现），按当前算法处理；
+    /// 可忽略字段，保证未修复版本仍能读取新 manifest（可回滚）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprint_algorithm: Option<u32>,
 }
 
 impl SyncManifest {
@@ -130,11 +151,28 @@ impl SyncManifest {
         }
     }
 
+    /// 远端声明的算法版本；缺省 = 未修复版本写出，按 [`LEGACY_FINGERPRINT_ALGORITHM_VERSION`] 处理。
+    fn declared_algorithm(&self) -> u32 {
+        self.fingerprint_algorithm
+            .unwrap_or(LEGACY_FINGERPRINT_ALGORITHM_VERSION)
+    }
+
+    fn algorithm_matches_current(&self) -> bool {
+        algorithm_matches(self.fingerprint_algorithm, FINGERPRINT_ALGORITHM_VERSION)
+    }
+
     fn validate(&self) -> AppResult<()> {
         if self.format_version != SYNC_FORMAT_VERSION {
             return Err(AppError::new(
                 "sync_manifest_invalid",
                 format!("unsupported sync manifest format: {}", self.format_version),
+            ));
+        }
+        // 未知的算法版本不是有效性错误（是否兼容由决策处理），只有 0 这种非法值才拒绝。
+        if self.fingerprint_algorithm == Some(0) {
+            return Err(AppError::new(
+                "sync_manifest_invalid",
+                "sync manifest fingerprint algorithm version must be >= 1",
             ));
         }
         if self.revision == 0 || self.device_name.trim().is_empty() {
@@ -161,6 +199,8 @@ pub enum SyncAction {
     Upload,
     Download,
     InSync,
+    /// 远端指纹算法与本机不同：禁止上传与下载两种替换动作，否则会互相覆盖。
+    Incompatible,
 }
 
 /// 纯决策：比较本地指纹、远端指纹与上次同步指纹。
@@ -173,6 +213,11 @@ fn decide_action(
     let Some(remote) = remote else {
         return (SyncAction::Upload, false);
     };
+    // 算法检查必须先于指纹比较：算法不同的两端对同一份数据算出不同指纹，
+    // 继续比较只会得到恒定相反的结论。
+    if !remote.algorithm_matches_current() {
+        return (SyncAction::Incompatible, false);
+    }
     let remote_fp = remote.fingerprint();
     if remote_fp == *local {
         return (SyncAction::InSync, false);
@@ -248,18 +293,6 @@ async fn run_sync_inner(
     let local_fp = state
         .db
         .with_conn(|conn| compute_logical_fingerprint(conn, &key_bytes))?;
-    let temp_dir = tempfile::Builder::new()
-        .prefix(".sync-")
-        .tempdir_in(&app_dir)?;
-    let local_bundle = state.db.with_conn(|conn| {
-        app_backup::create_backup_in(
-            conn,
-            &crate::paths::master_key_path()?,
-            temp_dir.path(),
-            reason,
-        )
-    })?;
-    let device_name = app_backup::parse_device_from_filename(&local_bundle.file_name);
 
     let remote = client.download_sync_manifest().await?;
     let last_synced = load_last_synced(state)?;
@@ -267,7 +300,7 @@ async fn run_sync_inner(
 
     match action {
         SyncAction::InSync => {
-            save_last_synced(state, &local_fp)?;
+            state.db.with_conn(|conn| save_last_synced(conn, &local_fp))?;
             Ok(SyncOutcome {
                 action: "in_sync".into(),
                 revision: remote.map(|manifest| manifest.revision).unwrap_or(0),
@@ -277,7 +310,32 @@ async fn run_sync_inner(
                 warning: None,
             })
         }
+        // 算法不兼容：既不读也不写远端数据，等对端升级后再同步。
+        SyncAction::Incompatible => {
+            let remote = remote.expect("incompatible decision requires a remote manifest");
+            Err(AppError::new(
+                "sync_algorithm_mismatch",
+                format!(
+                    "remote fingerprint algorithm {} does not match local {}; upgrade the other device",
+                    remote.declared_algorithm(),
+                    FINGERPRINT_ALGORITHM_VERSION
+                ),
+            ))
+        }
         SyncAction::Upload => {
+            // 全库复制（VACUUM + zip）只在上传时做：决策前打包会让"已同步/下载"白付一次开销。
+            let temp_dir = tempfile::Builder::new()
+                .prefix(".sync-")
+                .tempdir_in(&app_dir)?;
+            let local_bundle = state.db.with_conn(|conn| {
+                app_backup::create_backup_in(
+                    conn,
+                    &crate::paths::master_key_path()?,
+                    temp_dir.path(),
+                    reason,
+                )
+            })?;
+            let device_name = app_backup::parse_device_from_filename(&local_bundle.file_name);
             let next_revision = remote.as_ref().map(|m| m.revision + 1).unwrap_or(1);
             client
                 .upload_file(&local_bundle.file_name, &local_bundle.path)
@@ -291,18 +349,18 @@ async fn run_sync_inner(
                 database_sha256: local_fp.database_sha256.clone(),
                 master_key_sha256: local_fp.master_key_sha256.clone(),
                 app_version: env!("CARGO_PKG_VERSION").into(),
+                fingerprint_algorithm: Some(FINGERPRINT_ALGORITHM_VERSION),
             };
             client.upload_sync_manifest(&manifest).await?;
             // 按保留数清理本设备在云端的旧数据包，防止无限堆积。
-            let device = app_backup::parse_device_from_filename(&local_bundle.file_name);
             let warning = client
-                .cleanup_device_backups(&device, stored.max_remote_backups)
+                .cleanup_device_backups(&device_name, stored.max_remote_backups)
                 .await
                 .err()
                 .map(|error| {
                     format!("synced, but old remote bundles could not be pruned: {error}")
                 });
-            save_last_synced(state, &local_fp)?;
+            state.db.with_conn(|conn| save_last_synced(conn, &local_fp))?;
             state.db.with_conn(|conn| {
                 repo::sync_meta::set_meta(
                     conn,
@@ -321,6 +379,9 @@ async fn run_sync_inner(
         }
         SyncAction::Download => {
             let remote = remote.expect("download decision requires a remote manifest");
+            let temp_dir = tempfile::Builder::new()
+                .prefix(".sync-")
+                .tempdir_in(&app_dir)?;
             let archive = temp_dir.path().join(&remote.bundle_file_name);
             client
                 .download_file(&remote.bundle_file_name, &archive)
@@ -345,8 +406,13 @@ async fn run_sync_inner(
             state.db.with_conn(|conn| {
                 app_backup::create_local_backup(conn, "pre_sync_apply", settings.max_backup_copies)
             })?;
-            save_last_synced(state, &remote.fingerprint())?;
-            crate::pending_restore::queue_pending_restore(&archive, &app_dir)?;
+            // 记账延后：换库要等下次启动，此刻提交 last_synced 会留下"远端即共同祖先"的假账，
+            // 一旦重启前退出或恢复失败，下一轮就会判定"只有本地变了"并用旧数据覆盖云端。
+            crate::pending_restore::queue_pending_restore(
+                &archive,
+                &app_dir,
+                Some(remote.fingerprint()),
+            )?;
             Ok(SyncOutcome {
                 action: "download".into(),
                 revision: remote.revision,
@@ -360,32 +426,34 @@ async fn run_sync_inner(
 }
 
 fn load_last_synced(state: &AppState) -> AppResult<Option<DataFingerprint>> {
-    state.db.with_conn(|conn| {
-        let database = repo::sync_meta::get_meta(conn, META_LAST_SYNCED_DATABASE_SHA256)?;
-        let master_key = repo::sync_meta::get_meta(conn, META_LAST_SYNCED_MASTER_KEY_SHA256)?;
-        Ok(match (database, master_key) {
-            (Some(database_sha256), Some(master_key_sha256)) => Some(DataFingerprint {
-                database_sha256,
-                master_key_sha256,
-            }),
-            _ => None,
-        })
+    state.db.with_conn(load_last_synced_conn)
+}
+
+fn load_last_synced_conn(conn: &Connection) -> AppResult<Option<DataFingerprint>> {
+    let database = repo::sync_meta::get_meta(conn, META_LAST_SYNCED_DATABASE_SHA256)?;
+    let master_key = repo::sync_meta::get_meta(conn, META_LAST_SYNCED_MASTER_KEY_SHA256)?;
+    Ok(match (database, master_key) {
+        (Some(database_sha256), Some(master_key_sha256)) => Some(DataFingerprint {
+            database_sha256,
+            master_key_sha256,
+        }),
+        _ => None,
     })
 }
 
-fn save_last_synced(state: &AppState, fingerprint: &DataFingerprint) -> AppResult<()> {
-    state.db.with_conn(|conn| {
-        repo::sync_meta::set_meta(
-            conn,
-            META_LAST_SYNCED_DATABASE_SHA256,
-            &fingerprint.database_sha256,
-        )?;
-        repo::sync_meta::set_meta(
-            conn,
-            META_LAST_SYNCED_MASTER_KEY_SHA256,
-            &fingerprint.master_key_sha256,
-        )
-    })
+/// 提交同步记账。接收 Connection 而非 AppState，供启动流程在 `Db::open` 之后
+/// 提交"下载已真正落地"的目标指纹复用。
+pub(crate) fn save_last_synced(conn: &Connection, fingerprint: &DataFingerprint) -> AppResult<()> {
+    repo::sync_meta::set_meta(
+        conn,
+        META_LAST_SYNCED_DATABASE_SHA256,
+        &fingerprint.database_sha256,
+    )?;
+    repo::sync_meta::set_meta(
+        conn,
+        META_LAST_SYNCED_MASTER_KEY_SHA256,
+        &fingerprint.master_key_sha256,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -516,6 +584,15 @@ mod tests {
             database_sha256: sha64(db),
             master_key_sha256: sha64(key),
             app_version: "0.0.0".into(),
+            fingerprint_algorithm: Some(FINGERPRINT_ALGORITHM_VERSION),
+        }
+    }
+
+    /// 未修复版本（0.1.4/0.1.5）写出的 manifest：不带指纹算法字段。
+    fn legacy_manifest(db: &str, key: &str, revision: u64) -> SyncManifest {
+        SyncManifest {
+            fingerprint_algorithm: None,
+            ..manifest(db, key, revision)
         }
     }
 
@@ -575,10 +652,100 @@ mod tests {
     }
 
     #[test]
+    fn flags_incompatible_when_fingerprint_algorithm_differs() {
+        // 算法不同时禁止任何替换动作：先做算法检查，指纹相同也要拦下。
+        let local = fingerprint("a", "f");
+        let mut remote = manifest("a", "f", 3);
+        remote.fingerprint_algorithm = Some(FINGERPRINT_ALGORITHM_VERSION + 1);
+        let (action, conflict) = decide_action(&local, Some(&remote), Some(&local));
+        assert_eq!(action, SyncAction::Incompatible);
+        assert!(!conflict);
+
+        // 只有远端变过也一样：跨算法比较没有意义。
+        let remote = {
+            let mut remote = manifest("b", "f", 4);
+            remote.fingerprint_algorithm = Some(FINGERPRINT_ALGORITHM_VERSION + 1);
+            remote
+        };
+        let (action, conflict) = decide_action(&local, Some(&remote), Some(&local));
+        assert_eq!(action, SyncAction::Incompatible);
+        assert!(!conflict);
+    }
+
+    #[test]
+    fn legacy_manifest_without_algorithm_is_compared_as_current() {
+        // 缺字段 = 未修复版本写出（实为 9 表实现），按当前算法照常比较，
+        // 否则升级后会出现"必须上传才能补字段、但缺字段又禁止上传"的死锁。
+        let local = fingerprint("a", "f");
+        let legacy = legacy_manifest("a", "f", 3);
+        let (action, conflict) = decide_action(&local, Some(&legacy), Some(&local));
+        assert_eq!(action, SyncAction::InSync);
+        assert!(!conflict);
+
+        let legacy = legacy_manifest("b", "f", 4);
+        let (action, conflict) = decide_action(&local, Some(&legacy), Some(&local));
+        assert_eq!(action, SyncAction::Download);
+        assert!(!conflict);
+    }
+
+    #[test]
+    fn missing_algorithm_field_stays_pinned_to_the_legacy_version() {
+        // 缺字段必须固定等价于「旧版 9 表算法」，而不是「等价于当前算法」：
+        // 否则表清单下一次变更（版本递增）后，旧对端的 manifest 会被当成本机算法照常比较，
+        // 跨算法互相覆盖的缺陷原样复现。这条断言把该语义钉死。
+        assert!(algorithm_matches(None, LEGACY_FINGERPRINT_ALGORITHM_VERSION));
+        assert!(!algorithm_matches(
+            None,
+            LEGACY_FINGERPRINT_ALGORITHM_VERSION + 1
+        ));
+        assert_eq!(
+            LEGACY_FINGERPRINT_ALGORITHM_VERSION,
+            1,
+            "旧版（0.1.4/0.1.5）manifest 无版本字段，对应 9 表实现 = 算法 1"
+        );
+        // 有字段时严格按声明值比较。
+        assert!(algorithm_matches(Some(2), 2));
+        assert!(!algorithm_matches(Some(2), 3));
+    }
+
+    #[test]
+    fn fingerprint_algorithm_version_is_pinned_to_the_table_list() {
+        // 算法版本 → 表清单快照。表清单决定指纹，改动它而不递增版本号会让两端互相覆盖，
+        // 这条断言就是护栏：递增 FINGERPRINT_ALGORITHM_VERSION 时必须在此补上新快照。
+        const VERSION_1_TABLES: [&str; 9] = [
+            "settings",
+            "sites",
+            "site_api_keys",
+            "site_models",
+            "site_thinking_presets",
+            "target_bindings",
+            "apply_records",
+            "mcp_servers",
+            "agent_rules",
+        ];
+        assert_eq!(FINGERPRINT_ALGORITHM_VERSION, 1);
+        assert_eq!(FINGERPRINT_TABLES.len(), 9);
+        assert_eq!(FINGERPRINT_TABLES, VERSION_1_TABLES);
+    }
+
+    #[test]
     fn manifest_round_trips_and_validates() {
         let remote = manifest("a", "f", 2);
         let bytes = serde_json::to_vec(&remote).unwrap();
+        assert!(String::from_utf8_lossy(&bytes).contains("fingerprintAlgorithm"));
         assert_eq!(parse_remote_manifest_bytes(&bytes).unwrap(), remote);
+
+        // 未修复版本写出的 manifest（无新字段）继续可读，且原样忽略该字段的缺失。
+        let legacy = legacy_manifest("a", "f", 2);
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        assert!(!String::from_utf8_lossy(&bytes).contains("fingerprintAlgorithm"));
+        assert_eq!(parse_remote_manifest_bytes(&bytes).unwrap(), legacy);
+
+        // 反向（未修复版本读新 manifest）依赖"无 deny_unknown_fields"：未知字段必须被忽略。
+        let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        value["fingerprintAlgorithm"] = serde_json::json!(1);
+        value["futureFieldFromNewerVersion"] = serde_json::json!("ignored");
+        assert!(parse_remote_manifest_bytes(&serde_json::to_vec(&value).unwrap()).is_ok());
     }
 
     #[test]
@@ -600,6 +767,81 @@ mod tests {
         remote.bundle_file_name = "../escape.zip".into();
         let bytes = serde_json::to_vec(&remote).unwrap();
         assert!(parse_remote_manifest_bytes(&bytes).is_err());
+
+        // 算法版本 0 是非法值；未知版本不是有效性错误（由决策判定不兼容）。
+        let mut remote = manifest("a", "f", 2);
+        remote.fingerprint_algorithm = Some(0);
+        let bytes = serde_json::to_vec(&remote).unwrap();
+        assert!(parse_remote_manifest_bytes(&bytes).is_err());
+
+        let mut remote = manifest("a", "f", 2);
+        remote.fingerprint_algorithm = Some(FINGERPRINT_ALGORITHM_VERSION + 1);
+        let bytes = serde_json::to_vec(&remote).unwrap();
+        assert!(parse_remote_manifest_bytes(&bytes).is_ok());
+    }
+
+    #[test]
+    fn last_synced_round_trips_the_given_fingerprint() {
+        // 下载路径的记账必须原样提交远端 manifest 声明的指纹：
+        // 恢复后的库若被 schema 迁移改写，本地重算值与远端值不同，误记会导致反复下载。
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        assert_eq!(load_last_synced_conn(&conn).unwrap(), None);
+
+        let remote = fingerprint("remote-declared", "key");
+        save_last_synced(&conn, &remote).unwrap();
+        assert_eq!(load_last_synced_conn(&conn).unwrap(), Some(remote.clone()));
+
+        let local_recomputed = fingerprint("local-recomputed", "key");
+        save_last_synced(&conn, &local_recomputed).unwrap();
+        assert_eq!(load_last_synced_conn(&conn).unwrap(), Some(local_recomputed));
+    }
+
+    /// 打包时机的结构护栏：完整引擎路径需要 AppHandle 与真实 WebDAV 服务，无法在单测里跑通，
+    /// 这里直接对 `run_sync_inner` 源码分段断言——整库复制只允许出现在 Upload 分支，
+    /// 且 Download 必须保留应用前的本地快照。
+    #[test]
+    fn whole_database_bundle_is_built_only_for_uploads() {
+        fn segment<'a>(body: &'a str, from: &str, to: Option<&str>) -> &'a str {
+            let start = body.find(from).unwrap();
+            match to {
+                Some(to) => {
+                    let end = body.find(to).unwrap();
+                    assert!(start < end, "{from} must precede {to}");
+                    &body[start..end]
+                }
+                None => &body[start..],
+            }
+        }
+
+        let source = include_str!("sync.rs");
+        let body_start = source.find("async fn run_sync_inner").unwrap();
+        let body_end = source.find("fn load_last_synced").unwrap();
+        let body = &source[body_start..body_end];
+
+        // 决策前不做任何打包/快照：InSync 与 Incompatible 由此天然零副作用。
+        let before_decision = segment(body, "async fn run_sync_inner", Some("match action {"));
+        assert!(!before_decision.contains("create_backup_in"));
+        assert!(!before_decision.contains("create_local_backup"));
+
+        let upload = segment(body, "SyncAction::Upload =>", Some("SyncAction::Download =>"));
+        assert_eq!(upload.matches("create_backup_in").count(), 1);
+        assert!(!upload.contains("create_local_backup"));
+
+        let download = segment(body, "SyncAction::Download =>", None);
+        assert!(!download.contains("create_backup_in"), "下载分支不得打包本机数据");
+        assert_eq!(download.matches("create_local_backup").count(), 1);
+        assert!(download.contains("pre_sync_apply"));
+        assert!(download.contains("queue_pending_restore"));
+        // 记账必须延后到恢复真正落地，排队时不得提交。
+        assert!(!download.contains("save_last_synced"));
+
+        let in_sync = segment(body, "SyncAction::InSync =>", Some("SyncAction::Incompatible =>"));
+        assert!(!in_sync.contains("create_backup_in"));
+        let incompatible = segment(body, "SyncAction::Incompatible =>", Some("SyncAction::Upload =>"));
+        assert!(!incompatible.contains("create_backup_in"));
+        assert!(!incompatible.contains("create_local_backup"));
+        assert!(!incompatible.contains("save_last_synced"));
     }
 
     #[test]

@@ -3,6 +3,7 @@ import { App, Button, Popover, Space, Spin, Tag, theme, Tooltip, Typography } fr
 import { CloudDownload, CloudUpload, DatabaseBackup, HardDriveDownload, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { invoke, isAppError } from "@/lib/invoke";
+import { webdavErrorMessage } from "@/lib/webdavErrors";
 import { useUIStore } from "@/stores";
 import type { BackupOperationResult, BackupOverview, RemoteBackupInfo, SyncOutcome } from "@/types/domain";
 
@@ -52,10 +53,10 @@ export function BackupQuickPopover() {
         setRemoteBackups(await invoke<RemoteBackupInfo[]>("list_webdav_backups"));
       } catch (error) {
         setRemoteBackups([]);
-        message.error(isAppError(error) ? error.message : t("settings.webdav.loadFailed"));
+        message.error(webdavErrorMessage(error, t, "settings.webdav.loadFailed"));
       }
     } catch (error) {
-      message.error(isAppError(error) ? error.message : t("settings.webdav.loadFailed"));
+      message.error(webdavErrorMessage(error, t, "settings.webdav.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -102,7 +103,7 @@ export function BackupQuickPopover() {
       }
       await loadOverview();
     } catch (error) {
-      message.error(isAppError(error) ? error.message : t("settings.webdav.syncFailed"));
+      message.error(webdavErrorMessage(error, t, "settings.webdav.syncFailed"));
     } finally {
       setSyncing(false);
     }

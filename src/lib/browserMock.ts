@@ -218,7 +218,7 @@ let webdavConfig: WebDavConfigView = {
   hasPassword: false,
   autoSyncEnabled: false,
   syncIntervalMinutes: 60,
-  maxRemoteBackups: 10,
+  maxRemoteBackups: 3,
 };
 let remoteBackups: RemoteBackupInfo[] = [];
 let localBackups: LocalBackupInfo[] = [];
@@ -412,7 +412,7 @@ export function resetBrowserMock() {
     hasPassword: false,
     autoSyncEnabled: false,
     syncIntervalMinutes: 60,
-    maxRemoteBackups: 10,
+    maxRemoteBackups: 3,
   };
   remoteBackups = [];
   localBackups = [];

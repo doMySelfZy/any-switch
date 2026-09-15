@@ -79,7 +79,8 @@ export interface AppError {
     | "webdav_not_configured"
     | "webdav_auth_failed"
     | "backup_invalid"
-    | "restore_pending";
+    | "restore_pending"
+    | "sync_algorithm_mismatch";
   message: string;
   details?: string | null;
 }

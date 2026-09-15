@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "复核 SyncManifest 字段变更后前后端契约一致，且 error code 到 i18n 文案的映射无遗漏"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "复核是否误加了平行实现（如另建一套记账/打包路径）"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "复核门：禁止模式、必需模式、测试要求与 review checklist"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "复核新增类型与 invoke 返回值的类型安全"}
