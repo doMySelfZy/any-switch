@@ -440,3 +440,25 @@ CLI 配置里的口令不一致，表现为四个 CLI 全部 404。
 ### Status
 
 [OK] **Completed**
+
+
+## Session 16: 修复 WebDAV 同步静默覆盖缺陷
+<!-- trellis-session: v=2 fp=e950381d9a8ba759 -->
+
+**Date**: 2026-09-15
+**Task**: 修复 WebDAV 同步静默覆盖缺陷
+**Branch**: `fix/webdav-sync-integrity`
+
+### Summary
+
+修复 WebDAV 同步引擎的数据覆盖与算法兼容缺陷：检测指纹算法变更、阻止静默覆盖、优化上传逻辑仅在有变更时打包全库快照
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `199860c` | fix(sync): 修复 WebDAV 同步的静默覆盖与算法兼容缺陷 |
+
+### Status
+
+[OK] **Completed**
