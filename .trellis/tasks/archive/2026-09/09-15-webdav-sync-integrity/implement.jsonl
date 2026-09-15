@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层契约：SyncManifest 新增字段、RestoreStartupOutcome、save_last_synced 签名变化需保证 Rust 侧与 TS 接口/前端调用逐字段对齐"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "避免为 R1 记账时机引入重复逻辑；复用既有 save_last_synced / queue_pending_restore 路径而非另写一套提交机制"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "同步错误码 sync_algorithm_mismatch 的前端分支与 i18n 文案键需类型安全，不引入 any"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端默认值改动（maxRemoteBackups 10→3）与 i18n 文案需符合必需模式与测试要求"}

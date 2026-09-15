@@ -138,7 +138,6 @@
     ".claude/hooks/inject-subagent-context.py": "a84240165c66a8891bf1d7eed06a3bcc26aefa219dc98db8192f3cb73c112c89",
     ".claude/hooks/inject-workflow-state.py": "71ef1aa1ed1051a697cae3c9ebffa518958a3bbd4d147434f382348829915f8c",
     ".claude/hooks/session-start.py": "e6fe97ea392cb3cf150f5924dda3b2209d77c35578d6e45cb14c4877a502e010",
-    ".claude/hooks/statusline.py": "edbd8d1443ac8e7bb4f8cce61cb21812a8b0e17c59e1bc5c0e3ad03ea1f69adb",
     ".trellis/.runtime/sessions/claude_5ea2eff4-cfb3-42a7-b9cb-cf77c9f231b4.json": "b530378fd85a83097d8e924ee732c05175e2fe348b45431a71f7f76d4f58137e",
     ".trellis/.runtime/sessions/claude_sess_052ec586-5ec0-4921-a204-4e427411fc42.json": "7ec99afa843fde6866de4974e06465e9787dc97c348d179a1a96fa869bcc6c68",
     ".trellis/.runtime/sessions/claude_sess_3a19ac9a-88b4-46c9-8a5d-8c43d1fb5024.json": "4ecd979b9bb97e659122bb9e5d1c11036bb4daef5164cc3a0e669cc061b37bcd",

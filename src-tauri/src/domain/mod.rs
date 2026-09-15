@@ -678,7 +678,7 @@ impl Default for WebDavConfigView {
             has_password: false,
             auto_sync_enabled: false,
             sync_interval_minutes: 60,
-            max_remote_backups: 10,
+            max_remote_backups: 3,
         }
     }
 }

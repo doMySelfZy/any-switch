@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS webdav_config (
   accept_invalid_certs INTEGER NOT NULL DEFAULT 0,
   auto_sync_enabled INTEGER NOT NULL DEFAULT 0,
   sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
-  max_remote_backups INTEGER NOT NULL DEFAULT 10,
+  max_remote_backups INTEGER NOT NULL DEFAULT 3,
   updated_at INTEGER NOT NULL
 );
 
@@ -861,6 +861,44 @@ mod tests {
         apply_schema(&conn, None, BackupMode::Skip).unwrap();
         assert!(column_exists(&conn, "sites", "proxy_headers_encrypted").unwrap());
         assert!(column_exists(&conn, "sites", "proxy_header_count").unwrap());
+    }
+
+    #[test]
+    fn remote_retention_defaults_to_three_and_never_rewrites_existing_rows() {
+        // R4.1：新配置的远端保留数是 3。
+        let conn = Connection::open_in_memory().unwrap();
+        apply_schema(&conn, None, BackupMode::Skip).unwrap();
+        conn.execute(
+            "INSERT INTO webdav_config
+               (id, base_url, username, password_encrypted, remote_path, updated_at)
+             VALUES (1, 'https://dav.example.com/', 'alice', 'ciphertext', 'xiaobai-switch', 1)",
+            [],
+        )
+        .unwrap();
+        let default_retention: u32 = conn
+            .query_row(
+                "SELECT max_remote_backups FROM webdav_config WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(default_retention, 3);
+
+        // R4.3：已存在配置的取值不被静默改写（改默认值不得演变成一次数据迁移）。
+        conn.execute(
+            "UPDATE webdav_config SET max_remote_backups = 10 WHERE id = 1",
+            [],
+        )
+        .unwrap();
+        apply_schema(&conn, None, BackupMode::Skip).unwrap();
+        let kept: u32 = conn
+            .query_row(
+                "SELECT max_remote_backups FROM webdav_config WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept, 10);
     }
 
     #[test]

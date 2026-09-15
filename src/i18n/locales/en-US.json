@@ -617,6 +617,7 @@
       "syncInSync": "Cloud and local data are already in sync",
       "syncConflictApplied": "Conflict detected: a local snapshot was kept and the latest cloud data was applied; roll back from local backups if needed",
       "syncFailed": "Sync failed",
+      "algorithmMismatch": "Sync paused: the other device uses a different data fingerprint algorithm (its app version is too old). Upgrade that device to the latest version and retry; nothing was uploaded or downloaded, and both sides keep their data.",
       "intervalExtra": "Changes sync immediately; this interval is only a fallback safety net.",
       "retentionExtra": "Recent bundles kept per device on the cloud for rollback.",
       "cloudRevision": "Cloud revision",

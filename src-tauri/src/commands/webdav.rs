@@ -168,7 +168,8 @@ pub async fn restore_local_backup(
     state.db.with_conn(|conn| {
         app_backup::create_local_backup(conn, "pre_restore", settings.max_backup_copies)
     })?;
-    crate::pending_restore::queue_pending_restore(&staged, &app_dir)?;
+    // 手动恢复不携带同步目标：不提交同步记账（未指定 expected）。
+    crate::pending_restore::queue_pending_restore(&staged, &app_dir, None)?;
     drop(temp_dir);
     drop(_guard);
     relaunch_after_restore(app);
@@ -208,7 +209,8 @@ pub async fn restore_webdav_backup(
     client_from_state(&state)?
         .download_file(&file_name, &archive)
         .await?;
-    crate::pending_restore::queue_pending_restore(&archive, &app_dir)?;
+    // 手动恢复不携带同步目标：不提交同步记账（未指定 expected）。
+    crate::pending_restore::queue_pending_restore(&archive, &app_dir, None)?;
     drop(temp_dir);
     drop(_guard);
     relaunch_after_restore(app);

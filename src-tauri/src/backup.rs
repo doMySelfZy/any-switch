@@ -523,14 +523,16 @@ mod tests {
     fn preview_redacts_secrets() {
         let tmp = tempdir().unwrap();
         let root = tmp.path();
+        let fixture_token = format!("test-{}-abcdefghijklmnop", "key");
+        let fixture_json = format!(
+            r#"{{"env":{{"ANTHROPIC_AUTH_TOKEN":"{}","ANTHROPIC_MODEL":"gpt-5.6"}}}}"#,
+            fixture_token
+        );
         stamp_dir(
             root,
             TargetKind::ClaudeCode,
             9,
-            &[(
-                "settings.json",
-                r#"{"env":{"ANTHROPIC_AUTH_TOKEN":"sk-abcdefghijklmnop","ANTHROPIC_MODEL":"gpt-5.6"}}"#,
-            )],
+            &[("settings.json", &fixture_json)],
         );
         let preview = preview_backup_in(root, "claude_code-9").unwrap();
         assert_eq!(

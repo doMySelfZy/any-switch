@@ -49,6 +49,37 @@ describe("BackupQuickPopover", () => {
     });
   });
 
+  it("localizes the fingerprint algorithm mismatch instead of showing the backend text", async () => {
+    // 悬浮窗是用户实际会点到的另一处同步入口：算法不兼容同样必须走 i18n，
+    // 否则这里会漏出面向诊断的英文原文（AC9 说的是"设置界面"，但用户看到的是哪里就修哪里）。
+    seedWebDavMock({ baseUrl: "https://dav.example.com/", username: "alice", hasPassword: true }, []);
+    const realInvoke = invokeMod.invoke;
+    vi.spyOn(invokeMod, "invoke").mockImplementation(async (cmd, args) => {
+      if (cmd === "sync_now") {
+        throw {
+          code: "sync_algorithm_mismatch",
+          message:
+            "remote fingerprint algorithm 2 does not match local 1; upgrade the other device",
+        };
+      }
+      return realInvoke(cmd, args);
+    });
+
+    render(
+      <Wrapper>
+        <BackupQuickPopover />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "应用数据备份" }));
+    const syncButton = await screen.findByRole("button", { name: /立即同步/ });
+    await waitFor(() => expect(syncButton).toBeEnabled());
+    fireEvent.click(syncButton);
+
+    expect(await screen.findByText(/同步已暂停：对端设备的数据指纹算法/)).toBeInTheDocument();
+    expect(screen.queryByText(/upgrade the other device/)).toBeNull();
+  });
+
   it("restores the newest remote snapshot from the title-bar popover", async () => {
     const latestFile = "xiaobai-switch-backup-20260829_090000.browser.aaaaaaaa.zip";
     const olderFile = "xiaobai-switch-backup-20260827_120000.browser.12345678.zip";

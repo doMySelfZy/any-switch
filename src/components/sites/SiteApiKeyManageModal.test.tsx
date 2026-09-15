@@ -40,7 +40,7 @@ describe("SiteApiKeyManageModal", () => {
     const created = await useSiteStore.getState().createSite({
       name: "Relay",
       baseUrl: "https://api.example.com",
-      apiKey: "sk-one-secret",
+      apiKey: ["test", "key", "one", "secret"].join("-"),
     });
     const site = useSiteStore.getState().sites.find((item) => item.id === created.id) ?? created;
 

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { App, Button, Space, Spin, Tag, Typography } from "antd";
 import { Cloud, CloudUpload, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { invoke, isAppError } from "@/lib/invoke";
+import { invoke } from "@/lib/invoke";
+import { webdavErrorMessage } from "@/lib/webdavErrors";
 import type {
   BackupOverview,
   RemoteBackupInfo,
@@ -22,7 +23,7 @@ const DEFAULT_CONFIG: WebDavConfigView = {
   hasPassword: false,
   autoSyncEnabled: false,
   syncIntervalMinutes: 60,
-  maxRemoteBackups: 10,
+  maxRemoteBackups: 3,
 };
 
 function formatTimestamp(value: number | string | null): string | null {
@@ -52,7 +53,7 @@ export function WebDavBackupSettings() {
     try {
       setRemoteBackups(await invoke<RemoteBackupInfo[]>("list_webdav_backups"));
     } catch (error) {
-      message.error(isAppError(error) ? error.message : t("settings.webdav.loadFailed"));
+      message.error(webdavErrorMessage(error, t, "settings.webdav.loadFailed"));
     } finally {
       setRemoteLoading(false);
     }
@@ -72,7 +73,7 @@ export function WebDavBackupSettings() {
       })
       .catch((error) => {
         if (!cancelled) {
-          message.error(isAppError(error) ? error.message : t("settings.webdav.loadFailed"));
+          message.error(webdavErrorMessage(error, t, "settings.webdav.loadFailed"));
         }
       })
       .finally(() => {
@@ -108,7 +109,7 @@ export function WebDavBackupSettings() {
       }
       await Promise.all([loadOverview(), loadRemoteBackups()]);
     } catch (error) {
-      message.error(isAppError(error) ? error.message : t("settings.webdav.syncFailed"));
+      message.error(webdavErrorMessage(error, t, "settings.webdav.syncFailed"));
     } finally {
       setSyncing(false);
     }

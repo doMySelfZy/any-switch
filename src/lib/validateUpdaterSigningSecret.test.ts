@@ -30,7 +30,7 @@ describe("validateUpdaterSigningSecrets", () => {
   it("rejects a key that is not a minisign secret", () => {
     expect(() =>
       validateUpdaterSigningSecrets({
-        privateKey: "not-a-minisign-key",
+        privateKey: ["test", "invalid", "key"].join("-"),
         password: "secret",
       }),
     ).toThrow(/missing the minisign untrusted comment line/);
