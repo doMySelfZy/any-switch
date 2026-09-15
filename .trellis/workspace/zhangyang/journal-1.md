@@ -462,3 +462,36 @@ CLI 配置里的口令不一致，表现为四个 CLI 全部 404。
 ### Status
 
 [OK] **Completed**
+
+
+## Session 17: 同步 origin/main 最新代码（快进到 b111f81）
+<!-- trellis-session: v=2 fp=6ff3e328964bf09e -->
+
+**Date**: 2026-09-15
+**Task**: 同步 origin/main 最新代码（快进到 b111f81）
+**Branch**: `main`
+
+### Summary
+
+本会话只做代码同步，未改动任何代码。本地 main 从 d858052 快进 7 个提交到 b111f81，与 origin/main 完全一致（0 领先 0 落后）。拉入内容：WebDAV 同步静默覆盖与算法兼容修复（199860c，附带新增后端 spec .trellis/spec/backend/webdav-sync.md 与任务归档）、站点协议自动检测（b111f81）、README 中英文重写（55c573f）。upstream（Licoy 原仓库）落后本地 96 个提交、领先 0，无需合并。工作区仅剩其他会话留下的未跟踪残留 .zcode/plans/plan-sess_2ff09c0f-*.md（内容为一句 shutdown 计划文本），未纳入提交。无活跃任务，故本轮无归档。
+
+### Main Changes
+
+- 拉取 origin/main 7 个提交，本地 main 快进到 b111f81（无代码改动）
+- 确认 upstream 无需合并，工作区无本会话产生的脏文件
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 本次未运行测试（只拉取代码、无改动）
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 如需验证新拉入的 WebDAV 同步修复与站点协议检测：pnpm test:run、pnpm typecheck，以及 src-tauri 下的 cargo test
