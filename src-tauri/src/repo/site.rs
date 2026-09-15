@@ -978,7 +978,7 @@ mod tests {
 
         assert_eq!(
             get_site_api_key(&conn, &crypto, &created.id, None).unwrap(),
-            &fake_key("full")
+            fake_key("full")
         );
     }
 
@@ -1019,7 +1019,7 @@ mod tests {
         assert!(!created.keys.api_keys[1].is_active);
         assert_eq!(
             get_site_api_key(&conn, &crypto, &created.id, None).unwrap(),
-            &fake_key("one")
+            fake_key("one")
         );
         assert_eq!(
             get_site_api_key(
@@ -1029,7 +1029,7 @@ mod tests {
                 Some(created.keys.api_keys[1].id.as_str())
             )
             .unwrap(),
-            &fake_key("two")
+            fake_key("two")
         );
     }
 
@@ -1206,7 +1206,7 @@ mod tests {
         assert_eq!(replaced.keys.api_keys.len(), 1);
         assert_eq!(
             get_site_api_key(&conn, &crypto, &created.id, None).unwrap(),
-            &fake_key("replacement")
+            fake_key("replacement")
         );
     }
 }
